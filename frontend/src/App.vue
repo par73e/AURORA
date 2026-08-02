@@ -44,6 +44,8 @@ type AppSurface = 'cover' | 'solar-system' | 'orbit'
 
 const surface = ref<AppSurface>(surfaceFromHash())
 const solarSystemRef = ref<InstanceType<typeof SolarSystem> | null>(null)
+/** 地球界面"进入边界"信号：遮罩开始淡出时递增，OrbitScene 据此播放入场渐亮 */
+const orbitRevealTick = ref(0)
 const headerExpanded = ref(true)
 const orbitPageActive = ref(true)
 const orbitSectionLeaving = ref(false)
@@ -455,6 +457,8 @@ function onEarthSelect() {
   requestAnimationFrame(() => {
     veilDuration.value = '0.3s'
     veilActive.value = false
+    // 进入边界：遮罩开始淡出的同一帧递增信号，地球场景据此 0.2s 渐亮
+    orbitRevealTick.value += 1
   })
 }
 
@@ -677,6 +681,7 @@ onBeforeUnmount(() => {
               :observer-target="observerLocation"
               :observer-active="observerViewActive"
               :day-night-enabled="dayNightEnabled"
+              :reveal-tick="orbitRevealTick"
               @select="selectFromScene"
               @view-change="leaveObserverView"
               @blank-click="collapseHeaderFromScene"

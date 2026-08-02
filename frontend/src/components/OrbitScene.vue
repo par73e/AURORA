@@ -20,6 +20,7 @@ const props = defineProps<{
   observerTarget?: { latitude: number; longitude: number; label: string } | null
   observerActive?: boolean
   dayNightEnabled?: boolean
+  revealTick?: number
 }>()
 
 const emit = defineEmits<{
@@ -31,6 +32,14 @@ const emit = defineEmits<{
 const canvasHost = ref<HTMLDivElement | null>(null)
 const labels = ref<Array<{ id: string; kind: 'spacecraft' | 'site'; name: string; x: number; y: number; visible: boolean }>>([])
 const observerLabel = ref<{ name: string; x: number; y: number; visible: boolean } | null>(null)
+/** 入场渐亮：进入边界（revealTick 递增）时置 true，0.2s 过渡；直接加载默认已亮 */
+const sceneRevealed = ref(!props.revealTick)
+watch(
+  () => props.revealTick,
+  (tick) => {
+    if (tick) sceneRevealed.value = true
+  },
+)
 const textureState = ref<'loading' | 'ready' | 'fallback'>('loading')
 const pointerNearEarth = ref(false)
 
@@ -501,13 +510,13 @@ function setupScene() {
   rebuildObserverMarker()
   // 分阶段入场：地球先出现 → 黄道面与自转轴淡入 → 轨道线/航天器/发射场依次浮现
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  scheduleReveal(axisGuide, reduced ? 0 : 350, reduced ? 1 : 550)
-  for (const tip of poleTips) scheduleReveal(tip, reduced ? 0 : 350, reduced ? 1 : 550)
-  scheduleReveal(eclipticGuide, reduced ? 0 : 350, reduced ? 1 : 550)
-  if (orbitGroup) scheduleReveal(orbitGroup, reduced ? 0 : 1000, reduced ? 1 : 550)
-  if (spacecraftGroup) scheduleReveal(spacecraftGroup, reduced ? 0 : 1250, reduced ? 1 : 550)
-  if (siteGroup) scheduleReveal(siteGroup, reduced ? 0 : 1500, reduced ? 1 : 550)
-  if (observerMarker) scheduleReveal(observerMarker, reduced ? 0 : 1750, reduced ? 1 : 400)
+  scheduleReveal(axisGuide, reduced ? 0 : 600, reduced ? 1 : 550)
+  for (const tip of poleTips) scheduleReveal(tip, reduced ? 0 : 600, reduced ? 1 : 550)
+  scheduleReveal(eclipticGuide, reduced ? 0 : 600, reduced ? 1 : 550)
+  if (orbitGroup) scheduleReveal(orbitGroup, reduced ? 0 : 1250, reduced ? 1 : 550)
+  if (spacecraftGroup) scheduleReveal(spacecraftGroup, reduced ? 0 : 1500, reduced ? 1 : 550)
+  if (siteGroup) scheduleReveal(siteGroup, reduced ? 0 : 1750, reduced ? 1 : 550)
+  if (observerMarker) scheduleReveal(observerMarker, reduced ? 0 : 2000, reduced ? 1 : 400)
   beginFocus()
   if (!props.focusTarget) {
     // 入场微转：无焦点目标时，从绕地球略微偏转的角度平滑回到默认视角（不硬切到当前位置）
@@ -702,7 +711,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="canvasHost" class="scene-host" :class="{ 'pointer-near-earth': pointerNearEarth }" aria-label="可拖动的三维地球轨道场景">
+  <div ref="canvasHost" class="scene-host" :class="{ revealed: sceneRevealed, 'pointer-near-earth': pointerNearEarth }" aria-label="可拖动的三维地球轨道场景">
     <button
       v-for="label in labels"
       v-show="label.visible"
@@ -729,12 +738,9 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .scene-host { position: absolute; inset: 0; overflow: hidden; cursor: default; }
-/* 地球场景入场：0.2s 渐入，避免从太阳系跳转时"闪出来" */
-.scene-host { animation: orbit-scene-fade-in 0.2s ease; }
-@keyframes orbit-scene-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
+/* 地球场景入场：进入边界触发 0.5s 渐亮（默认隐藏，revealed 时过渡显现） */
+.scene-host { opacity: 0; transition: opacity 0.5s ease; }
+.scene-host.revealed { opacity: 1; }
 .scene-host.pointer-near-earth { cursor: grab; }
 .scene-host.pointer-near-earth:active { cursor: grabbing; }
 .scene-host::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(circle at 50% 48%, transparent 26%, rgba(3, 7, 12, .13) 58%, rgba(3, 7, 12, .68) 100%); }
