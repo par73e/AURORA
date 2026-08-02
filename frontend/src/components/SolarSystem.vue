@@ -3,7 +3,13 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { SolarSystemScene, type SolarLabel } from '../solar/scene'
 import { planets, SUN, type PlanetSpec } from '../solar/data'
 
-const emit = defineEmits<{ 'select-earth': [] }>()
+const props = defineProps<{ enterFromOrbit?: boolean }>()
+
+const emit = defineEmits<{
+  'select-earth': []
+  'earth-fly-start': []
+  'earth-fly-zoom': []
+}>()
 
 const canvasHost = ref<HTMLDivElement | null>(null)
 const activeId = ref('earth')
@@ -24,7 +30,11 @@ const nameEnById = new Map(planets.map((p) => [p.id, p.nameEn]))
 
 function choosePlanet(id: string) {
   activeId.value = id
-  if (id === 'earth') emit('select-earth')
+  if (id === 'earth') {
+    // 地球：先在太阳系场景内放大地球，飞行到位后再由 App 切换页面
+    scene?.flyToEarth()
+    emit('earth-fly-start')
+  }
 }
 
 // 排列线（屏幕方向：右上 → 左下）的单位法向（右下），标签沿该方向放在球体轮廓之外，避免压到相邻行星；
@@ -61,11 +71,15 @@ onMounted(() => {
         if (id) activeId.value = id
       },
       onSelect: choosePlanet,
+      onFlyZoom: () => emit('earth-fly-zoom'),
+      onFlyComplete: () => emit('select-earth'),
     },
     (next) => {
       labels.value = next
     },
   )
+  // 从 ORBIT 返回：镜头从地球近景拉回默认构图（地球缩回太阳系）
+  if (props.enterFromOrbit) scene.flyFromEarth()
 })
 
 onBeforeUnmount(() => {

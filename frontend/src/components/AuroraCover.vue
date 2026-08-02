@@ -331,9 +331,11 @@ onBeforeUnmount(() => {
 }
 
 .aurora-cover.is-launching .cover-earth {
-  filter: brightness(1.16);
-  opacity: .64;
-  transform: translate3d(-12px, -5px, 0) scale(1.075);
+  /* 移除入场动画的填充值（fill 模式会压制过渡，导致地球卡在原地不变暗）；
+     与遮罩（0.72s）同步淡出到全暗，不再放大，避免"放大+卡一下" */
+  animation: none;
+  opacity: 0;
+  transition: opacity .72s ease;
 }
 
 .aurora-cover.is-launching::after {

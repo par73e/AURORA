@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { LaunchSite, SceneLayers, Selection, Spacecraft } from '../types'
-import { EARTH_RADIUS, latLonToVector, sampleOrbit, spacecraftPoint } from '../orbit/coordinates'
+import { EARTH_DAY_TEXTURE_URL, EARTH_NIGHT_TEXTURE_URL, EARTH_RADIUS, latLonToVector, sampleOrbit, spacecraftPoint } from '../orbit/coordinates'
 
 const EARTH_AXIAL_TILT_DEGREES = 23.44
 const EARTH_TILT = new THREE.Quaternion().setFromAxisAngle(
@@ -69,6 +69,52 @@ let focusAnimation: {
   startedAt: number
   duration: number
 } | undefined
+
+// ---- 分阶段入场：地球先出现 → 黄道面/自转轴 → 轨道线/航天器/发射场 ----
+interface RevealEntry {
+  material: THREE.Material
+  to: number
+  restoreTransparent: boolean
+}
+interface RevealTask {
+  started: number
+  delay: number
+  duration: number
+  entries: RevealEntry[]
+}
+let revealTasks: RevealTask[] = []
+
+/** 把对象的全部材质透明度归零，并安排 delay 后开始、duration 内淡入到原值 */
+function scheduleReveal(object: THREE.Object3D, delay: number, duration: number) {
+  const entries: RevealEntry[] = []
+  object.traverse((child) => {
+    const material = (child as THREE.Mesh).material
+    if (!material) return
+    const list = Array.isArray(material) ? material : [material]
+    for (const item of list) {
+      const restore = !item.transparent
+      const to = item.opacity
+      if (restore) item.transparent = true
+      item.opacity = 0
+      entries.push({ material: item, to, restoreTransparent: restore })
+    }
+  })
+  if (entries.length > 0) revealTasks.push({ started: performance.now(), delay, duration, entries })
+}
+
+function updateReveals() {
+  if (revealTasks.length === 0) return
+  const now = performance.now()
+  for (const task of revealTasks) {
+    const t = THREE.MathUtils.clamp((now - task.started - task.delay) / task.duration, 0, 1)
+    const eased = 1 - Math.pow(1 - t, 3)
+    for (const entry of task.entries) {
+      entry.material.opacity = entry.to * eased
+      if (t >= 1 && entry.restoreTransparent) entry.material.transparent = false
+    }
+  }
+  revealTasks = revealTasks.filter((task) => now < task.started + task.delay + task.duration)
+}
 
 const selectionKey = computed(() => props.selection ? `${props.selection.kind}:${props.selection.id}` : '')
 
@@ -278,7 +324,12 @@ function setupScene() {
   earthSystemGroup.quaternion.copy(EARTH_TILT)
   scene.add(earthSystemGroup)
   camera = new THREE.PerspectiveCamera(42, host.clientWidth / host.clientHeight, 0.1, 120)
-  camera.position.set(0.2, 0.35, 7.6)
+  // 默认视角：对准东亚大陆，以南海为中心（约 12°N, 115°E）；
+  // 自转轴仍保持黄道面参考的 23.44° 倾角（公转平面平行关系不变）
+  const defaultDirection = latLonToVector(12, 115, 1)
+    .normalize()
+    .applyQuaternion(earthSystemGroup?.quaternion ?? EARTH_TILT)
+  camera.position.copy(defaultDirection.multiplyScalar(7.6))
 
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
@@ -315,7 +366,7 @@ function setupScene() {
   )
   earthSystemGroup.add(earth)
   loader.load(
-    'https://unpkg.com/three-globe@2.45.2/example/img/earth-blue-marble.jpg',
+    EARTH_DAY_TEXTURE_URL,
     (texture) => {
       texture.colorSpace = THREE.SRGBColorSpace
       if (earthDayMaterial) {
@@ -374,7 +425,7 @@ function setupScene() {
   earthSystemGroup.add(nightLights)
   applyDayNightMode()
   loader.load(
-    'https://unpkg.com/three-globe@2.45.2/example/img/earth-night.jpg',
+    EARTH_NIGHT_TEXTURE_URL,
     (texture) => {
       texture.colorSpace = THREE.SRGBColorSpace
       if (nightLightsMaterial) nightLightsMaterial.uniforms.nightMap.value = texture
@@ -403,12 +454,14 @@ function setupScene() {
   )
   axisGuide.name = 'earth-rotation-axis'
   earthSystemGroup.add(axisGuide)
+  const poleTips: THREE.Mesh[] = []
   for (const pole of [-1, 1]) {
     const poleTip = new THREE.Mesh(
       new THREE.SphereGeometry(0.027, 12, 12),
       new THREE.MeshBasicMaterial({ color: 0x72d7ff, transparent: true, opacity: 0.82 }),
     )
     poleTip.position.set(0, pole * EARTH_RADIUS * 1.38, 0)
+    poleTips.push(poleTip)
     earthSystemGroup.add(poleTip)
   }
 
@@ -446,7 +499,27 @@ function setupScene() {
   resizeObserver.observe(host)
   rebuildDataLayers()
   rebuildObserverMarker()
+  // 分阶段入场：地球先出现 → 黄道面与自转轴淡入 → 轨道线/航天器/发射场依次浮现
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  scheduleReveal(axisGuide, reduced ? 0 : 350, reduced ? 1 : 550)
+  for (const tip of poleTips) scheduleReveal(tip, reduced ? 0 : 350, reduced ? 1 : 550)
+  scheduleReveal(eclipticGuide, reduced ? 0 : 350, reduced ? 1 : 550)
+  if (orbitGroup) scheduleReveal(orbitGroup, reduced ? 0 : 1000, reduced ? 1 : 550)
+  if (spacecraftGroup) scheduleReveal(spacecraftGroup, reduced ? 0 : 1250, reduced ? 1 : 550)
+  if (siteGroup) scheduleReveal(siteGroup, reduced ? 0 : 1500, reduced ? 1 : 550)
+  if (observerMarker) scheduleReveal(observerMarker, reduced ? 0 : 1750, reduced ? 1 : 400)
   beginFocus()
+  if (!props.focusTarget) {
+    // 入场微转：无焦点目标时，从绕地球略微偏转的角度平滑回到默认视角（不硬切到当前位置）
+    const defaultPosition = camera.position.clone()
+    focusAnimation = {
+      from: defaultPosition.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), -0.5),
+      to: defaultPosition,
+      startedAt: performance.now(),
+      duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 1 : 1400,
+    }
+    if (controls) controls.enabled = false
+  }
   animate()
 }
 
@@ -591,6 +664,7 @@ function animate(time = 0) {
     observationLight.position.copy(camera.position).normalize().multiplyScalar(12)
   }
   updateLabels()
+  updateReveals()
   if (scene && camera && renderer) renderer.render(scene, camera)
 }
 

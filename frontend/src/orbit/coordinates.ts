@@ -6,6 +6,10 @@ export const EARTH_RADIUS = 2.15
 const EARTH_RADIUS_KM = 6371
 const ALTITUDE_EXAGGERATION = 3.2
 
+/** 地球日间/夜间纹理（远端 CDN，切换页面时提前预热避免卡顿） */
+export const EARTH_DAY_TEXTURE_URL = 'https://unpkg.com/three-globe@2.45.2/example/img/earth-blue-marble.jpg'
+export const EARTH_NIGHT_TEXTURE_URL = 'https://unpkg.com/three-globe@2.45.2/example/img/earth-night.jpg'
+
 export interface OrbitalPoint {
   position: THREE.Vector3
   latitude: number

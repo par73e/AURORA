@@ -139,5 +139,19 @@ export const SUN = {
   textureUrl: sunUrl,
 }
 
+/** 全部纹理 URL（用于切换页面时的预加载预热） */
+export const ALL_TEXTURE_URLS = [
+  sunUrl,
+  mercuryUrl,
+  venusUrl,
+  earthUrl,
+  marsUrl,
+  jupiterUrl,
+  saturnUrl,
+  uranusUrl,
+  neptuneUrl,
+  saturnRingUrl,
+]
+
 /** 土星环透明度纹理（径向条带，2048×125 RGBA） */
 export const SATURN_RING_TEXTURE_URL = saturnRingUrl

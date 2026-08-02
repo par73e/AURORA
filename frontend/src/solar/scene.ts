@@ -31,6 +31,10 @@ export interface SolarLabel {
 export interface SolarSceneCallbacks {
   onHover(id: string | null): void
   onSelect(id: string): void
+  /** 镜头飞向地球过程中，地球放大到一定程度时触发（用于开始变暗） */
+  onFlyZoom?(): void
+  /** 镜头飞行结束（地球已放大到位）时触发（用于切换页面） */
+  onFlyComplete?(): void
 }
 
 type LabelSink = (labels: SolarLabel[]) => void
@@ -124,6 +128,20 @@ export class SolarSystemScene {
   private hoveredId: string | null = null
   /** 用户是否已主动拖拽/缩放（之后 resize 保留其视角，不再重置构图） */
   private userInteracted = false
+  /** 飞向地球的镜头动画状态（三次贝塞尔路径：P0 → P1 → P2 → P3，控制点抬升避开火星） */
+  private flyState: {
+    p0: THREE.Vector3
+    p1: THREE.Vector3
+    p2: THREE.Vector3
+    p3: THREE.Vector3
+    fromTarget: THREE.Vector3
+    toTarget: THREE.Vector3
+    startedAt: number
+    duration: number
+    zoomed: boolean
+    /** 反向飞行（ORBIT → 太阳系）：注视点缓动取镜像（t³），保证与正向逐帧对称 */
+    reverse?: boolean
+  } | undefined
   private disposables: Array<{ dispose(): void }> = []
   private textures: THREE.Texture[] = []
   private tempWorld = new THREE.Vector3()
@@ -485,6 +503,7 @@ export class SolarSystemScene {
     this.beltGroups.forEach((group, index) => {
       group.rotation.y += (Math.PI * 2 / periods[index]) * delta
     })
+    this.updateFly()
     this.controls.update()
     // 同步注视点：平移会移动 controls.target，标签与 resize 逻辑依赖 lookAt
     this.lookAt.copy(this.controls.target)
@@ -551,6 +570,7 @@ export class SolarSystemScene {
 
     this.fitDistance = VIEW.composeMinDistance
     this.placeCameraForBelt(this.fitDistance, aspect)
+    this.controls.minDistance = VIEW.minDistance
     this.controls.maxDistance = Math.max(600, this.fitDistance * 2.2)
   }
 
@@ -576,6 +596,7 @@ export class SolarSystemScene {
     this.camera.aspect = host.clientWidth / host.clientHeight
     this.camera.updateProjectionMatrix()
     this.renderer.setSize(host.clientWidth, host.clientHeight)
+    if (this.flyState) return // 飞行中不重置镜头
     if (!this.userInteracted) {
       // 用户尚未操作：resize 后沿用默认构图
       this.refit()
@@ -597,8 +618,124 @@ export class SolarSystemScene {
     this.userInteracted = true
   }
 
-  /** 双击复位：回到默认的斜俯视构图 */
+  /** 计算飞向地球的路径（起点 = 当前相机位置，终点 = 地球近景） */
+  private computeEarthFlyPath() {
+    const earthRuntime = this.planetRuntimes.get('earth')
+    if (!earthRuntime) return null
+    const earthPosition = earthRuntime.axial.getWorldPosition(this.tempWorldB)
+    const p0 = this.camera.position.clone()
+    const earthDir = earthPosition.clone().normalize()
+    // 终点：太阳→地球连线上、距地球中心 17.5（地球视半径约 8.2°，带 1 单位仰角）
+    const p3 = earthPosition.clone().addScaledVector(earthDir, -17.5)
+    p3.y += 1
+    // 控制点整体抬升：路径保持在高空滑过火星与小行星带，再俯冲进入地球
+    const delta = p3.clone().sub(p0)
+    const p1 = p0.clone().addScaledVector(delta, 0.3)
+    p1.y += 4
+    const p2 = p0.clone().addScaledVector(delta, 0.72)
+    p2.y += 1.5
+    return { p0, p1, p2, p3, fromTarget: this.controls.target.clone(), toTarget: earthPosition.clone() }
+  }
+
+  /** 点击地球：镜头沿抬升的三次贝塞尔路径推近——避开与地球同在行星连线上的火星，
+   *  末端俯冲进地球（随后由调用方切页） */
+  flyToEarth() {
+    if (this.flyState) return
+    const path = this.computeEarthFlyPath()
+    if (!path) return
+    // OrbitControls.update() 每帧都会把相机距目标的距离钳制在 [minDistance, maxDistance]；
+    // 飞行终点距地球 17.5 < 40，必须临时放宽下限，否则镜头会被弹回 40 单位处（终点弹跳）
+    this.controls.minDistance = 3
+    this.flyState = {
+      ...path,
+      startedAt: performance.now(),
+      duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 250 : 1500,
+      zoomed: false,
+    }
+    this.controls.enabled = false
+  }
+
+  /** 取消飞行（回到可交互状态） */
+  cancelFly() {
+    if (this.flyState) {
+      this.flyState = undefined
+      this.controls.enabled = true
+    }
+  }
+
+  /** 反向飞行（ORBIT → 太阳系）：起点在地球外侧（太阳-地球连线之外、朝向视角的一端），
+   *  镜头从地球外侧拉回默认构图——太阳在视野中自然显现，不再被地球挡在镜头背后 */
+  flyFromEarth() {
+    if (this.flyState) return
+    const earthRuntime = this.planetRuntimes.get('earth')
+    if (!earthRuntime) return
+    const earthPosition = earthRuntime.axial.getWorldPosition(this.tempWorldB)
+    // 终点：默认构图（小行星带锚定的斜俯视）
+    const aspect = this.host.clientWidth / this.host.clientHeight
+    this.placeCameraForBelt(VIEW.composeMinDistance, aspect)
+    const p3 = this.camera.position.clone()
+    const toTarget = this.lookAt.clone()
+    // 起点：从地球沿"朝向默认视角"的水平方向外移 10 单位、带 1 单位仰角
+    // （位于太阳-地球连线外侧，太阳在起点即处于视野边缘，拉远时自然滑入画面）
+    const viewerDir = new THREE.Vector3(p3.x - earthPosition.x, 0, p3.z - earthPosition.z).normalize()
+    const p0 = earthPosition.clone().addScaledVector(viewerDir, 10)
+    p0.y += 1
+    this.camera.position.copy(p0)
+    this.camera.lookAt(earthPosition)
+    this.controls.target.copy(earthPosition)
+    this.controls.minDistance = 3 // 起点距地球 15 < 40，需放宽距离钳制
+    // 控制点抬升：路径在高空滑过火星与小行星带
+    const delta = p3.clone().sub(p0)
+    const p1 = p0.clone().addScaledVector(delta, 0.3)
+    p1.y += 4
+    const p2 = p0.clone().addScaledVector(delta, 0.72)
+    p2.y += 1.5
+    this.flyState = {
+      p0,
+      p1,
+      p2,
+      p3,
+      fromTarget: earthPosition.clone(),
+      toTarget,
+      startedAt: performance.now(),
+      duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 250 : 1500,
+      zoomed: true, // 反向飞行不再触发变暗事件（遮罩由 ORBIT 侧控制）
+      reverse: true, // 注视点缓动取 t³：前期紧盯地球、后期转回默认构图
+    }
+    this.controls.enabled = false
+  }
+
+  /** 飞行进度驱动：沿抬升的三次贝塞尔路径推进（避开火星），注视点缓动过渡 */
+  private updateFly() {
+    const fly = this.flyState
+    if (!fly) return
+    const t = Math.min(1, (performance.now() - fly.startedAt) / fly.duration)
+    const eased = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
+    // B = u³·P0 + 3u²e·P1 + 3ue²·P2 + e³·P3
+    const u = 1 - eased
+    this.camera.position
+      .copy(fly.p0).multiplyScalar(u * u * u)
+      .addScaledVector(fly.p1, 3 * u * u * eased)
+      .addScaledVector(fly.p2, 3 * u * eased * eased)
+      .addScaledVector(fly.p3, eased * eased * eased)
+    // 注视点缓动：正向用 easeOut（地球前 80% 基本滑入正中）；
+    // 反向与相机位置共用同一 eased——两者锁步运动，视线角速度单调（慢→快→慢），无摆动抖动
+    const targetEase = fly.reverse ? eased : 1 - Math.pow(1 - t, 3)
+    this.controls.target.lerpVectors(fly.fromTarget, fly.toTarget, targetEase)
+    if (!fly.zoomed && eased >= 0.78) {
+      fly.zoomed = true
+      this.callbacks.onFlyZoom?.()
+    }
+    if (t >= 1) {
+      this.flyState = undefined
+      this.controls.enabled = true
+      this.callbacks.onFlyComplete?.()
+    }
+  }
+
+  /** 双击复位：回到默认的斜俯视构图（飞行中不响应） */
   private onDoubleClick = () => {
+    if (this.flyState) return
     this.refit()
   }
 

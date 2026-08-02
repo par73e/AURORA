@@ -12,6 +12,7 @@ import OrbitScene from './components/OrbitScene.vue'
 import SolarSystem from './components/SolarSystem.vue'
 import { fetchOrbitOverview } from './api'
 import { spacecraftPoint } from './orbit/coordinates'
+import { preloadOrbitTextures, preloadSolarTextures } from './preload'
 import type { LaunchEvent, LaunchSite, OrbitOverview, SceneLayers, Selection } from './types'
 
 type ObserverLocationStatus = 'locating' | 'located' | 'fallback'
@@ -35,21 +36,105 @@ const operatorFilter = ref('all')
 const objectSort = ref<'name' | 'norad' | 'operator'>('name')
 const observerLocation = ref<ObserverLocation>({ ...fallbackObserver, status: 'locating' })
 const observerFocusRevision = ref(0)
-const observerViewActive = ref(true)
-const dayNightEnabled = ref(true)
+const observerViewActive = ref(false)
+const dayNightEnabled = ref(false)
 const showEventOriginal = ref(false)
 type AppSurface = 'cover' | 'solar-system' | 'orbit'
 
 const surface = ref<AppSurface>(surfaceFromHash())
 const headerExpanded = ref(true)
 const orbitPageActive = ref(true)
+const orbitSectionLeaving = ref(false)
+/** 是否从 ORBIT 返回太阳系（太阳系场景挂载后从地球近景拉回默认构图） */
+const solarEnterFromOrbit = ref(false)
 const siteHeader = ref<HTMLElement | null>(null)
 const orbitSection = ref<HTMLElement | null>(null)
+const orbitSceneFrame = ref<HTMLElement | null>(null)
 let clock: number | undefined
 let headerIdleTimer: number | undefined
 let pageSurfaceFrame = 0
 let lastHeaderActivityAt = 0
 const DISPLAY_TIME_ZONE = 'Asia/Shanghai'
+
+// ---- 页面切换过渡（变暗 + 缩放推近/拉远 + 遮罩后换页） ----
+const veilActive = ref(false)
+const shellZoom = ref(1)
+const shellOrigin = ref('50% 50%')
+const shellTransitioning = ref(false)
+const veilDuration = ref('0.4s')
+let transitionTimer: number | undefined
+let transitionFrame: number | undefined
+
+const shellStyle = computed(() => {
+  if (!shellTransitioning.value) return undefined
+  return { transform: `scale(${shellZoom.value})`, transformOrigin: shellOrigin.value }
+})
+
+interface TransitionTiming {
+  /** 退出阶段时长（变暗+缩放），默认 560ms */
+  exitMs?: number
+  /** 换页前遮罩全黑的停留时长，默认 0 */
+  dwellMs?: number
+  /** 遮罩淡入时长（CSS），默认 0.4s */
+  veilSeconds?: string
+}
+
+/** 取消进行中的过渡（含定时器与动画帧），恢复无过渡状态 */
+function cancelPendingTransition() {
+  if (transitionTimer !== undefined) {
+    window.clearTimeout(transitionTimer)
+    transitionTimer = undefined
+  }
+  if (transitionFrame !== undefined) {
+    window.cancelAnimationFrame(transitionFrame)
+    transitionFrame = undefined
+  }
+  veilActive.value = false
+  shellZoom.value = 1
+  shellTransitioning.value = false
+}
+
+/** 过渡切换：当前页变暗并缩放 → 在遮罩后换页（新页利用这段时间加载）→ 新页回弹、遮罩淡出 */
+function transitionTo(nextSurface: AppSurface, zoom = 1, origin = '50% 50%', timing: TransitionTiming = {}) {
+  if (nextSurface === surface.value) return // 同页切换无意义
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const exitMs = reduced ? 40 : (timing.exitMs ?? 560)
+  const dwellMs = reduced ? 0 : (timing.dwellMs ?? 0)
+  const enterMs = reduced ? 40 : 620
+  cancelPendingTransition()
+  // 过渡动画期间预热目标页资源
+  if (nextSurface === 'solar-system') preloadSolarTextures()
+  if (nextSurface === 'orbit') preloadOrbitTextures()
+  // 退出阶段：当前页变暗 + 缩放
+  shellOrigin.value = origin
+  shellZoom.value = zoom
+  shellTransitioning.value = true
+  veilDuration.value = reduced ? '0.01s' : (timing.veilSeconds ?? '0.4s')
+  veilActive.value = true
+  transitionTimer = window.setTimeout(() => {
+    // 全黑停留：遮罩保持不透明
+    transitionTimer = window.setTimeout(() => {
+      // 过渡期间若用户通过后退/前进改动了 hash，放弃本次过渡，避免 URL 与页面失步
+      if (surfaceFromHash() !== nextSurface) {
+        cancelPendingTransition()
+        return
+      }
+      // 换页：新页面在遮罩后完成首帧渲染与加载
+      void setSurface(nextSurface)
+      // 进入阶段：新页从缩放位置回弹、遮罩淡出
+      transitionFrame = requestAnimationFrame(() => {
+        transitionFrame = undefined
+        shellZoom.value = 1
+        veilActive.value = false
+      })
+      transitionTimer = window.setTimeout(() => {
+        // 移除 transform，避免 fixed 定位的页头受影响
+        shellTransitioning.value = false
+        transitionTimer = undefined
+      }, enterMs + 60)
+    }, dwellMs)
+  }, exitMs)
+}
 
 function surfaceFromHash(): AppSurface {
   if (window.location.hash === '#solar-system') return 'solar-system'
@@ -232,8 +317,12 @@ async function setSurface(nextSurface: AppSurface) {
   document.title = nextSurface === 'cover'
     ? 'AURORA'
     : nextSurface === 'solar-system' ? 'AURORA · 太阳系' : 'AURORA · ORBIT'
-  headerExpanded.value = true
-  if (nextSurface === 'orbit') orbitPageActive.value = true
+  if (nextSurface === 'orbit') {
+    orbitPageActive.value = true
+    headerExpanded.value = false // 进入 ORBIT 默认收起页头（悬停屏幕顶部可展开）
+  } else {
+    headerExpanded.value = true
+  }
   await nextTick()
   window.scrollTo({ top: 0, behavior: 'instant' })
   updateActivePage()
@@ -242,21 +331,94 @@ async function setSurface(nextSurface: AppSurface) {
 }
 
 function enterSolarSystem() {
+  if (surface.value === 'orbit') {
+    enterSolarSystemFromOrbit()
+    return
+  }
+  solarEnterFromOrbit.value = false
   window.history.pushState(null, '', '#solar-system')
-  void setSurface('solar-system')
+  preloadOrbitTextures() // 提前预热地球纹理，为下一步进入 ORBIT 做准备
+  // 封面进入太阳系：变暗与全黑停留拉长，形成渐入深空的仪式感
+  transitionTo('solar-system', 1.05, '50% 42%', { exitMs: 900, dwellMs: 450, veilSeconds: '0.7s' })
+}
+
+/** ORBIT → 太阳系：滚回主地球视图 → 信息淡出只留地球 → 变暗 → 切页，
+ *  太阳系场景从地球近景开始拉回（地球缩回轨道位置，遮罩淡出时可见） */
+function enterSolarSystemFromOrbit() {
+  window.history.pushState(null, '', '#solar-system')
+  preloadSolarTextures()
+  cancelPendingTransition()
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  // 阶段 1：滚回主地球视图，页面信息（标签/工具条/内容区）淡出，只留地球
+  window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' })
+  orbitSectionLeaving.value = true
+  solarEnterFromOrbit.value = true
+  // 阶段 2：变暗，盖住地球界面
+  transitionTimer = window.setTimeout(() => {
+    if (surfaceFromHash() !== 'solar-system') {
+      cancelPendingTransition()
+      return
+    }
+    veilDuration.value = reduced ? '0.01s' : '0.4s'
+    veilActive.value = true
+    // 阶段 3：切页——太阳系挂载并从地球近景拉回；遮罩随即淡出，拉回过程可见
+    transitionTimer = window.setTimeout(() => {
+      if (surfaceFromHash() !== 'solar-system') {
+        cancelPendingTransition()
+        return
+      }
+      orbitSectionLeaving.value = false
+      void setSurface('solar-system')
+      requestAnimationFrame(() => {
+        veilDuration.value = reduced ? '0.01s' : '0.5s'
+        veilActive.value = false
+      })
+      transitionTimer = undefined
+    }, reduced ? 30 : 420)
+  }, reduced ? 20 : 420)
 }
 
 function enterOrbit() {
   window.history.pushState(null, '', '#orbit')
-  void setSurface('orbit')
+  // 朝向地球方向推近（地球大致位于画面 55%/38% 处），形成“放大进入地球”的感觉
+  transitionTo('orbit', 1.12, '55% 38%')
 }
 
 function returnToCover() {
   window.history.pushState(null, '', '#home')
-  void setSurface('cover')
+  transitionTo('cover', 0.96)
+}
+
+// ---- 太阳系 → 地球：镜头在太阳系内放大地球 → 变暗 → 切页 ----
+
+/** 点击地球瞬间：URL 切到 #orbit，开始预热 ORBIT 资源 */
+function onEarthFlyStart() {
+  window.history.pushState(null, '', '#orbit')
+  preloadOrbitTextures()
+  cancelPendingTransition()
+}
+
+/** 地球放大到一定程度：遮罩快速变暗（尽量缩短黑屏时间） */
+function onEarthFlyZoom() {
+  if (surface.value === 'orbit' || surfaceFromHash() !== 'orbit') return
+  veilDuration.value = '0.22s'
+  veilActive.value = true
+}
+
+/** 地球放大完成（遮罩已黑）：换页，页面内容淡入浮现 */
+function onEarthSelect() {
+  if (surface.value === 'orbit' || surfaceFromHash() !== 'orbit') return
+  veilActive.value = true
+  void setSurface('orbit')
+  requestAnimationFrame(() => {
+    veilDuration.value = '0.3s'
+    veilActive.value = false
+  })
 }
 
 function syncSurfaceFromHash() {
+  // 浏览器后退/前进等 hash 变化优先：先取消进行中的过渡，避免遮罩滞留或页面失步
+  cancelPendingTransition()
   const nextSurface = surfaceFromHash()
   if (nextSurface === surface.value) return
   void setSurface(nextSurface)
@@ -324,11 +486,22 @@ function updateActivePage() {
     clearHeaderIdleTimer()
     return
   }
-  const nextOrbitPageActive = (orbitSection.value?.getBoundingClientRect().bottom ?? window.innerHeight) > 72
-  if (nextOrbitPageActive === orbitPageActive.value) return
+  // 是否处于主地球视图：用普通流元素（航天器区块）的视口位置判断——
+  // 场景区是 sticky（offsetTop 返回粘住后的位置=scrollY，会退化恒真），不能作为参照；
+  // 主视图 = #objects 顶部仍在视口下半区；进入上半区（滚动超过主场景区一半）即进入下方页面
+  const objectsSection = document.getElementById('objects')
+  const objectsTop = objectsSection?.getBoundingClientRect().top ?? window.innerHeight
+  // 主视图 = #objects 顶部仍在视口下半区；进入上半区（滚动超过主场景区一半）即进入下方页面
+  const nextOrbitPageActive = objectsTop > window.innerHeight / 2
+  if (nextOrbitPageActive === orbitPageActive.value) {
+    // 滚动/拖动滚动条期间持续重置闲置收起计时（页头不会中途缩回；停止滚动 2.4s 后才收起）
+    if (orbitPageActive.value && headerExpanded.value) scheduleHeaderCollapse()
+    return
+  }
   orbitPageActive.value = nextOrbitPageActive
   clearHeaderIdleTimer()
   headerExpanded.value = !nextOrbitPageActive
+  if (orbitPageActive.value && headerExpanded.value) scheduleHeaderCollapse()
 }
 
 function handlePageScroll() {
@@ -353,6 +526,7 @@ async function load() {
 }
 
 onMounted(() => {
+  preloadSolarTextures() // 预热太阳系纹理，让首次进入不出现加载卡顿
   document.title = surface.value === 'cover'
     ? 'AURORA'
     : surface.value === 'solar-system' ? 'AURORA · 太阳系' : 'AURORA · ORBIT'
@@ -372,6 +546,7 @@ onBeforeUnmount(() => {
   if (clock) window.clearInterval(clock)
   if (pageSurfaceFrame) window.cancelAnimationFrame(pageSurfaceFrame)
   clearHeaderIdleTimer()
+  cancelPendingTransition()
   window.removeEventListener('pointermove', handleWindowPointerMove)
   window.removeEventListener('pointerdown', registerHeaderActivity)
   window.removeEventListener('wheel', registerHeaderActivity)
@@ -382,7 +557,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="aurora-shell">
+  <div class="surface-veil" :class="{ active: veilActive }" :style="{ '--veil-duration': veilDuration }" aria-hidden="true" />
+  <main class="aurora-shell" :style="shellStyle">
     <div class="desktop-only">
       <span>AURORA / ORBIT</span>
       <h1>请使用电脑浏览器查看</h1>
@@ -407,12 +583,12 @@ onBeforeUnmount(() => {
             <span><strong>AURORA</strong><small>ORBITAL OBSERVATORY</small></span>
           </a>
           <nav v-if="surface === 'orbit'" aria-label="页面导航">
-            <a class="solar-system-return" href="#solar-system">
+            <a class="solar-system-return" href="#solar-system" @click.prevent="enterSolarSystem">
               <span class="solar-system-icon" aria-hidden="true"><i /><i /><i /></span>
               <span>太阳系</span>
             </a>
             <span class="nav-divider" aria-hidden="true" />
-            <a href="#orbit">地球</a>
+            <a href="#orbit" @click.prevent="enterOrbit">地球</a>
             <a href="#objects">航天器</a>
             <a href="#sites">发射场</a>
             <a href="#launches">发射日程</a>
@@ -432,12 +608,18 @@ onBeforeUnmount(() => {
         </div>
       </header>
 
-      <SolarSystem v-if="surface === 'solar-system'" @select-earth="enterOrbit" />
+      <SolarSystem
+        v-if="surface === 'solar-system'"
+        :enter-from-orbit="solarEnterFromOrbit"
+        @select-earth="onEarthSelect"
+        @earth-fly-start="onEarthFlyStart"
+        @earth-fly-zoom="onEarthFlyZoom"
+      />
 
       <template v-else>
-      <section id="orbit" ref="orbitSection" class="orbit-section">
+      <section id="orbit" ref="orbitSection" class="orbit-section" :class="{ leaving: orbitSectionLeaving }">
         <div class="page-frame">
-          <div class="scene-frame">
+          <div ref="orbitSceneFrame" class="scene-frame">
             <OrbitScene
               v-if="overview"
               :spacecraft="overview.spacecraft"
@@ -642,7 +824,7 @@ onBeforeUnmount(() => {
 
       <footer class="site-footer">
         <div class="page-frame footer-inner">
-          <div><strong>AURORA / ORBIT</strong><p>公开航天数据的三维探索与阅读界面。</p></div>
+          <div><strong>AURORA / ORBIT</strong></div>
           <div class="source-list"><span v-for="source in overview?.freshness" :key="source.sourceCode"><i :class="{ healthy: source.success }" />{{ source.sourceName }} · {{ new Date(source.lastFinishedAt).toLocaleString('zh-CN', { hour12: false }) }}</span></div>
         </div>
       </footer>
