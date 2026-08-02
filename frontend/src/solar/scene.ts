@@ -6,6 +6,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import {
   ASTEROID_BELT,
   KUIPER_BELT,
+  MOON,
   planets,
   PLANET_LINE_ANGLE_DEG,
   SUN,
@@ -17,6 +18,7 @@ import {
   SATURN_RING_TEXTURE_URL,
   type PlanetSpec,
 } from './data'
+import { solarTexture } from './textures'
 
 export interface SolarLabel {
   kind: 'planet' | 'sun' | 'belt'
@@ -109,6 +111,12 @@ export class SolarSystemScene {
   private planetMeshes: THREE.Mesh[] = []
   private sunMesh!: THREE.Mesh
   private beltGroups: THREE.InstancedMesh[] = []
+  /** 月球锚点（场景级，跟随地球位置但不继承自转/倾角旋转） */
+  private moonAnchor: THREE.Object3D | null = null
+  /** 月球公转相位时钟（弧度，始终推进；排布模式仅用于投影目标） */
+  private moonAngle = 0
+  /** 模式切换时的月球角度过渡（easeOut，最短弧） */
+  private moonTransition: { from: number; to: number; delta: number; startedAt: number; duration: number } | null = null
   private beltAnchors: THREE.Object3D[] = []
   /** 相机侧补光：让朝向视角的行星面可见（太阳光只照亮朝太阳的一面） */
   private cameraLight!: THREE.DirectionalLight
@@ -125,7 +133,18 @@ export class SolarSystemScene {
   /** 小行星带中点的世界坐标（黄道面 XZ 平面上的轨道点），作为构图锚点 */
   private beltAnchor = new THREE.Vector3()
   private fitDistance = 200
+  /** 太阳系构图模式：aligned = 一字排布（小行星带锚定视角）；real = 真实公转位置（太阳居中视角） */
+  private compositionMode: 'aligned' | 'real' = 'aligned'
   private hoveredId: string | null = null
+  /** 每颗行星当前展示的轨道角度（弧度，黄道面 XZ 平面，0 = +x） */
+  private planetAngles = new Map<string, number>()
+  /** 行星角度动画（先加速后减速） */
+  private angleAnimation: {
+    from: Map<string, number>
+    to: Map<string, number>
+    startedAt: number
+    duration: number
+  } | null = null
   /** 用户是否已主动拖拽/缩放（之后 resize 保留其视角，不再重置构图） */
   private userInteracted = false
   /** 飞向地球的镜头动画状态（三次贝塞尔路径：P0 → P1 → P2 → P3，控制点抬升避开火星） */
@@ -167,14 +186,25 @@ export class SolarSystemScene {
     this.right.set(Math.cos(azimuth), 0, -Math.sin(azimuth))
     this.upv.set(-Math.sin(azimuth) * Math.sin(elevation), Math.cos(elevation), -Math.cos(azimuth) * Math.sin(elevation))
 
-    this.camera = new THREE.PerspectiveCamera(VIEW.fov, host.clientWidth / host.clientHeight, 0.5, 4000)
+    // 挂载瞬间容器可能尚未布局（0×0），用窗口尺寸兜底避免 aspect 为 NaN
+    const initialAspect =
+      host.clientWidth > 0 && host.clientHeight > 0 ? host.clientWidth / host.clientHeight : window.innerWidth / window.innerHeight
+    // 远裁剪面 120000：容纳 200 倍推镜起点（真实模式约 5 万单位）
+    this.camera = new THREE.PerspectiveCamera(VIEW.fov, initialAspect, 0.05, 120000)
 
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' })
+    this.renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: true,
+      powerPreference: 'high-performance',
+      logarithmicDepthBuffer: true, // 近 0.05 ~ 远 120000 的跨度过大，对数深度防止 z-fighting
+    })
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     this.renderer.setSize(host.clientWidth, host.clientHeight)
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
     this.renderer.toneMappingExposure = 1.0
+    // 与页面底色一致的清屏色：canvas 首帧/重建时不会透出白色
+    this.renderer.setClearColor(0x03070c, 1)
     host.appendChild(this.renderer.domElement)
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement)
@@ -206,6 +236,12 @@ export class SolarSystemScene {
 
     this.resizeObserver = new ResizeObserver(this.onResize)
     this.resizeObserver.observe(host)
+
+    // 同步预编译全部着色器：把首次渲染的编译卡顿（约 20 个 shader 程序）压缩到
+    // 挂载瞬间（遮罩仍为全黑），避免推镜过程中主线程卡顿导致画面跳变
+    this.renderer.compile(this.scene, this.camera)
+    // 同步渲染首帧：canvas 在浏览器合成前即完成首次清除与绘制，杜绝白闪
+    this.renderer.render(this.scene, this.camera)
 
     this.animate()
   }
@@ -245,8 +281,7 @@ export class SolarSystemScene {
   }
 
   private buildSun() {
-    const loader = new THREE.TextureLoader()
-    const texture = loader.load(SUN.textureUrl)
+    const texture = solarTexture(SUN.textureUrl)
     texture.colorSpace = THREE.SRGBColorSpace
     texture.anisotropy = 4
     this.textures.push(texture)
@@ -299,12 +334,10 @@ export class SolarSystemScene {
   }
 
   private buildPlanets() {
-    const loader = new THREE.TextureLoader()
-    const ringLoader = new THREE.TextureLoader()
     const lineAngle = PLANET_LINE_ANGLE_DEG * DEG
 
     for (const spec of planets) {
-      const texture = loader.load(spec.textureUrl)
+      const texture = solarTexture(spec.textureUrl)
       texture.colorSpace = THREE.SRGBColorSpace
       texture.anisotropy = 4
       this.textures.push(texture)
@@ -319,21 +352,187 @@ export class SolarSystemScene {
       // ZYX：先自转（local Y）再倾斜（Z），保证自转轴是倾斜后的极轴
       axial.rotation.order = 'ZYX'
       axial.rotation.z = spec.axialTiltDeg * DEG
-      // 行星必须落在黄道面（XZ 平面）的轨道线上：x = r·cosθ, z = r·sinθ
-      axial.position.set(Math.cos(lineAngle) * spec.orbitRadius, 0, Math.sin(lineAngle) * spec.orbitRadius)
       axial.add(mesh)
-
       if (spec.ring) {
-        const ring = this.buildRing(spec, ringLoader)
+        const ring = this.buildRing(spec)
         axial.add(ring)
       }
-
+      if (spec.id === 'earth') {
+        // 月球：小半径球体，锚点置于场景级——跟随地球位置但不随地球自转/倾角旋转
+        const moonTexture = solarTexture(MOON.textureUrl)
+        moonTexture.colorSpace = THREE.SRGBColorSpace
+        moonTexture.anisotropy = 4
+        this.textures.push(moonTexture)
+        const moonMaterial = new THREE.MeshStandardMaterial({ map: moonTexture, roughness: 0.95, metalness: 0 })
+        const moonMesh = new THREE.Mesh(new THREE.SphereGeometry(MOON.radius, 32, 32), moonMaterial)
+        moonMesh.userData = { id: 'moon' }
+        this.planetMeshes.push(moonMesh)
+        this.disposables.push(moonMaterial, moonMesh.geometry)
+        this.moonAnchor = new THREE.Object3D()
+        this.moonAnchor.add(moonMesh)
+        this.scene.add(this.moonAnchor)
+      }
       this.scene.add(axial)
       this.planetRuntimes.set(spec.id, { spec, axial })
+      // 必须在注册之后再定位（applyPlanetAngle 依赖 planetRuntimes）
+      this.planetAngles.set(spec.id, lineAngle)
+      this.applyPlanetAngle(spec.id)
     }
   }
 
-  private buildRing(spec: PlanetSpec, loader: THREE.TextureLoader) {
+  /** 按当前展示角度把行星放到轨道线上（圆形轨道：x = r·cosθ, z = r·sinθ） */
+  private applyPlanetAngle(id: string) {
+    const runtime = this.planetRuntimes.get(id)
+    if (!runtime) return
+    const angle = this.planetAngles.get(id) ?? 0
+    runtime.axial.position.set(Math.cos(angle) * runtime.spec.orbitRadius, 0, Math.sin(angle) * runtime.spec.orbitRadius)
+  }
+
+  /** J2000 历元（2000-01-01 12:00 TT）对应的毫秒数 */
+  private static readonly J2000_MS = Date.UTC(2000, 0, 1, 12, 0, 0)
+
+  /** 当前时刻的真实公转黄经（J2000 轨道根数 + 迭代解 Kepler 方程） */
+  private realOrbitalAngle(spec: PlanetSpec): number {
+    const days = (Date.now() - SolarSystemScene.J2000_MS) / 86400000
+    const meanLongitude = (spec.meanLongitudeDeg + (360 / spec.periodDays) * days) % 360
+    const M = ((((meanLongitude - spec.perihelionLongitudeDeg) % 360) + 360) % 360) * DEG
+    let E = M
+    for (let i = 0; i < 8; i += 1) {
+      E = E - (E - spec.eccentricity * Math.sin(E) - M) / (1 - spec.eccentricity * Math.cos(E))
+    }
+    const nu = 2 * Math.atan2(
+      Math.sqrt(1 + spec.eccentricity) * Math.sin(E / 2),
+      Math.sqrt(1 - spec.eccentricity) * Math.cos(E / 2),
+    )
+    return (nu + spec.perihelionLongitudeDeg * DEG) % (Math.PI * 2)
+  }
+
+  /** 切换到"真实公转位置"模式：行星转到位 + 月球滑入公转相位 + 镜头飞向太阳居中构图 */
+  animateToRealPositions() {
+    // 起始角取当前显示值（模式未翻转）；目标按目标模式显式传入
+    this.startMoonTransition('real')
+    this.compositionMode = 'real'
+    this.startAngleAnimation((spec) => this.realOrbitalAngle(spec))
+    this.flyToModeComposition()
+  }
+
+  /** 切换回"一字排布"模式：行星归位 + 月球滑回视角左侧 + 镜头飞回小行星带构图 */
+  animateToAligned() {
+    this.startMoonTransition('aligned')
+    this.compositionMode = 'aligned'
+    this.startAngleAnimation(() => PLANET_LINE_ANGLE_DEG * DEG)
+    this.flyToModeComposition()
+  }
+
+  /** 月球角度过渡（easeOut）：起始角 = 当前显示值；目标按目标模式计算（真实 = 相位外推），走最短弧 */
+  private startMoonTransition(targetMode: 'aligned' | 'real') {
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const duration = reduced ? 200 : 1600
+    const from = this.currentMoonDisplayAngle()
+    const target =
+      targetMode === 'real'
+        ? this.moonAngle + (Math.PI * 2 / MOON.orbitSeconds) * (duration / 1000)
+        : Math.PI
+    // 最短弧：差值归一化到 [-π, π]，避免相位累积导致的多圈倒退
+    let delta = target - from
+    delta = ((((delta + Math.PI) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) - Math.PI
+    this.moonTransition = { from, to: from + delta, delta, startedAt: performance.now(), duration }
+  }
+
+  /** 当前月球显示角度（过渡中取插值） */
+  private currentMoonDisplayAngle(): number {
+    if (this.moonTransition) {
+      const t = Math.min(1, (performance.now() - this.moonTransition.startedAt) / this.moonTransition.duration)
+      const eased = 1 - Math.pow(1 - t, 3)
+      return this.moonTransition.from + this.moonTransition.delta * eased
+    }
+    return this.compositionMode === 'real' ? this.moonAngle : Math.PI
+  }
+
+  /** 直接放置真实位置 + 太阳居中构图（无动画，用于恢复会话记忆的模式） */
+  setRealPositions() {
+    this.compositionMode = 'real'
+    for (const spec of planets) {
+      this.planetAngles.set(spec.id, this.realOrbitalAngle(spec))
+      this.applyPlanetAngle(spec.id)
+    }
+    this.angleAnimation = null
+    const host = this.host
+    const aspect = host.clientWidth / host.clientHeight
+    this.refit()
+  }
+
+  /** 镜头沿三次贝塞尔飞向当前模式的目标构图（与行星角度动画同速：1.6s easeInOut） */
+  private flyToModeComposition() {
+    if (this.flyState) return
+    const host = this.host
+    const width = host.clientWidth
+    const height = host.clientHeight
+    if (width === 0 || height === 0) return
+    const aspect = width / height
+    const { target: destTarget, distance } = this.computeModeComposition(aspect)
+    this.fitDistance = distance
+    const destPosition = destTarget.clone().addScaledVector(this.dir, distance)
+    // 三次贝塞尔拟合：控制点沿位移方向推进，起止切线与位移方向一致
+    const p0 = this.camera.position.clone()
+    const p3 = destPosition
+    const delta = p3.clone().sub(p0)
+    const p1 = p0.clone().addScaledVector(delta, 0.3)
+    const p2 = p0.clone().addScaledVector(delta, 0.68)
+    this.controls.minDistance = VIEW.minDistance
+    this.controls.maxDistance = Infinity // 不限制拉远距离（远裁剪面 120000 兜底）
+    this.flyState = {
+      p0,
+      p1,
+      p2,
+      p3,
+      fromTarget: this.controls.target.clone(),
+      toTarget: destTarget,
+      startedAt: performance.now(),
+      duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 250 : 1600,
+      zoomed: true, // 模式切换不触发变暗事件
+      reverse: true, // 注视点与位置共用同一缓动（锁步运动）
+    }
+    this.controls.enabled = false
+    this.userInteracted = false
+  }
+
+  private startAngleAnimation(targetFor: (spec: PlanetSpec) => number) {
+    const from = new Map<string, number>()
+    const to = new Map<string, number>()
+    for (const spec of planets) {
+      const current = this.planetAngles.get(spec.id) ?? 0
+      let target = targetFor(spec) % (Math.PI * 2)
+      if (target < 0) target += Math.PI * 2
+      // 最短路径：把差值归一化到 [-π, π]
+      const delta = ((((target - current) + Math.PI) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) - Math.PI
+      from.set(spec.id, current)
+      to.set(spec.id, current + delta)
+    }
+    this.angleAnimation = {
+      from,
+      to,
+      startedAt: performance.now(),
+      duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 200 : 1600,
+    }
+  }
+
+  /** 行星角度动画驱动：easeInOutCubic，先加速后减速 */
+  private updateAngleAnimation() {
+    const anim = this.angleAnimation
+    if (!anim) return
+    const t = Math.min(1, (performance.now() - anim.startedAt) / anim.duration)
+    const eased = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
+    for (const spec of planets) {
+      const from = anim.from.get(spec.id) ?? 0
+      const to = anim.to.get(spec.id) ?? 0
+      this.planetAngles.set(spec.id, from + (to - from) * eased)
+      this.applyPlanetAngle(spec.id)
+    }
+    if (t >= 1) this.angleAnimation = null
+  }
+
+  private buildRing(spec: PlanetSpec) {
     const ringSpec = spec.ring!
     const inner = spec.radius * ringSpec.inner
     const outer = spec.radius * ringSpec.outer
@@ -349,17 +548,22 @@ export class SolarSystemScene {
       })
       const ring = new THREE.Mesh(geometry, material)
       ring.userData = { id: spec.id }
-      loader.load(SATURN_RING_TEXTURE_URL, (texture) => {
+      const ringTexture = solarTexture(SATURN_RING_TEXTURE_URL, (texture) => {
         if (this.disposed) {
           texture.dispose()
           return
         }
-        texture.colorSpace = THREE.SRGBColorSpace
-        texture.anisotropy = 4
-        this.textures.push(texture)
         material.map = texture
         material.needsUpdate = true
       })
+      ringTexture.colorSpace = THREE.SRGBColorSpace
+      ringTexture.anisotropy = 4
+      this.textures.push(ringTexture)
+      // 预热已就绪：同步挂上贴图，让构造器预编译直接覆盖带贴图程序
+      if (ringTexture.image) {
+        material.map = ringTexture
+        material.needsUpdate = true
+      }
       this.disposables.push(material, geometry)
       return ring
     }
@@ -490,6 +694,14 @@ export class SolarSystemScene {
 
   private animate = () => {
     this.frameId = requestAnimationFrame(this.animate)
+    try {
+      this.tick()
+    } catch (error) {
+      console.error('SolarSystemScene animate 异常:', error)
+    }
+  }
+
+  private tick() {
     const delta = Math.min(this.clock.getDelta(), 0.05) * this.timeScale
     this.elapsed += delta
 
@@ -499,11 +711,51 @@ export class SolarSystemScene {
     for (const runtime of this.planetRuntimes.values()) {
       runtime.axial.rotation.y += (Math.PI * 2 / rotationPeriodSeconds(runtime.spec.rotationHours)) * delta
     }
+    // 月球：相位时钟始终推进；显示角度按模式/过渡决定（排布 = π 固定视角左侧）
+    this.moonAngle += (Math.PI * 2 / MOON.orbitSeconds) * delta
+    let moonDisplayAngle = this.compositionMode === 'real' ? this.moonAngle : Math.PI
+    if (this.moonTransition) {
+      const t = Math.min(1, (performance.now() - this.moonTransition.startedAt) / this.moonTransition.duration)
+      // easeOut：起步快、末端柔和落定，避免 easeInOut 末尾爬行造成的"卡一下"感
+      const eased = 1 - Math.pow(1 - t, 3)
+      moonDisplayAngle = this.moonTransition.from + this.moonTransition.delta * eased
+      if (t >= 1) {
+        // 仅真实模式收尾时对齐相位时钟（消除漂移跳变）；
+        // 排布模式收尾不动时钟——相位被保留，下次进真实模式落点各不相同
+        if (this.compositionMode === 'real') this.moonAngle = this.moonTransition.to
+        this.moonTransition = null
+      }
+    }
+    const earthRuntime = this.planetRuntimes.get('earth')
+    if (earthRuntime && this.moonAnchor) {
+      const earthPos = earthRuntime.axial.getWorldPosition(this.tempWorld)
+      this.moonAnchor.position.set(
+        earthPos.x + Math.cos(moonDisplayAngle) * MOON.distance,
+        earthPos.y,
+        earthPos.z + Math.sin(moonDisplayAngle) * MOON.distance,
+      )
+    }
     const periods = [ASTEROID_BELT.periodSeconds, KUIPER_BELT.periodSeconds]
     this.beltGroups.forEach((group, index) => {
       group.rotation.y += (Math.PI * 2 / periods[index]) * delta
     })
+    if (this.pendingEntryFly && this.host.clientWidth > 0 && this.host.clientHeight > 0) {
+      const pending = this.pendingEntryFly
+      this.pendingEntryFly = null
+      this.startEntryFly(pending.delayMs)
+    }
+    this.updateAngleAnimation()
     this.updateFly()
+    // 自适应灵敏度：OrbitControls 的旋转/缩放是"每像素固定角度/等比"，距离越近
+    // 同样的角度在屏幕上的位移越大，操作会显得迟钝——按距离动态提速补偿
+    if (!this.flyState) {
+      const dist = this.camera.position.distanceTo(this.controls.target)
+      const t = THREE.MathUtils.clamp(dist / this.fitDistance, 0, 1)
+      // 平方曲线：近端灵敏度急剧提升（近距离最高旋转 11.5×、滚轮 5.2×）
+      const boost = 1 - t * t
+      this.controls.rotateSpeed = 1.5 + boost * 10
+      this.controls.zoomSpeed = 1.2 + boost * 4
+    }
     this.controls.update()
     // 同步注视点：平移会移动 controls.target，标签与 resize 逻辑依赖 lookAt
     this.lookAt.copy(this.controls.target)
@@ -533,6 +785,7 @@ export class SolarSystemScene {
       y: (-projected.y * 0.5 + 0.5) * height,
       radiusPx,
       visible: projected.z > -1 && projected.z < 1 && radiusPx > 0.4,
+      opacity: 1,
     }
   }
 
@@ -542,6 +795,8 @@ export class SolarSystemScene {
     if (width === 0 || height === 0) return
     const halfFovTan = Math.tan((VIEW.fov / 2) * DEG)
     const labels: SolarLabel[] = []
+    // 入场推镜：标签在推进 15%–60% 之间渐显（前期行星挤在中央，标签会叠成一团）
+    const labelOpacity = this.entryFlyEased === null ? 1 : THREE.MathUtils.clamp((this.entryFlyEased - 0.15) / 0.45, 0, 1)
 
     labels.push(this.projectLabel('sun', 'sun', this.tempWorld.set(0, 0, 0), SUN_RADIUS, width, height, halfFovTan))
 
@@ -550,17 +805,98 @@ export class SolarSystemScene {
       labels.push(this.projectLabel('planet', runtime.spec.id, world, runtime.spec.radius, width, height, halfFovTan))
     }
 
+    if (this.moonAnchor) {
+      const world = this.moonAnchor.getWorldPosition(this.tempWorldB)
+      labels.push(this.projectLabel('planet', 'moon', world, MOON.radius, width, height, halfFovTan))
+    }
+
     for (const anchor of this.beltAnchors) {
       const world = anchor.getWorldPosition(this.tempWorldB)
       labels.push(this.projectLabel('belt', anchor.name, world, 1.6, width, height, halfFovTan))
     }
 
+    for (const label of labels) label.opacity = labelOpacity
     this.onLabels(labels)
+  }
+
+  /** 封面入场：镜头从远端沿视线方向飞入当前模式的默认构图（由远及近） */
+  /** 封面入场推镜：delayMs 毫秒后从 40 倍远处匀速高速冲入默认构图（延迟期停在起点）。
+   *  挂载瞬间容器可能 0×0（尚未布局），此时挂起等待，容器有尺寸后自动启动 */
+  flyInFromDistance(delayMs = 0) {
+    if (this.flyState) return
+    const width = this.host.clientWidth
+    const height = this.host.clientHeight
+    if (width === 0 || height === 0) {
+      this.pendingEntryFly = { delayMs }
+      return
+    }
+    this.startEntryFly(delayMs)
+  }
+
+  /** 真正启动入场推镜（容器尺寸已就绪） */
+  private startEntryFly(delayMs: number) {
+    if (this.flyState) return
+    const host = this.host
+    const width = host.clientWidth
+    const height = host.clientHeight
+    const aspect = width / height
+    const { target, distance } = this.computeModeComposition(aspect)
+    this.fitDistance = distance
+    // 起点：20 倍构图距离（由远及近的纵深更明显）
+    const destPosition = target.clone().addScaledVector(this.dir, distance)
+    const p0 = target.clone().addScaledVector(this.dir, distance * 20)
+    const delta = destPosition.clone().sub(p0)
+    const p1 = p0.clone().addScaledVector(delta, 0.3)
+    const p2 = p0.clone().addScaledVector(delta, 0.68)
+    this.controls.minDistance = VIEW.minDistance
+    this.controls.maxDistance = Infinity // 不限制拉远距离（远裁剪面 120000 兜底）
+    this.flyState = {
+      p0,
+      p1,
+      p2,
+      p3: destPosition,
+      fromTarget: target.clone(),
+      toTarget: target.clone(),
+      // startedAt 带延迟：全黑期间镜头停在起点，延迟结束才开始推进
+      startedAt: performance.now() + delayMs,
+      // 1.3s 推镜
+      duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 250 : 1300,
+      zoomed: true,
+      reverse: true,
+      entry: true,
+      easeOut: 'linear-out',
+    }
+    this.controls.enabled = false
+    this.userInteracted = false
   }
 
   // ---- 相机与构图 --------------------------------------------------------
 
-  /** 数值构图：主视角中心对准小行星带（锚定在画面目标位置），距离取构图下限 */
+  /** 当前模式的目标构图：aligned = 小行星带锚定（右上太阳/对角线行星）；
+   *  real = 太阳居中，画面左右边界刚好到达柯伊伯带外缘（+4% 微边距） */
+  private computeModeComposition(aspect: number): { target: THREE.Vector3; distance: number } {
+    if (this.compositionMode === 'real') {
+      const tanHalfV = Math.tan((VIEW.fov / 2) * DEG)
+      // 距离由水平方向决定：边界到达柯伊伯带外缘（0.92 = 略微拉近放大）
+      const distance = (KUIPER_BELT.outer / (tanHalfV * aspect)) * VIEW.realFitMargin
+      // 太阳锚定在 40%（从下往上 60%），椭圆中心随之、短轴竖向居中平衡
+      const beta = (2 * VIEW.realAnchorScreenY - 1) * tanHalfV
+      const target = new THREE.Vector3(0, 0, 0).addScaledVector(this.upv, distance * beta)
+      return { target, distance }
+    }
+    const tanHalf = Math.tan((VIEW.fov / 2) * DEG)
+    const ndcX = 2 * VIEW.anchorScreenX - 1
+    const ndcY = -(2 * VIEW.anchorScreenY - 1)
+    const alpha = -ndcX * tanHalf * aspect
+    const beta = -ndcY * tanHalf
+    const target = this.beltAnchor
+      .clone()
+      .addScaledVector(this.right, VIEW.composeMinDistance * alpha)
+      .addScaledVector(this.upv, VIEW.composeMinDistance * beta)
+    return { target, distance: VIEW.composeMinDistance }
+  }
+
+  /** 数值构图：按当前模式摆放默认视角 */
   private refit() {
     const host = this.host
     const width = host.clientWidth
@@ -568,26 +904,16 @@ export class SolarSystemScene {
     if (width === 0 || height === 0) return
     const aspect = width / height
 
-    this.fitDistance = VIEW.composeMinDistance
-    this.placeCameraForBelt(this.fitDistance, aspect)
-    this.controls.minDistance = VIEW.minDistance
-    this.controls.maxDistance = Math.max(600, this.fitDistance * 2.2)
-  }
-
-  /** 解析反推注视点：让小行星带（主视角中心）精确落在目标屏幕位置（针孔相机模型） */
-  private placeCameraForBelt(distance: number, aspect: number) {
-    const tanHalf = Math.tan((VIEW.fov / 2) * DEG)
-    const ndcX = 2 * VIEW.anchorScreenX - 1
-    const ndcY = -(2 * VIEW.anchorScreenY - 1)
-    const alpha = -ndcX * tanHalf * aspect
-    const beta = -ndcY * tanHalf
-    this.lookAt.copy(this.beltAnchor).addScaledVector(this.right, distance * alpha).addScaledVector(this.upv, distance * beta)
+    const { target, distance } = this.computeModeComposition(aspect)
+    this.fitDistance = distance
+    this.lookAt.copy(target)
     this.camera.position.copy(this.lookAt).addScaledVector(this.dir, distance)
     this.camera.lookAt(this.lookAt)
-    // lookAt 只刷新 matrixWorld；project() 依赖 matrixWorldInverse，必须显式更新
     this.camera.updateMatrixWorld(true)
-    // OrbitControls 每帧强制 camera.lookAt(target)，必须同步，否则构图只存活一帧
     this.controls.target.copy(this.lookAt)
+    this.controls.minDistance = VIEW.minDistance
+    // 拉远上限 600：星空球半径 700–1100，超出会穿出星幕坠入虚空
+    this.controls.maxDistance = Infinity // 不限制拉远距离（远裁剪面 120000 兜底）
   }
 
   private onResize = () => {
@@ -606,7 +932,7 @@ export class SolarSystemScene {
     const offset = this.camera.position.clone().sub(this.lookAt)
     const length = offset.length()
     if (length < 0.01) return
-    const clamped = Math.min(Math.max(length, VIEW.minDistance), Math.max(600, this.fitDistance * 2.2))
+    const clamped = Math.max(length, VIEW.minDistance) // 仅保留最小距离限制
     this.camera.position.copy(this.lookAt).addScaledVector(offset.normalize(), clamped)
     this.camera.lookAt(this.lookAt)
     this.camera.updateMatrixWorld(true)
@@ -644,12 +970,13 @@ export class SolarSystemScene {
     const path = this.computeEarthFlyPath()
     if (!path) return
     // OrbitControls.update() 每帧都会把相机距目标的距离钳制在 [minDistance, maxDistance]；
-    // 飞行终点距地球 17.5 < 40，必须临时放宽下限，否则镜头会被弹回 40 单位处（终点弹跳）
+    // 飞行终点距地球 17.5 远大于近限 2，无需放宽；此处仍保留近限兜底
     this.controls.minDistance = 3
     this.flyState = {
       ...path,
       startedAt: performance.now(),
-      duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 250 : 1500,
+      // 1.3s 推镜
+      duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 250 : 1300,
       zoomed: false,
     }
     this.controls.enabled = false
@@ -670,9 +997,15 @@ export class SolarSystemScene {
     const earthRuntime = this.planetRuntimes.get('earth')
     if (!earthRuntime) return
     const earthPosition = earthRuntime.axial.getWorldPosition(this.tempWorldB)
-    // 终点：默认构图（小行星带锚定的斜俯视）
+    // 终点：按当前模式构图（排布 = 小行星带锚定；真实位置 = 太阳居中）
     const aspect = this.host.clientWidth / this.host.clientHeight
-    this.placeCameraForBelt(VIEW.composeMinDistance, aspect)
+    const { target, distance } = this.computeModeComposition(aspect)
+    this.fitDistance = distance
+    this.lookAt.copy(target)
+    this.camera.position.copy(this.lookAt).addScaledVector(this.dir, distance)
+    this.camera.lookAt(this.lookAt)
+    this.camera.updateMatrixWorld(true)
+    this.controls.target.copy(this.lookAt)
     const p3 = this.camera.position.clone()
     const toTarget = this.lookAt.clone()
     // 起点：从地球沿"朝向默认视角"的水平方向外移 10 单位、带 1 单位仰角
@@ -683,7 +1016,7 @@ export class SolarSystemScene {
     this.camera.position.copy(p0)
     this.camera.lookAt(earthPosition)
     this.controls.target.copy(earthPosition)
-    this.controls.minDistance = 3 // 起点距地球 15 < 40，需放宽距离钳制
+    this.controls.minDistance = 3 // 近限兜底（终点距地球 17.5，正常不会触发）
     // 控制点抬升：路径在高空滑过火星与小行星带
     const delta = p3.clone().sub(p0)
     const p1 = p0.clone().addScaledVector(delta, 0.3)
@@ -698,7 +1031,8 @@ export class SolarSystemScene {
       fromTarget: earthPosition.clone(),
       toTarget,
       startedAt: performance.now(),
-      duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 250 : 1500,
+      // 1.3s 推镜
+      duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 250 : 1300,
       zoomed: true, // 反向飞行不再触发变暗事件（遮罩由 ORBIT 侧控制）
       reverse: true, // 注视点缓动取 t³：前期紧盯地球、后期转回默认构图
     }
@@ -710,7 +1044,22 @@ export class SolarSystemScene {
     const fly = this.flyState
     if (!fly) return
     const t = Math.min(1, (performance.now() - fly.startedAt) / fly.duration)
-    const eased = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
+    if (t < 0) {
+      // 延迟等待期：镜头停在起点（全黑期间）
+      this.camera.position.copy(fly.p0)
+      this.controls.target.copy(fly.fromTarget)
+      return
+    }
+    // 入场推镜：'linear-out' = 前 50% 匀速高速（0→70% 路径），后 50% easeOut（70%→100%）；
+    // 'cubic' = 纯 easeOut；其余飞行用 easeInOut
+    let eased: number
+    if (fly.easeOut === 'linear-out') {
+      eased = t < 0.5 ? 1.4 * t : 0.7 + 0.3 * (1 - Math.pow(1 - (t - 0.5) / 0.5, 3))
+    } else if (fly.easeOut === 'cubic') {
+      eased = 1 - Math.pow(1 - t, 3)
+    } else {
+      eased = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
+    }
     // B = u³·P0 + 3u²e·P1 + 3ue²·P2 + e³·P3
     const u = 1 - eased
     this.camera.position
@@ -726,17 +1075,54 @@ export class SolarSystemScene {
       fly.zoomed = true
       this.callbacks.onFlyZoom?.()
     }
+    if (fly.entry) this.entryFlyEased = eased
     if (t >= 1) {
       this.flyState = undefined
+      this.entryFlyEased = null
       this.controls.enabled = true
       this.callbacks.onFlyComplete?.()
     }
   }
 
+  /** 复位视角：沿平滑曲线飞回默认的斜俯视构图（飞行中不响应；供双击与外部图标点击调用） */
+  resetView() {
+    if (this.flyState) return
+    const host = this.host
+    const width = host.clientWidth
+    const height = host.clientHeight
+    if (width === 0 || height === 0) return
+    const aspect = width / height
+    const { target: destTarget, distance } = this.computeModeComposition(aspect)
+    this.fitDistance = distance
+    const destPosition = destTarget.clone().addScaledVector(this.dir, distance)
+    // 三次贝塞尔拟合：控制点沿位移方向推进，起止切线与位移方向一致，无折角无抖动
+    const p0 = this.camera.position.clone()
+    const p3 = destPosition
+    const delta = p3.clone().sub(p0)
+    const p1 = p0.clone().addScaledVector(delta, 0.3)
+    const p2 = p0.clone().addScaledVector(delta, 0.68)
+    this.controls.minDistance = VIEW.minDistance
+    // 拉远上限 600：星空球半径 700–1100，超出会穿出星幕坠入虚空
+    this.controls.maxDistance = Infinity // 不限制拉远距离（远裁剪面 120000 兜底）
+    this.flyState = {
+      p0,
+      p1,
+      p2,
+      p3,
+      fromTarget: this.controls.target.clone(),
+      toTarget: destTarget,
+      startedAt: performance.now(),
+      duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 250 : 900,
+      zoomed: true, // 复位不触发变暗事件
+      reverse: true, // 注视点与位置共用同一缓动（锁步运动，视线角速度单调）
+    }
+    this.controls.enabled = false
+    this.userInteracted = false // 复位后视为初始状态（后续 resize 沿用默认构图）
+  }
+
   /** 双击复位：回到默认的斜俯视构图（飞行中不响应） */
   private onDoubleClick = () => {
-    if (this.flyState) return
-    this.refit()
+    this.resetView()
   }
 
   // ---- 交互 --------------------------------------------------------------

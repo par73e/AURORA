@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { SolarSystemScene, type SolarLabel } from '../solar/scene'
-import { planets, SUN, type PlanetSpec } from '../solar/data'
+import { solarSession } from '../solar/session'
+import { MOON, planets, SUN, type PlanetSpec } from '../solar/data'
 
-const props = defineProps<{ enterFromOrbit?: boolean }>()
+const props = defineProps<{ enterFromOrbit?: boolean; flyDelay?: number; playEntryFly?: boolean }>()
 
 const emit = defineEmits<{
   'select-earth': []
@@ -17,8 +18,16 @@ const labels = ref<SolarLabel[]>([])
 let scene: SolarSystemScene | undefined
 
 const activePlanet = computed<PlanetSpec>(() => planets.find((p) => p.id === activeId.value) ?? planets[2])
-const activeName = computed(() => (activeId.value === 'sun' ? SUN.name : activePlanet.value.name))
-const activeNameEn = computed(() => (activeId.value === 'sun' ? SUN.nameEn : activePlanet.value.nameEn))
+const activeName = computed(() => {
+  if (activeId.value === 'sun') return SUN.name
+  if (activeId.value === 'moon') return MOON.name
+  return activePlanet.value.name
+})
+const activeNameEn = computed(() => {
+  if (activeId.value === 'sun') return SUN.nameEn
+  if (activeId.value === 'moon') return MOON.nameEn
+  return activePlanet.value.nameEn
+})
 
 const planetLabels = computed(() => labels.value.filter((l) => l.kind === 'planet'))
 const sunLabel = computed(() => labels.value.find((l) => l.kind === 'sun') ?? null)
@@ -27,6 +36,8 @@ const earthLabel = computed(() => labels.value.find((l) => l.kind === 'planet' &
 
 const nameById = new Map(planets.map((p) => [p.id, p.name]))
 const nameEnById = new Map(planets.map((p) => [p.id, p.nameEn]))
+nameById.set(MOON.id, MOON.name)
+nameEnById.set(MOON.id, MOON.nameEn)
 
 function choosePlanet(id: string) {
   activeId.value = id
@@ -45,24 +56,25 @@ const LABEL_OFFSET_Y = 0.87
 /** 标签放在球体轮廓之外：沿排列线法向（右下）偏移 */
 function planetLabelStyle(label: SolarLabel) {
   const offset = label.radiusPx + 14
-  return { transform: `translate(calc(${label.x + offset * LABEL_OFFSET_X}px - 50%), ${label.y + offset * LABEL_OFFSET_Y}px)` }
+  return { opacity: label.opacity, transform: `translate(calc(${label.x + offset * LABEL_OFFSET_X}px - 50%), ${label.y + offset * LABEL_OFFSET_Y}px)` }
 }
 
 function sunLabelStyle(label: SolarLabel) {
   const offset = label.radiusPx + 16
-  return { transform: `translate(calc(${label.x + offset * LABEL_OFFSET_X}px - 50%), ${label.y + offset * LABEL_OFFSET_Y}px)` }
+  return { opacity: label.opacity, transform: `translate(calc(${label.x + offset * LABEL_OFFSET_X}px - 50%), ${label.y + offset * LABEL_OFFSET_Y}px)` }
 }
 
 function beltLabelStyle(label: SolarLabel) {
-  return { transform: `translate(calc(${label.x}px - 50%), ${label.y - 12}px)` }
+  return { opacity: label.opacity, transform: `translate(calc(${label.x}px - 50%), ${label.y - 12}px)` }
 }
 
 /** YOU ARE HERE 标记：位于地球正上方，底部小箭头指向地球顶端 */
 function youMarkerStyle(label: SolarLabel) {
-  return { transform: `translate(calc(${label.x}px - 50%), ${label.y - label.radiusPx - 27}px)` }
+  return { opacity: label.opacity, transform: `translate(calc(${label.x}px - 50%), ${label.y - label.radiusPx - 27}px)` }
 }
 
 onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
   if (!canvasHost.value) return
   scene = new SolarSystemScene(
     canvasHost.value,
@@ -78,13 +90,63 @@ onMounted(() => {
       labels.value = next
     },
   )
-  // 从 ORBIT 返回：镜头从地球近景拉回默认构图（地球缩回太阳系）
-  if (props.enterFromOrbit) scene.flyFromEarth()
+  // 会话记忆：上次是"真实公转位置"模式则直接恢复（无动画）；刷新/首次访问为默认排布
+  if (!alignedPositions.value) scene.setRealPositions()
+  if (props.enterFromOrbit) {
+    // 从 ORBIT 返回：镜头从地球近景拉回默认构图（地球缩回太阳系）
+    scene.flyFromEarth()
+  } else if (props.playEntryFly) {
+    // 封面路径：由远及近飞入默认视角
+    scene.flyInFromDistance(props.flyDelay ?? 0)
+  }
+  // 刷新/直接加载：不播推镜，静态恢复默认构图（resize 触发 refit 定位）
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown)
   scene?.dispose()
 })
+
+/** 行星是否处于"一字排布"模式；点击切换为当前真实公转位置（模式存入会话记忆） */
+const alignedPositions = ref(!solarSession.realPositions)
+
+function togglePositions() {
+  alignedPositions.value = !alignedPositions.value
+  solarSession.realPositions = !alignedPositions.value
+  if (alignedPositions.value) {
+    scene?.animateToAligned()
+  } else {
+    scene?.animateToRealPositions()
+  }
+}
+
+/** 键盘导航的选中顺序：太阳 + 8 颗行星 + 月球（紧跟地球） */
+const SELECTION_ORDER = ['sun', ...planets.map((p) => p.id)]
+SELECTION_ORDER.splice(SELECTION_ORDER.indexOf('earth') + 1, 0, 'moon')
+
+/** 左右方向键切换选中行星（联动左下角读数），回车进入（目前仅地球开放） */
+function onKeydown(event: KeyboardEvent) {
+  const target = event.target as HTMLElement | null
+  if (target && ['BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'A'].includes(target.tagName)) return
+  const index = SELECTION_ORDER.indexOf(activeId.value)
+  if (index < 0) return
+  if (event.key === 'ArrowRight') {
+    event.preventDefault()
+    activeId.value = SELECTION_ORDER[(index + 1) % SELECTION_ORDER.length]
+  } else if (event.key === 'ArrowLeft') {
+    event.preventDefault()
+    activeId.value = SELECTION_ORDER[(index - 1 + SELECTION_ORDER.length) % SELECTION_ORDER.length]
+  } else if (event.key === 'Enter') {
+    if (activeId.value === 'earth') choosePlanet('earth')
+  }
+}
+
+/** 复位视角：恢复到默认的斜俯视构图（由页头太阳系图标触发） */
+function resetView() {
+  scene?.resetView()
+}
+
+defineExpose({ resetView })
 </script>
 
 <template>
@@ -149,6 +211,11 @@ onBeforeUnmount(() => {
         </svg>
       </div>
     </div>
+
+    <button class="position-toggle" type="button" @click="togglePositions">
+      <i :class="{ real: !alignedPositions }" aria-hidden="true" />
+      显示当前位置
+    </button>
 
     <div class="solar-credits" aria-hidden="true">
       <span>行星纹理 Solar System Scope · CC BY 4.0</span>
@@ -279,6 +346,42 @@ onBeforeUnmount(() => {
 }
 .belt-label small { display: block; margin-top: 4px; color: rgba(76, 109, 123, .65); font: 400 6px var(--font-mono); letter-spacing: .1em; }
 
+.position-toggle {
+  position: absolute;
+  z-index: 8;
+  right: 32px;
+  bottom: 72px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: rgba(3, 9, 15, .8);
+  color: #9bb0bb;
+  font: 500 9px var(--font-mono);
+  letter-spacing: .1em;
+  cursor: pointer;
+  transition: border-color .2s, color .2s, background .2s;
+  backdrop-filter: blur(12px);
+}
+.position-toggle:hover {
+  border-color: rgba(114, 215, 255, .4);
+  background: rgba(3, 9, 15, .92);
+  color: #d8e9f2;
+}
+.position-toggle i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #355161;
+  transition: background .2s, box-shadow .2s;
+}
+.position-toggle i.real {
+  background: var(--blue);
+  box-shadow: 0 0 8px rgba(114, 215, 255, .6);
+}
+
 .solar-credits {
   position: absolute;
   z-index: 3;
@@ -305,5 +408,6 @@ onBeforeUnmount(() => {
   .solar-intro { left: 24px; }
   .solar-readout { left: 24px; }
   .solar-credits { right: 24px; }
+.position-toggle { right: 24px; }
 }
 </style>

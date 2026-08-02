@@ -12,6 +12,7 @@ import saturnUrl from '../assets/solar/2k_saturn.jpg'
 import saturnRingUrl from '../assets/solar/2k_saturn_ring_alpha.png'
 import uranusUrl from '../assets/solar/2k_uranus.jpg'
 import neptuneUrl from '../assets/solar/2k_neptune.jpg'
+import moonUrl from '../assets/solar/2k_moon.jpg'
 import sunUrl from '../assets/solar/2k_sun.jpg'
 
 export interface RingSpec {
@@ -36,6 +37,27 @@ export interface PlanetSpec {
   rotationHours: number
   textureUrl: string
   ring?: RingSpec
+  /** J2000 历元（2000-01-01 12:00 TT）平黄经（度） */
+  meanLongitudeDeg: number
+  /** 近日点黄经（度） */
+  perihelionLongitudeDeg: number
+  /** 公转周期（天） */
+  periodDays: number
+  /** 轨道离心率（用于 Kepler 方程求真近点角） */
+  eccentricity: number
+}
+
+/** 月球（地球的天然卫星，独立数据条目）：半径约为地球 0.27，位置固定在地球右侧 */
+export const MOON = {
+  id: 'moon',
+  name: '月球',
+  nameEn: 'MOON',
+  note: '地球唯一的天然卫星',
+  radius: 0.68,
+  distance: 3.6,
+  /** 真实模式（太阳居中）下的公转周期（秒，视觉压缩） */
+  orbitSeconds: 50,
+  textureUrl: moonUrl,
 }
 
 export const SUN_RADIUS = 5.5
@@ -56,37 +78,37 @@ export const PLANET_LINE_ANGLE_DEG = 165.1
 export const planets: PlanetSpec[] = [
   {
     id: 'mercury', name: '水星', nameEn: 'MERCURY', note: '最靠近太阳的岩石行星',
-    radius: 1.6, orbitRadius: 14, axialTiltDeg: 0.03, rotationHours: 1407.6, textureUrl: mercuryUrl,
+    radius: 1.6, orbitRadius: 14, axialTiltDeg: 0.03, rotationHours: 1407.6, textureUrl: mercuryUrl, meanLongitudeDeg: 252.25084, perihelionLongitudeDeg: 77.45645, periodDays: 87.969, eccentricity: 0.20563,
   },
   {
     id: 'venus', name: '金星', nameEn: 'VENUS', note: '被浓密云层包裹的行星',
-    radius: 2.3, orbitRadius: 30, axialTiltDeg: 177.4, rotationHours: 5832.5, textureUrl: venusUrl,
+    radius: 2.3, orbitRadius: 30, axialTiltDeg: 177.4, rotationHours: 5832.5, textureUrl: venusUrl, meanLongitudeDeg: 181.97973, perihelionLongitudeDeg: 131.76746, periodDays: 224.701, eccentricity: 0.006772,
   },
   {
     id: 'earth', name: '地球', nameEn: 'EARTH', note: '进入近地轨道与航天活动观测',
-    radius: 2.5, orbitRadius: 46, axialTiltDeg: 23.44, rotationHours: 23.93, textureUrl: earthUrl,
+    radius: 2.5, orbitRadius: 46, axialTiltDeg: 23.44, rotationHours: 23.93, textureUrl: earthUrl, meanLongitudeDeg: 100.46435, perihelionLongitudeDeg: 102.93735, periodDays: 365.256, eccentricity: 0.016708,
   },
   {
     id: 'mars', name: '火星', nameEn: 'MARS', note: '具有氧化铁红色地表的行星',
-    radius: 2.0, orbitRadius: 60, axialTiltDeg: 25.19, rotationHours: 24.62, textureUrl: marsUrl,
+    radius: 2.0, orbitRadius: 60, axialTiltDeg: 25.19, rotationHours: 24.62, textureUrl: marsUrl, meanLongitudeDeg: 355.45332, perihelionLongitudeDeg: 336.04084, periodDays: 686.98, eccentricity: 0.0934,
   },
   {
     id: 'jupiter', name: '木星', nameEn: 'JUPITER', note: '太阳系中体积最大的行星',
-    radius: 6.0, orbitRadius: 82, axialTiltDeg: 3.13, rotationHours: 9.93, textureUrl: jupiterUrl,
+    radius: 6.0, orbitRadius: 82, axialTiltDeg: 3.13, rotationHours: 9.93, textureUrl: jupiterUrl, meanLongitudeDeg: 34.40438, perihelionLongitudeDeg: 14.75385, periodDays: 4332.589, eccentricity: 0.048494,
   },
   {
     id: 'saturn', name: '土星', nameEn: 'SATURN', note: '拥有广阔而明亮的行星环',
-    radius: 5.0, orbitRadius: 98, axialTiltDeg: 26.73, rotationHours: 10.66, textureUrl: saturnUrl,
+    radius: 5.0, orbitRadius: 98, axialTiltDeg: 26.73, rotationHours: 10.66, textureUrl: saturnUrl, meanLongitudeDeg: 49.94432, perihelionLongitudeDeg: 92.43194, periodDays: 10759.22, eccentricity: 0.055509,
     ring: { kind: 'saturn', inner: 1.24, outer: 2.33 },
   },
   {
     id: 'uranus', name: '天王星', nameEn: 'URANUS', note: '近乎侧躺旋转的冰巨星',
-    radius: 3.5, orbitRadius: 114, axialTiltDeg: 97.77, rotationHours: 17.24, textureUrl: uranusUrl,
-    ring: { kind: 'uranus', inner: 1.55, outer: 2.0 },
+    radius: 3.5, orbitRadius: 114, axialTiltDeg: 97.77, rotationHours: 17.24, textureUrl: uranusUrl, meanLongitudeDeg: 313.23218, perihelionLongitudeDeg: 170.96424, periodDays: 30688.5, eccentricity: 0.046381,
+    ring: { kind: 'uranus', inner: 1.6, outer: 1.66 }, // 细环：约一条线的宽度
   },
   {
     id: 'neptune', name: '海王星', nameEn: 'NEPTUNE', note: '遥远而深蓝的冰巨星',
-    radius: 3.4, orbitRadius: 130, axialTiltDeg: 28.32, rotationHours: 16.11, textureUrl: neptuneUrl,
+    radius: 3.4, orbitRadius: 130, axialTiltDeg: 28.32, rotationHours: 16.11, textureUrl: neptuneUrl, meanLongitudeDeg: 304.88003, perihelionLongitudeDeg: 44.97135, periodDays: 60182.0, eccentricity: 0.009456,
   },
 ]
 
@@ -122,14 +144,18 @@ export const VIEW = {
   fov: 42,
   elevationDeg: 28,
   azimuthDeg: -35,
-  /** 用户滚轮缩放下限 */
-  minDistance: 40,
+  /** 滚轮缩放近限：可贴近到行星表面之上，仅保留防穿模下限 */
+  minDistance: 0.15,
   /** 构图距离下限：尽量贴近以拉大太阳-海王星跨度（相机仍保持在柯伊伯带之外） */
   composeMinDistance: 115,
   composeMaxDistance: 900,
   /** 视角中心（小行星带）锚定位置：水平居中、垂直略偏上（整体上移） */
   anchorScreenX: 0.5,
   anchorScreenY: 0.45,
+  /** 真实位置模式：太阳锚定位置（屏幕从上往下比例；0.35 = 从下往上 65%） */
+  realAnchorScreenY: 0.35,
+  /** 真实位置模式：水平边距系数（1.0 = 边界刚好到达柯伊伯带外缘） */
+  realFitMargin: 1.0,
 }
 
 export const SUN = {
@@ -151,6 +177,7 @@ export const ALL_TEXTURE_URLS = [
   uranusUrl,
   neptuneUrl,
   saturnRingUrl,
+  moonUrl,
 ]
 
 /** 土星环透明度纹理（径向条带，2048×125 RGBA） */

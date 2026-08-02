@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#03070c" />
     <title>AURORA · ORBIT</title>
+    <style>
+      /* 首帧深色背景：防止 CSS(JS 注入)加载前的白屏闪烁 */
+      html, body { background: #03070c; }
+    </style>
   </head>
   <body>
     <div id="app"></div>

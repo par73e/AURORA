@@ -10,6 +10,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import AuroraCover from './components/AuroraCover.vue'
 import OrbitScene from './components/OrbitScene.vue'
 import SolarSystem from './components/SolarSystem.vue'
+import SolarSystemItem from './components/SolarSystemItem.vue'
 import { fetchOrbitOverview } from './api'
 import { spacecraftPoint } from './orbit/coordinates'
 import { preloadOrbitTextures, preloadSolarTextures } from './preload'
@@ -42,6 +43,7 @@ const showEventOriginal = ref(false)
 type AppSurface = 'cover' | 'solar-system' | 'orbit'
 
 const surface = ref<AppSurface>(surfaceFromHash())
+const solarSystemRef = ref<InstanceType<typeof SolarSystem> | null>(null)
 const headerExpanded = ref(true)
 const orbitPageActive = ref(true)
 const orbitSectionLeaving = ref(false)
@@ -58,6 +60,12 @@ const DISPLAY_TIME_ZONE = 'Asia/Shanghai'
 
 // ---- 页面切换过渡（变暗 + 缩放推近/拉远 + 遮罩后换页） ----
 const veilActive = ref(false)
+/** 封面→太阳系：换页提前到点击瞬间，封面继续覆盖（lingering），黑幕结束才撤下 */
+const coverLingering = ref(false)
+/** 太阳系入场推镜延迟：封面路径 = 变暗时长（全黑开始时起飞）；直接加载 = 0 */
+const solarFlyDelay = ref(0)
+/** 封面路径进入时播放入场推镜；刷新/直接加载不播（静态恢复现场） */
+const solarEntryFly = ref(false)
 const shellZoom = ref(1)
 const shellOrigin = ref('50% 50%')
 const shellTransitioning = ref(false)
@@ -92,6 +100,7 @@ function cancelPendingTransition() {
   veilActive.value = false
   shellZoom.value = 1
   shellTransitioning.value = false
+  coverLingering.value = false
 }
 
 /** 过渡切换：当前页变暗并缩放 → 在遮罩后换页（新页利用这段时间加载）→ 新页回弹、遮罩淡出 */
@@ -112,15 +121,15 @@ function transitionTo(nextSurface: AppSurface, zoom = 1, origin = '50% 50%', tim
   veilDuration.value = reduced ? '0.01s' : (timing.veilSeconds ?? '0.4s')
   veilActive.value = true
   transitionTimer = window.setTimeout(() => {
-    // 全黑停留：遮罩保持不透明
+    // 换页提前到全黑停留开始时：新页面在遮罩后完成挂载、shader 编译与首帧渲染，
+    // 等全黑结束淡出时画面已在运动中（消除"黑幕亮起时画面才刚开始/还在编译"的卡顿）
+    if (surfaceFromHash() !== nextSurface) {
+      cancelPendingTransition()
+      return
+    }
+    void setSurface(nextSurface)
+    // 全黑停留：遮罩保持不透明，新页面在幕后完成首帧渲染与加载
     transitionTimer = window.setTimeout(() => {
-      // 过渡期间若用户通过后退/前进改动了 hash，放弃本次过渡，避免 URL 与页面失步
-      if (surfaceFromHash() !== nextSurface) {
-        cancelPendingTransition()
-        return
-      }
-      // 换页：新页面在遮罩后完成首帧渲染与加载
-      void setSurface(nextSurface)
       // 进入阶段：新页从缩放位置回弹、遮罩淡出
       transitionFrame = requestAnimationFrame(() => {
         transitionFrame = undefined
@@ -338,9 +347,42 @@ function enterSolarSystem() {
   solarEnterFromOrbit.value = false
   window.history.pushState(null, '', '#solar-system')
   preloadOrbitTextures() // 提前预热地球纹理，为下一步进入 ORBIT 做准备
-  // 封面进入太阳系：变暗与全黑停留拉长，形成渐入深空的仪式感
-  transitionTo('solar-system', 1.05, '50% 42%', { exitMs: 900, dwellMs: 450, veilSeconds: '0.7s' })
+  // 封面进入太阳系：星野页面（星空插图）渐入 → 停留（对应原黑屏时间）→ 渐亮揭示推镜
+  cancelPendingTransition()
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const exitMs = reduced ? 40 : 200 // 星野渐入 200ms
+  const dwellMs = reduced ? 0 : 400 // 星野停留 400ms（对应之前的黑屏时间）
+  solarFlyDelay.value = 0 // 推镜从挂载（点击）即刻开始
+  solarEntryFly.value = true // 封面路径：播放入场推镜
+  shellOrigin.value = '50% 42%'
+  shellZoom.value = 1.05
+  shellTransitioning.value = true
+  veilDuration.value = reduced ? '0.01s' : '0.2s' // 星野渐入
+  veilActive.value = true
+  coverLingering.value = true
+  void setSurface('solar-system')
+  transitionTimer = window.setTimeout(() => {
+    transitionTimer = window.setTimeout(() => {
+      if (surfaceFromHash() !== 'solar-system') {
+        cancelPendingTransition()
+        return
+      }
+      // 停留结束：撤封面 → 渐亮揭示（推镜已在中途）
+      coverLingering.value = false
+      transitionFrame = requestAnimationFrame(() => {
+        transitionFrame = undefined
+        shellZoom.value = 1
+        veilDuration.value = reduced ? '0.01s' : '0.6s' // 渐亮时长
+        veilActive.value = false
+      })
+      transitionTimer = window.setTimeout(() => {
+        shellTransitioning.value = false
+        transitionTimer = undefined
+      }, 620 + 60)
+    }, dwellMs)
+  }, exitMs)
 }
+
 
 /** ORBIT → 太阳系：滚回主地球视图 → 信息淡出只留地球 → 变暗 → 切页，
  *  太阳系场景从地球近景开始拉回（地球缩回轨道位置，遮罩淡出时可见） */
@@ -359,7 +401,7 @@ function enterSolarSystemFromOrbit() {
       cancelPendingTransition()
       return
     }
-    veilDuration.value = reduced ? '0.01s' : '0.4s'
+    veilDuration.value = reduced ? '0.01s' : '0.4s' // 渐暗 400ms
     veilActive.value = true
     // 阶段 3：切页——太阳系挂载并从地球近景拉回；遮罩随即淡出，拉回过程可见
     transitionTimer = window.setTimeout(() => {
@@ -370,11 +412,11 @@ function enterSolarSystemFromOrbit() {
       orbitSectionLeaving.value = false
       void setSurface('solar-system')
       requestAnimationFrame(() => {
-        veilDuration.value = reduced ? '0.01s' : '0.5s'
+        veilDuration.value = reduced ? '0.01s' : '0.5s' // 渐亮 500ms
         veilActive.value = false
       })
       transitionTimer = undefined
-    }, reduced ? 30 : 420)
+    }, reduced ? 30 : 460) // 等遮罩全黑（400ms）再切页
   }, reduced ? 20 : 420)
 }
 
@@ -565,9 +607,14 @@ onBeforeUnmount(() => {
       <p>当前原型专注桌面端三维交互，移动端适配将在后续阶段加入。</p>
     </div>
 
-    <AuroraCover v-if="surface === 'cover'" class="desktop-cover" @explore="enterSolarSystem" />
+    <AuroraCover
+      v-if="surface === 'cover' || coverLingering"
+      class="desktop-cover"
+      :class="{ lingering: coverLingering }"
+      @explore="enterSolarSystem"
+    />
 
-    <div v-else class="desktop-app" :class="{ 'header-collapsed': !headerExpanded }">
+    <div v-show="surface !== 'cover' || coverLingering" class="desktop-app" :class="{ 'header-collapsed': !headerExpanded }">
       <header
         ref="siteHeader"
         class="site-header"
@@ -578,24 +625,21 @@ onBeforeUnmount(() => {
         @focusout="scheduleHeaderCollapse"
       >
         <div class="page-frame header-inner">
-          <a class="brand" href="#home" aria-label="返回 AURORA 封面" @click.prevent="returnToCover">
-            <span class="brand-mark"><i /><i /><i /></span>
-            <span><strong>AURORA</strong><small>ORBITAL OBSERVATORY</small></span>
-          </a>
-          <nav v-if="surface === 'orbit'" aria-label="页面导航">
-            <a class="solar-system-return" href="#solar-system" @click.prevent="enterSolarSystem">
-              <span class="solar-system-icon" aria-hidden="true"><i /><i /><i /></span>
-              <span>太阳系</span>
+          <div class="header-left">
+            <a class="brand" href="#home" aria-label="返回 AURORA 封面" @click.prevent="returnToCover">
+              <span class="brand-mark"><i /><i /><i /></span>
+              <span><strong>AURORA</strong><small>ORBITAL OBSERVATORY</small></span>
             </a>
-            <span class="nav-divider" aria-hidden="true" />
-            <a href="#orbit" @click.prevent="enterOrbit">地球</a>
-            <a href="#objects">航天器</a>
-            <a href="#sites">发射场</a>
-            <a href="#launches">发射日程</a>
+            <SolarSystemItem v-if="surface === 'orbit'" title="太阳系" :icon-size="30" :animated="true" @click="enterSolarSystem" />
+          </div>
+          <nav v-if="surface === 'orbit'" aria-label="页面导航">
+            <a href="#orbit"><i class="nav-num">Ⅰ</i>地球</a>
+            <a href="#objects"><i class="nav-num">Ⅱ</i>航天器</a>
+            <a href="#sites"><i class="nav-num">Ⅲ</i>发射场</a>
+            <a href="#launches"><i class="nav-num">Ⅳ</i>发射日程</a>
           </nav>
-          <nav v-else class="solar-system-nav" aria-label="当前位置">
-            <span class="solar-system-icon is-current" aria-hidden="true"><i /><i /><i /></span>
-            <span>太阳系总览</span>
+          <nav v-else aria-label="当前位置">
+            <SolarSystemItem title="太阳系" :icon-size="30" :active="true" :animated="true" @click="solarSystemRef?.resetView?.()" />
           </nav>
           <div v-if="surface === 'orbit'" class="live-status">
             <span class="status-dot" :class="{ healthy: dataHealthy }" />
@@ -609,8 +653,11 @@ onBeforeUnmount(() => {
       </header>
 
       <SolarSystem
+        ref="solarSystemRef"
         v-if="surface === 'solar-system'"
         :enter-from-orbit="solarEnterFromOrbit"
+        :fly-delay="solarFlyDelay"
+        :play-entry-fly="solarEntryFly"
         @select-earth="onEarthSelect"
         @earth-fly-start="onEarthFlyStart"
         @earth-fly-zoom="onEarthFlyZoom"
@@ -754,7 +801,7 @@ onBeforeUnmount(() => {
       <section id="objects" class="content-section objects-section">
         <div class="page-frame">
           <div class="section-heading">
-            <div><p class="section-kicker">OBJECT CATALOG</p><h2>查找航天器</h2></div>
+            <div><p class="section-kicker">OBJECT CATALOG</p><h2><i class="sec-num">Ⅱ</i>航天器</h2></div>
           </div>
 
           <div class="catalog-workspace">
@@ -787,7 +834,7 @@ onBeforeUnmount(() => {
       <section id="sites" class="content-section sites-section">
         <div class="page-frame">
           <div class="section-heading">
-            <div><p class="section-kicker launch-kicker">GROUND NETWORK</p><h2>主要发射场</h2></div>
+            <div><p class="section-kicker launch-kicker">GROUND NETWORK</p><h2><i class="sec-num">Ⅲ</i>发射场</h2></div>
           </div>
           <div class="site-directory">
             <button v-for="site in overview?.launchSites" :key="site.id" @click="selectAndFocus({ kind: 'site', id: site.id })">
@@ -803,7 +850,7 @@ onBeforeUnmount(() => {
       <section id="launches" class="content-section launches-section">
         <div class="page-frame">
           <div class="section-heading">
-            <div><p class="section-kicker launch-kicker">NEXT 30 DAYS</p><h2>发射日程</h2></div>
+            <div><p class="section-kicker launch-kicker">NEXT 30 DAYS</p><h2><i class="sec-num">Ⅳ</i>发射日程</h2></div>
           </div>
           <div class="launch-list">
             <div class="launch-list-head"><span>日期</span><span>任务</span><span>状态</span><span>发射地点</span><span>时间</span></div>

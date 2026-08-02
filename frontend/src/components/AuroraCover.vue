@@ -40,7 +40,7 @@ function resetParallax() {
 function enterDeepSpace() {
   if (launching.value) return
   launching.value = true
-  launchTimer = window.setTimeout(() => emit('explore'), 720)
+  launchTimer = window.setTimeout(() => emit('explore'), 0) // 点击立即切页
 }
 
 function previewAstronomy() {
@@ -117,7 +117,11 @@ onBeforeUnmount(() => {
   isolation: isolate;
   background: #010307;
   color: #f2f7fa;
+  /* 点击深空探索后（换页提前到点击瞬间）：封面继续覆盖新场景，直到黑幕结束 */
+  z-index: 0;
 }
+/* 覆盖期间提到所有页面元素之上（页头 z-40 之上、遮罩 z-60 之下） */
+.aurora-cover.lingering { z-index: 50; }
 
 .cover-earth {
   position: absolute;

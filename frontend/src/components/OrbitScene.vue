@@ -729,6 +729,12 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .scene-host { position: absolute; inset: 0; overflow: hidden; cursor: default; }
+/* 地球场景入场：0.2s 渐入，避免从太阳系跳转时"闪出来" */
+.scene-host { animation: orbit-scene-fade-in 0.2s ease; }
+@keyframes orbit-scene-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
 .scene-host.pointer-near-earth { cursor: grab; }
 .scene-host.pointer-near-earth:active { cursor: grabbing; }
 .scene-host::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(circle at 50% 48%, transparent 26%, rgba(3, 7, 12, .13) 58%, rgba(3, 7, 12, .68) 100%); }
