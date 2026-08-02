@@ -155,6 +155,7 @@ func (s *Syncer) SyncLaunches(ctx context.Context) error {
 		if source.LSP != nil {
 			event.ProviderName = source.LSP.Name
 		}
+		orbit.LocalizeLaunchEvent(&event)
 		if err := s.repository.SaveLaunchEvent(ctx, event, raw); err != nil {
 			syncErr = err
 			return err

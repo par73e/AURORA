@@ -33,23 +33,31 @@ type LaunchSite struct {
 }
 
 type LaunchEvent struct {
-	ExternalID         string     `json:"externalId"`
-	Name               string     `json:"name"`
-	StatusName         string     `json:"statusName"`
-	StatusAbbrev       string     `json:"statusAbbrev"`
-	Net                time.Time  `json:"net"`
-	WindowStart        *time.Time `json:"windowStart,omitempty"`
-	WindowEnd          *time.Time `json:"windowEnd,omitempty"`
-	PadName            string     `json:"padName,omitempty"`
-	LocationName       string     `json:"locationName,omitempty"`
-	Latitude           *float64   `json:"latitude,omitempty"`
-	Longitude          *float64   `json:"longitude,omitempty"`
-	MissionName        string     `json:"missionName,omitempty"`
-	MissionType        string     `json:"missionType,omitempty"`
-	MissionDescription string     `json:"missionDescription,omitempty"`
-	ProviderName       string     `json:"providerName,omitempty"`
-	SourceURL          string     `json:"sourceUrl"`
-	SyncedAt           time.Time  `json:"syncedAt"`
+	ExternalID           string     `json:"externalId"`
+	Name                 string     `json:"name"`
+	NameZH               string     `json:"nameZh"`
+	StatusName           string     `json:"statusName"`
+	StatusNameZH         string     `json:"statusNameZh"`
+	StatusAbbrev         string     `json:"statusAbbrev"`
+	Net                  time.Time  `json:"net"`
+	WindowStart          *time.Time `json:"windowStart,omitempty"`
+	WindowEnd            *time.Time `json:"windowEnd,omitempty"`
+	PadName              string     `json:"padName,omitempty"`
+	PadNameZH            string     `json:"padNameZh,omitempty"`
+	LocationName         string     `json:"locationName,omitempty"`
+	LocationNameZH       string     `json:"locationNameZh,omitempty"`
+	Latitude             *float64   `json:"latitude,omitempty"`
+	Longitude            *float64   `json:"longitude,omitempty"`
+	MissionName          string     `json:"missionName,omitempty"`
+	MissionNameZH        string     `json:"missionNameZh,omitempty"`
+	MissionType          string     `json:"missionType,omitempty"`
+	MissionTypeZH        string     `json:"missionTypeZh,omitempty"`
+	MissionDescription   string     `json:"missionDescription,omitempty"`
+	MissionDescriptionZH string     `json:"missionDescriptionZh,omitempty"`
+	ProviderName         string     `json:"providerName,omitempty"`
+	SourceURL            string     `json:"sourceUrl"`
+	SyncedAt             time.Time  `json:"syncedAt"`
+	HasOriginal          bool       `json:"hasOriginal"`
 }
 
 type DataFreshness struct {

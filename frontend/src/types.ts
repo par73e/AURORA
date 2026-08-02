@@ -28,20 +28,29 @@ export interface LaunchSite {
 export interface LaunchEvent {
   externalId: string
   name: string
+  nameZh: string
   statusName: string
+  statusNameZh: string
   statusAbbrev: string
   net: string
   windowStart?: string
   windowEnd?: string
   padName: string
+  padNameZh: string
   locationName: string
+  locationNameZh: string
   latitude?: number
   longitude?: number
   missionName: string
+  missionNameZh: string
   missionType: string
+  missionTypeZh: string
   missionDescription: string
+  missionDescriptionZh: string
+  providerName: string
   sourceUrl: string
   syncedAt: string
+  hasOriginal: boolean
 }
 
 export interface Freshness {

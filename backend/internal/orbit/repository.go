@@ -90,10 +90,14 @@ func (r *Repository) listLaunchSites(ctx context.Context) ([]LaunchSite, error) 
 
 func (r *Repository) listLaunchEvents(ctx context.Context) ([]LaunchEvent, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT external_id, name, status_name, status_abbrev, net, window_start, window_end,
-		       COALESCE(pad_name,''), COALESCE(location_name,''), latitude, longitude,
-		       COALESCE(mission_name,''), COALESCE(mission_type,''), COALESCE(mission_description,''),
-		       COALESCE(provider_name,''), source_url, synced_at
+		SELECT external_id, name, name_zh, status_name, status_name_zh, status_abbrev,
+		       net, window_start, window_end,
+		       COALESCE(pad_name,''), pad_name_zh, COALESCE(location_name,''), location_name_zh,
+		       latitude, longitude,
+		       COALESCE(mission_name,''), mission_name_zh,
+		       COALESCE(mission_type,''), mission_type_zh,
+		       COALESCE(mission_description,''), mission_description_zh,
+		       COALESCE(provider_name,''), source_url, synced_at, has_original
 		FROM launch_events
 		WHERE net >= now() AND net <= now() + interval '30 days'
 		ORDER BY net
@@ -105,8 +109,21 @@ func (r *Repository) listLaunchEvents(ctx context.Context) ([]LaunchEvent, error
 	items := make([]LaunchEvent, 0, 20)
 	for rows.Next() {
 		var item LaunchEvent
-		if err := rows.Scan(&item.ExternalID, &item.Name, &item.StatusName, &item.StatusAbbrev, &item.Net, &item.WindowStart, &item.WindowEnd, &item.PadName, &item.LocationName, &item.Latitude, &item.Longitude, &item.MissionName, &item.MissionType, &item.MissionDescription, &item.ProviderName, &item.SourceURL, &item.SyncedAt); err != nil {
+		if err := rows.Scan(
+			&item.ExternalID, &item.Name, &item.NameZH,
+			&item.StatusName, &item.StatusNameZH, &item.StatusAbbrev,
+			&item.Net, &item.WindowStart, &item.WindowEnd,
+			&item.PadName, &item.PadNameZH, &item.LocationName, &item.LocationNameZH,
+			&item.Latitude, &item.Longitude,
+			&item.MissionName, &item.MissionNameZH,
+			&item.MissionType, &item.MissionTypeZH,
+			&item.MissionDescription, &item.MissionDescriptionZH,
+			&item.ProviderName, &item.SourceURL, &item.SyncedAt, &item.HasOriginal,
+		); err != nil {
 			return nil, fmt.Errorf("scan launch event: %w", err)
+		}
+		if item.NameZH == "" || item.StatusNameZH == "" {
+			LocalizeLaunchEvent(&item)
 		}
 		items = append(items, item)
 	}
@@ -165,15 +182,32 @@ func (r *Repository) SaveOrbitSnapshot(ctx context.Context, spacecraftID string,
 
 func (r *Repository) SaveLaunchEvent(ctx context.Context, event LaunchEvent, raw json.RawMessage) error {
 	_, err := r.pool.Exec(ctx, `
-		INSERT INTO launch_events(external_id,name,status_name,status_abbrev,net,window_start,window_end,pad_name,location_name,latitude,longitude,mission_name,mission_type,mission_description,provider_name,source_url,raw_payload)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+		INSERT INTO launch_events(
+			external_id,name,name_zh,status_name,status_name_zh,status_abbrev,
+			net,window_start,window_end,pad_name,pad_name_zh,location_name,location_name_zh,
+			latitude,longitude,mission_name,mission_name_zh,mission_type,mission_type_zh,
+			mission_description,mission_description_zh,provider_name,source_url,raw_payload,has_original)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
 		ON CONFLICT(external_id) DO UPDATE SET
-		name=EXCLUDED.name,status_name=EXCLUDED.status_name,status_abbrev=EXCLUDED.status_abbrev,
+		name=EXCLUDED.name,name_zh=EXCLUDED.name_zh,
+		status_name=EXCLUDED.status_name,status_name_zh=EXCLUDED.status_name_zh,status_abbrev=EXCLUDED.status_abbrev,
 		net=EXCLUDED.net,window_start=EXCLUDED.window_start,window_end=EXCLUDED.window_end,
-		pad_name=EXCLUDED.pad_name,location_name=EXCLUDED.location_name,latitude=EXCLUDED.latitude,longitude=EXCLUDED.longitude,
-		mission_name=EXCLUDED.mission_name,mission_type=EXCLUDED.mission_type,mission_description=EXCLUDED.mission_description,
-		provider_name=EXCLUDED.provider_name,source_url=EXCLUDED.source_url,raw_payload=EXCLUDED.raw_payload,synced_at=now()`,
-		event.ExternalID, event.Name, event.StatusName, event.StatusAbbrev, event.Net, event.WindowStart, event.WindowEnd, event.PadName, event.LocationName, event.Latitude, event.Longitude, event.MissionName, event.MissionType, event.MissionDescription, event.ProviderName, event.SourceURL, raw)
+		pad_name=EXCLUDED.pad_name,pad_name_zh=EXCLUDED.pad_name_zh,
+		location_name=EXCLUDED.location_name,location_name_zh=EXCLUDED.location_name_zh,
+		latitude=EXCLUDED.latitude,longitude=EXCLUDED.longitude,
+		mission_name=EXCLUDED.mission_name,mission_name_zh=EXCLUDED.mission_name_zh,
+		mission_type=EXCLUDED.mission_type,mission_type_zh=EXCLUDED.mission_type_zh,
+		mission_description=EXCLUDED.mission_description,mission_description_zh=EXCLUDED.mission_description_zh,
+		provider_name=EXCLUDED.provider_name,source_url=EXCLUDED.source_url,raw_payload=EXCLUDED.raw_payload,
+		has_original=EXCLUDED.has_original,synced_at=now()`,
+		event.ExternalID, event.Name, event.NameZH,
+		event.StatusName, event.StatusNameZH, event.StatusAbbrev,
+		event.Net, event.WindowStart, event.WindowEnd,
+		event.PadName, event.PadNameZH, event.LocationName, event.LocationNameZH,
+		event.Latitude, event.Longitude,
+		event.MissionName, event.MissionNameZH, event.MissionType, event.MissionTypeZH,
+		event.MissionDescription, event.MissionDescriptionZH,
+		event.ProviderName, event.SourceURL, raw, event.HasOriginal)
 	return err
 }
 

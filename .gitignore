@@ -6,3 +6,4 @@ backend/.env
 .pnpm-store/
 .impeccable/
 .DS_Store
+.reasonix/

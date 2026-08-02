@@ -1,13 +1,15 @@
 <!--
 THESIS: ORBIT is a scrollable observatory, not a fixed cockpit.
 OWN-WORLD: deep spatial navy, orbital blue, launch amber, one shared 12-column frame.
-STORY: explore Earth first, then search objects, inspect the full launch schedule, and understand sites and sources.
+STORY: explore Earth first, then search objects, understand launch sites, and inspect the full launch schedule.
 FIRST VIEWPORT: a quiet heading above one dominant globe; controls are compact and details appear only after selection.
 FORM: progressive observatory, the assigned seventh Operate structure; dense datasets receive dedicated workspaces below the scene.
 -->
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import AuroraCover from './components/AuroraCover.vue'
 import OrbitScene from './components/OrbitScene.vue'
+import SolarSystem from './components/SolarSystem.vue'
 import { fetchOrbitOverview } from './api'
 import { spacecraftPoint } from './orbit/coordinates'
 import type { LaunchEvent, LaunchSite, OrbitOverview, SceneLayers, Selection } from './types'
@@ -33,7 +35,27 @@ const operatorFilter = ref('all')
 const objectSort = ref<'name' | 'norad' | 'operator'>('name')
 const observerLocation = ref<ObserverLocation>({ ...fallbackObserver, status: 'locating' })
 const observerFocusRevision = ref(0)
+const observerViewActive = ref(true)
+const dayNightEnabled = ref(true)
+const showEventOriginal = ref(false)
+type AppSurface = 'cover' | 'solar-system' | 'orbit'
+
+const surface = ref<AppSurface>(surfaceFromHash())
+const headerExpanded = ref(true)
+const orbitPageActive = ref(true)
+const siteHeader = ref<HTMLElement | null>(null)
+const orbitSection = ref<HTMLElement | null>(null)
 let clock: number | undefined
+let headerIdleTimer: number | undefined
+let pageSurfaceFrame = 0
+let lastHeaderActivityAt = 0
+const DISPLAY_TIME_ZONE = 'Asia/Shanghai'
+
+function surfaceFromHash(): AppSurface {
+  if (window.location.hash === '#solar-system') return 'solar-system'
+  if (['#orbit', '#objects', '#sites', '#launches'].includes(window.location.hash)) return 'orbit'
+  return 'cover'
+}
 
 const selectedSpacecraft = computed(() => selection.value?.kind === 'spacecraft'
   ? overview.value?.spacecraft.find((item) => item.id === selection.value?.id)
@@ -88,9 +110,13 @@ const catalogResult = computed(() => {
 
 const selectedEventSite = computed(() => selectedEvent.value ? nearestSite(selectedEvent.value) : undefined)
 
+watch(() => selectedEvent.value?.externalId, () => {
+  showEventOriginal.value = false
+})
+
 const focusTarget = computed(() => {
   if (selectedEvent.value?.latitude != null && selectedEvent.value.longitude != null) {
-    return { latitude: selectedEvent.value.latitude, longitude: selectedEvent.value.longitude, distance: 6.15, key: `event:${selectedEvent.value.externalId}` }
+    return { latitude: selectedEvent.value.latitude, longitude: selectedEvent.value.longitude, distance: 5.8, key: `event:${selectedEvent.value.externalId}` }
   }
   if (selectedSite.value) {
     return { latitude: selectedSite.value.latitude, longitude: selectedSite.value.longitude, distance: 6.3, key: `site:${selectedSite.value.id}` }
@@ -99,12 +125,13 @@ const focusTarget = computed(() => {
     const point = spacecraftPoint(selectedSpacecraft.value, now.value)
     if (point) return { latitude: point.latitude, longitude: point.longitude, distance: 6.7, key: `spacecraft:${selectedSpacecraft.value.id}` }
   }
-  return {
+  if (observerViewActive.value) return {
     latitude: observerLocation.value.latitude,
     longitude: observerLocation.value.longitude,
     distance: 7.6,
-    key: `observer:${observerLocation.value.status}:${observerFocusRevision.value}`,
+    key: `observer:${observerFocusRevision.value}`,
   }
+  return null
 })
 
 function observerFallback(): Omit<ObserverLocation, 'status'> {
@@ -143,8 +170,18 @@ function requestObserverLocation() {
 
 function focusObserver() {
   selection.value = null
+  observerViewActive.value = true
   observerFocusRevision.value += 1
   if (observerLocation.value.status !== 'located') requestObserverLocation()
+}
+
+function selectFromScene(nextSelection: Selection) {
+  observerViewActive.value = false
+  selection.value = nextSelection
+}
+
+function leaveObserverView() {
+  observerViewActive.value = false
 }
 
 function nearestSite(event: LaunchEvent): LaunchSite | undefined {
@@ -161,22 +198,142 @@ function nearestSite(event: LaunchEvent): LaunchSite | undefined {
 }
 
 function selectAndFocus(nextSelection: Selection) {
+  observerViewActive.value = false
   selection.value = nextSelection
   window.requestAnimationFrame(() => document.querySelector('#orbit')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
 }
 
 function timeOnly(value: Date | string) {
-  return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(new Date(value))
+  return new Intl.DateTimeFormat('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+    timeZone: DISPLAY_TIME_ZONE,
+  }).format(new Date(value))
 }
 
 function eventDate(value: string) {
   const date = new Date(value)
   return {
-    day: new Intl.DateTimeFormat('zh-CN', { day: '2-digit' }).format(date),
-    month: new Intl.DateTimeFormat('en-US', { month: 'short' }).format(date).toUpperCase(),
-    weekday: new Intl.DateTimeFormat('zh-CN', { weekday: 'short' }).format(date),
-    time: new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }).format(date),
+    day: new Intl.DateTimeFormat('zh-CN', { day: '2-digit', timeZone: DISPLAY_TIME_ZONE }).format(date),
+    month: new Intl.DateTimeFormat('en-US', { month: 'short', timeZone: DISPLAY_TIME_ZONE }).format(date).toUpperCase(),
+    weekday: new Intl.DateTimeFormat('zh-CN', { weekday: 'short', timeZone: DISPLAY_TIME_ZONE }).format(date),
+    time: new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: DISPLAY_TIME_ZONE }).format(date),
   }
+}
+
+function launchVehicleName(event: LaunchEvent) {
+  return event.name.split(' | ')[0]?.trim() || event.providerName || '运载火箭待确认'
+}
+
+async function setSurface(nextSurface: AppSurface) {
+  surface.value = nextSurface
+  document.title = nextSurface === 'cover'
+    ? 'AURORA'
+    : nextSurface === 'solar-system' ? 'AURORA · 太阳系' : 'AURORA · ORBIT'
+  headerExpanded.value = true
+  if (nextSurface === 'orbit') orbitPageActive.value = true
+  await nextTick()
+  window.scrollTo({ top: 0, behavior: 'instant' })
+  updateActivePage()
+  if (nextSurface === 'orbit') scheduleHeaderCollapse()
+  else clearHeaderIdleTimer()
+}
+
+function enterSolarSystem() {
+  window.history.pushState(null, '', '#solar-system')
+  void setSurface('solar-system')
+}
+
+function enterOrbit() {
+  window.history.pushState(null, '', '#orbit')
+  void setSurface('orbit')
+}
+
+function returnToCover() {
+  window.history.pushState(null, '', '#home')
+  void setSurface('cover')
+}
+
+function syncSurfaceFromHash() {
+  const nextSurface = surfaceFromHash()
+  if (nextSurface === surface.value) return
+  void setSurface(nextSurface)
+}
+
+function clearHeaderIdleTimer() {
+  if (headerIdleTimer !== undefined) window.clearTimeout(headerIdleTimer)
+  headerIdleTimer = undefined
+}
+
+function scheduleHeaderCollapse() {
+  clearHeaderIdleTimer()
+  if (surface.value !== 'orbit' || !orbitPageActive.value) {
+    headerExpanded.value = true
+    return
+  }
+  headerIdleTimer = window.setTimeout(() => {
+    if (!orbitPageActive.value) {
+      headerExpanded.value = true
+      headerIdleTimer = undefined
+      return
+    }
+    if (siteHeader.value?.matches(':hover') || siteHeader.value?.contains(document.activeElement)) {
+      scheduleHeaderCollapse()
+      return
+    }
+    headerExpanded.value = false
+    headerIdleTimer = undefined
+  }, 5000)
+}
+
+function revealHeader() {
+  headerExpanded.value = true
+  if (orbitPageActive.value) scheduleHeaderCollapse()
+  else clearHeaderIdleTimer()
+}
+
+function registerHeaderActivity() {
+  if (!orbitPageActive.value || !headerExpanded.value) return
+  const activityAt = performance.now()
+  if (activityAt - lastHeaderActivityAt < 400) return
+  lastHeaderActivityAt = activityAt
+  scheduleHeaderCollapse()
+}
+
+function handleWindowPointerMove(event: PointerEvent) {
+  if (!headerExpanded.value && orbitPageActive.value && event.clientY <= 16) {
+    revealHeader()
+    return
+  }
+  registerHeaderActivity()
+}
+
+function collapseHeaderFromScene() {
+  if (!orbitPageActive.value) return
+  clearHeaderIdleTimer()
+  headerExpanded.value = false
+}
+
+function updateActivePage() {
+  pageSurfaceFrame = 0
+  if (surface.value !== 'orbit') {
+    orbitPageActive.value = false
+    headerExpanded.value = true
+    clearHeaderIdleTimer()
+    return
+  }
+  const nextOrbitPageActive = (orbitSection.value?.getBoundingClientRect().bottom ?? window.innerHeight) > 72
+  if (nextOrbitPageActive === orbitPageActive.value) return
+  orbitPageActive.value = nextOrbitPageActive
+  clearHeaderIdleTimer()
+  headerExpanded.value = !nextOrbitPageActive
+}
+
+function handlePageScroll() {
+  if (pageSurfaceFrame) return
+  pageSurfaceFrame = window.requestAnimationFrame(updateActivePage)
 }
 
 function formatCoordinate(value: number, positive: string, negative: string) {
@@ -196,11 +353,32 @@ async function load() {
 }
 
 onMounted(() => {
+  document.title = surface.value === 'cover'
+    ? 'AURORA'
+    : surface.value === 'solar-system' ? 'AURORA · 太阳系' : 'AURORA · ORBIT'
   load()
   requestObserverLocation()
+  updateActivePage()
+  scheduleHeaderCollapse()
+  window.addEventListener('pointermove', handleWindowPointerMove, { passive: true })
+  window.addEventListener('pointerdown', registerHeaderActivity, { passive: true })
+  window.addEventListener('wheel', registerHeaderActivity, { passive: true })
+  window.addEventListener('keydown', registerHeaderActivity)
+  window.addEventListener('scroll', handlePageScroll, { passive: true })
+  window.addEventListener('hashchange', syncSurfaceFromHash)
   clock = window.setInterval(() => { now.value = new Date() }, 1000)
 })
-onBeforeUnmount(() => { if (clock) window.clearInterval(clock) })
+onBeforeUnmount(() => {
+  if (clock) window.clearInterval(clock)
+  if (pageSurfaceFrame) window.cancelAnimationFrame(pageSurfaceFrame)
+  clearHeaderIdleTimer()
+  window.removeEventListener('pointermove', handleWindowPointerMove)
+  window.removeEventListener('pointerdown', registerHeaderActivity)
+  window.removeEventListener('wheel', registerHeaderActivity)
+  window.removeEventListener('keydown', registerHeaderActivity)
+  window.removeEventListener('scroll', handlePageScroll)
+  window.removeEventListener('hashchange', syncSurfaceFromHash)
+})
 </script>
 
 <template>
@@ -211,28 +389,53 @@ onBeforeUnmount(() => { if (clock) window.clearInterval(clock) })
       <p>当前原型专注桌面端三维交互，移动端适配将在后续阶段加入。</p>
     </div>
 
-    <div class="desktop-app">
-      <header class="site-header">
+    <AuroraCover v-if="surface === 'cover'" class="desktop-cover" @explore="enterSolarSystem" />
+
+    <div v-else class="desktop-app" :class="{ 'header-collapsed': !headerExpanded }">
+      <header
+        ref="siteHeader"
+        class="site-header"
+        :class="{ collapsed: !headerExpanded }"
+        @mouseenter="clearHeaderIdleTimer"
+        @mouseleave="scheduleHeaderCollapse"
+        @focusin="revealHeader"
+        @focusout="scheduleHeaderCollapse"
+      >
         <div class="page-frame header-inner">
-          <a class="brand" href="#orbit" aria-label="返回 ORBIT 观察区">
+          <a class="brand" href="#home" aria-label="返回 AURORA 封面" @click.prevent="returnToCover">
             <span class="brand-mark"><i /><i /><i /></span>
             <span><strong>AURORA</strong><small>ORBITAL OBSERVATORY</small></span>
           </a>
-          <nav aria-label="页面导航">
+          <nav v-if="surface === 'orbit'" aria-label="页面导航">
+            <a class="solar-system-return" href="#solar-system">
+              <span class="solar-system-icon" aria-hidden="true"><i /><i /><i /></span>
+              <span>太阳系</span>
+            </a>
+            <span class="nav-divider" aria-hidden="true" />
             <a href="#orbit">地球</a>
             <a href="#objects">航天器</a>
-            <a href="#launches">发射日程</a>
             <a href="#sites">发射场</a>
+            <a href="#launches">发射日程</a>
           </nav>
-          <div class="live-status">
+          <nav v-else class="solar-system-nav" aria-label="当前位置">
+            <span class="solar-system-icon is-current" aria-hidden="true"><i /><i /><i /></span>
+            <span>太阳系总览</span>
+          </nav>
+          <div v-if="surface === 'orbit'" class="live-status">
             <span class="status-dot" :class="{ healthy: dataHealthy }" />
             <span>{{ dataHealthy ? '数据正常' : '检查数据' }}</span>
-            <strong>{{ timeOnly(now) }} CST</strong>
+            <strong>{{ timeOnly(now) }} UTC+8</strong>
+          </div>
+          <div v-else class="live-status solar-clock">
+            <span>SOLAR SYSTEM</span>
           </div>
         </div>
       </header>
 
-      <section id="orbit" class="orbit-section">
+      <SolarSystem v-if="surface === 'solar-system'" @select-earth="enterOrbit" />
+
+      <template v-else>
+      <section id="orbit" ref="orbitSection" class="orbit-section">
         <div class="page-frame">
           <div class="scene-frame">
             <OrbitScene
@@ -243,7 +446,11 @@ onBeforeUnmount(() => { if (clock) window.clearInterval(clock) })
               :selection="selection"
               :focus-target="focusTarget"
               :observer-target="observerLocation"
-              @select="selection = $event"
+              :observer-active="observerViewActive"
+              :day-night-enabled="dayNightEnabled"
+              @select="selectFromScene"
+              @view-change="leaveObserverView"
+              @blank-click="collapseHeaderFromScene"
             />
 
             <div class="scene-toolbar" aria-label="场景图层">
@@ -251,11 +458,19 @@ onBeforeUnmount(() => { if (clock) window.clearInterval(clock) })
               <label><input v-model="layers.spacecraft" type="checkbox"><i />航天器</label>
               <label><input v-model="layers.orbits" type="checkbox"><i />轨道</label>
               <label><input v-model="layers.sites" type="checkbox"><i class="amber" />发射场</label>
+              <label><input v-model="dayNightEnabled" type="checkbox"><i class="terminator" />晨昏线</label>
             </div>
 
-            <button v-if="!selection" class="scene-location" type="button" @click="focusObserver">
+            <button
+              class="scene-location"
+              :class="{ active: observerViewActive }"
+              type="button"
+              :aria-pressed="observerViewActive"
+              :aria-label="observerViewActive ? `当前视角位于${observerLocation.label}` : `返回${observerLocation.label}`"
+              @click="focusObserver"
+            >
               <i :class="observerLocation.status" />
-              <span><small>默认中心</small><strong>{{ observerLocation.label }}</strong></span>
+              <span><small>{{ observerViewActive ? '当前中心' : '返回当前位置' }}</small><strong>{{ observerLocation.label }}</strong></span>
             </button>
 
             <div v-if="overview" class="scene-counts" aria-label="当前载入数据">
@@ -295,14 +510,23 @@ onBeforeUnmount(() => { if (clock) window.clearInterval(clock) })
 
               <template v-else-if="selectedEvent">
                 <p class="context-type launch-context">LAUNCH · {{ selectedEvent.statusAbbrev }}</p>
-                <h2>{{ selectedEvent.missionName || selectedEvent.name }}</h2>
-                <p class="context-subtitle">{{ selectedEvent.name }}</p>
-                <div class="event-clock"><strong>{{ eventDate(selectedEvent.net).month }} {{ eventDate(selectedEvent.net).day }}</strong><span>{{ eventDate(selectedEvent.net).time }} CST</span></div>
-                <p class="context-description">{{ selectedEvent.missionDescription || '任务详情暂未公开。' }}</p>
+                <h2 lang="en">{{ selectedEvent.missionName || selectedEvent.name }}</h2>
+                <p
+                  v-if="selectedEvent.missionNameZh && selectedEvent.missionNameZh !== selectedEvent.missionName"
+                  class="context-translation"
+                >
+                  {{ selectedEvent.missionNameZh }}
+                </p>
+                <p class="context-subtitle">
+                  {{ launchVehicleName(selectedEvent) }}<template v-if="selectedEvent.providerName"> · {{ selectedEvent.providerName }}</template>
+                </p>
+                <div class="event-clock"><strong>{{ eventDate(selectedEvent.net).month }} {{ eventDate(selectedEvent.net).day }}</strong><span>{{ eventDate(selectedEvent.net).time }} UTC+8</span></div>
+                <p class="context-description">{{ selectedEvent.missionDescriptionZh || '任务详情暂未公开。' }}</p>
                 <dl>
-                  <div><dt>状态</dt><dd>{{ selectedEvent.statusName }}</dd></div>
-                  <div><dt>发射台</dt><dd>{{ selectedEvent.padName }}</dd></div>
-                  <div><dt>地点</dt><dd>{{ selectedEvent.locationName }}</dd></div>
+                  <div><dt>任务类型</dt><dd>{{ selectedEvent.missionTypeZh || '待确认' }}</dd></div>
+                  <div><dt>状态</dt><dd>{{ selectedEvent.statusNameZh }}</dd></div>
+                  <div><dt>发射台</dt><dd>{{ selectedEvent.padNameZh || '待确认' }}</dd></div>
+                  <div><dt>地点</dt><dd>{{ selectedEvent.locationNameZh || '待确认' }}</dd></div>
                 </dl>
                 <div class="site-context">
                   <p>发射场</p>
@@ -311,9 +535,30 @@ onBeforeUnmount(() => { if (clock) window.clearInterval(clock) })
                     <span>{{ selectedEventSite.description }}</span>
                   </template>
                   <template v-else>
-                    <strong>{{ selectedEvent.padName || selectedEvent.locationName }}</strong>
+                    <strong>{{ selectedEvent.padNameZh || selectedEvent.locationNameZh }}</strong>
                     <span>当前事件源提供了位置和发射台信息，详细场地资料将在后续数据扩充中补充。</span>
                   </template>
+                </div>
+                <div v-if="selectedEvent.hasOriginal" class="event-original-disclosure">
+                  <button
+                    type="button"
+                    :aria-expanded="showEventOriginal"
+                    @click="showEventOriginal = !showEventOriginal"
+                  >
+                    {{ showEventOriginal ? '收起原文' : '查看原文' }}
+                  </button>
+                  <div v-if="showEventOriginal" class="event-original-copy">
+                    <p>来源原文</p>
+                    <strong>{{ selectedEvent.missionName || selectedEvent.name }}</strong>
+                    <span>{{ selectedEvent.name }}</span>
+                    <dl>
+                      <div><dt>STATUS</dt><dd>{{ selectedEvent.statusName }}</dd></div>
+                      <div v-if="selectedEvent.padName"><dt>PAD</dt><dd>{{ selectedEvent.padName }}</dd></div>
+                      <div v-if="selectedEvent.locationName"><dt>LOCATION</dt><dd>{{ selectedEvent.locationName }}</dd></div>
+                    </dl>
+                    <p class="event-original-description">{{ selectedEvent.missionDescription || 'No mission description is currently available.' }}</p>
+                    <a :href="selectedEvent.sourceUrl" target="_blank" rel="noreferrer">打开来源页</a>
+                  </div>
                 </div>
               </template>
             </aside>
@@ -328,7 +573,6 @@ onBeforeUnmount(() => { if (clock) window.clearInterval(clock) })
         <div class="page-frame">
           <div class="section-heading">
             <div><p class="section-kicker">OBJECT CATALOG</p><h2>查找航天器</h2></div>
-            <p>当前载入代表性对象。目录按未来数千个对象的使用方式设计，支持关键词、正则表达式、筛选、排序和后端分页扩展。</p>
           </div>
 
           <div class="catalog-workspace">
@@ -358,31 +602,10 @@ onBeforeUnmount(() => { if (clock) window.clearInterval(clock) })
         </div>
       </section>
 
-      <section id="launches" class="content-section launches-section">
-        <div class="page-frame">
-          <div class="section-heading">
-            <div><p class="section-kicker launch-kicker">NEXT 30 DAYS</p><h2>发射日程</h2></div>
-            <p>完整展示当前数据源中未来 30 天的全部任务。选择任一任务，地球会转向发射位置并显示任务与场地资料。</p>
-          </div>
-          <div class="launch-list">
-            <div class="launch-list-head"><span>日期</span><span>任务</span><span>状态</span><span>发射地点</span><span>时间</span></div>
-            <button v-for="event in upcomingEvents" :key="event.externalId" class="launch-row" @click="selectAndFocus({ kind: 'event', id: event.externalId })">
-              <time><strong>{{ eventDate(event.net).day }}</strong><span>{{ eventDate(event.net).month }} · {{ eventDate(event.net).weekday }}</span></time>
-              <span class="launch-mission"><strong>{{ event.missionName || event.name }}</strong><small>{{ event.name }}</small></span>
-              <span><i :class="event.statusAbbrev.toLowerCase()" />{{ event.statusName }}</span>
-              <span>{{ event.locationName || event.padName }}</span>
-              <span class="launch-time">{{ eventDate(event.net).time }}<small>CST</small></span>
-            </button>
-            <div v-if="!upcomingEvents.length" class="catalog-empty">未来 30 天内暂无已载入事件。</div>
-          </div>
-        </div>
-      </section>
-
       <section id="sites" class="content-section sites-section">
         <div class="page-frame">
           <div class="section-heading">
             <div><p class="section-kicker launch-kicker">GROUND NETWORK</p><h2>主要发射场</h2></div>
-            <p>选择场地即可回到地球定位。当前先收录少量代表性发射场，后续按国家、轨道能力和任务记录扩展。</p>
           </div>
           <div class="site-directory">
             <button v-for="site in overview?.launchSites" :key="site.id" @click="selectAndFocus({ kind: 'site', id: site.id })">
@@ -395,12 +618,35 @@ onBeforeUnmount(() => { if (clock) window.clearInterval(clock) })
         </div>
       </section>
 
+      <section id="launches" class="content-section launches-section">
+        <div class="page-frame">
+          <div class="section-heading">
+            <div><p class="section-kicker launch-kicker">NEXT 30 DAYS</p><h2>发射日程</h2></div>
+          </div>
+          <div class="launch-list">
+            <div class="launch-list-head"><span>日期</span><span>任务</span><span>状态</span><span>发射地点</span><span>时间</span></div>
+            <button v-for="event in upcomingEvents" :key="event.externalId" class="launch-row" @click="selectAndFocus({ kind: 'event', id: event.externalId })">
+              <time><strong>{{ eventDate(event.net).day }}</strong><span>{{ eventDate(event.net).month }} · {{ eventDate(event.net).weekday }}</span></time>
+              <span class="launch-mission">
+                <strong lang="en">{{ event.missionName || event.name }}</strong>
+                <small v-if="event.missionNameZh && event.missionNameZh !== event.missionName">{{ event.missionNameZh }}</small>
+              </span>
+              <span><i :class="event.statusAbbrev.toLowerCase()" />{{ event.statusNameZh }}</span>
+              <span>{{ event.locationNameZh || event.padNameZh }}</span>
+              <span class="launch-time">{{ eventDate(event.net).time }}<small>UTC+8</small></span>
+            </button>
+            <div v-if="!upcomingEvents.length" class="catalog-empty">未来 30 天内暂无已载入事件。</div>
+          </div>
+        </div>
+      </section>
+
       <footer class="site-footer">
         <div class="page-frame footer-inner">
           <div><strong>AURORA / ORBIT</strong><p>公开航天数据的三维探索与阅读界面。</p></div>
           <div class="source-list"><span v-for="source in overview?.freshness" :key="source.sourceCode"><i :class="{ healthy: source.success }" />{{ source.sourceName }} · {{ new Date(source.lastFinishedAt).toLocaleString('zh-CN', { hour12: false }) }}</span></div>
         </div>
       </footer>
+      </template>
     </div>
   </main>
 </template>

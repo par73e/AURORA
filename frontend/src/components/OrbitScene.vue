@@ -18,10 +18,14 @@ const props = defineProps<{
   selection: Selection | null
   focusTarget?: { latitude: number; longitude: number; distance?: number; key: string } | null
   observerTarget?: { latitude: number; longitude: number; label: string } | null
+  observerActive?: boolean
+  dayNightEnabled?: boolean
 }>()
 
 const emit = defineEmits<{
   select: [selection: Selection]
+  'view-change': []
+  'blank-click': []
 }>()
 
 const canvasHost = ref<HTMLDivElement | null>(null)
@@ -42,6 +46,10 @@ let orbitGroup: THREE.Group | undefined
 let siteGroup: THREE.Group | undefined
 let observerMarker: THREE.Group | undefined
 let earth: THREE.Mesh | undefined
+let earthDayMaterial: THREE.MeshPhongMaterial | undefined
+let nightLights: THREE.Mesh | undefined
+let ambientLight: THREE.AmbientLight | undefined
+let observationLight: THREE.DirectionalLight | undefined
 let sunLight: THREE.DirectionalLight | undefined
 let nightLightsMaterial: THREE.ShaderMaterial | undefined
 const markerObjects = new Map<string, THREE.Object3D>()
@@ -52,6 +60,7 @@ const earthOcclusionHit = new THREE.Vector3()
 const toOcclusionTarget = new THREE.Vector3()
 const pointer = new THREE.Vector2()
 const pointerStart = new THREE.Vector2()
+let pointerViewChangeAnnounced = false
 let lastOrbitUpdate = 0
 let lastSunUpdate = 0
 let focusAnimation: {
@@ -113,14 +122,6 @@ function rebuildDataLayers() {
     spacecraftGroup.add(marker)
     markerObjects.set(key, marker)
 
-    const halo = new THREE.Mesh(
-      new THREE.RingGeometry(selected ? 0.075 : 0.058, selected ? 0.084 : 0.064, 28),
-      new THREE.MeshBasicMaterial({ color: 0x72d7ff, transparent: true, opacity: selected ? 0.7 : 0.35, side: THREE.DoubleSide }),
-    )
-    halo.position.copy(point.position)
-    halo.lookAt(camera?.position ?? new THREE.Vector3(0, 0, 8))
-    spacecraftGroup.add(halo)
-
     const line = new THREE.Line(
       new THREE.BufferGeometry().setFromPoints(sampleOrbit(craft, now)),
       new THREE.LineBasicMaterial({ color: 0x42b7e8, transparent: true, opacity: selected ? 0.68 : 0.22 }),
@@ -170,18 +171,35 @@ function rebuildObserverMarker() {
   )
   observerMarker = new THREE.Group()
   observerMarker.position.copy(position)
+  const active = props.observerActive !== false
 
   const point = new THREE.Mesh(
     new THREE.SphereGeometry(0.031, 18, 18),
-    new THREE.MeshBasicMaterial({ color: 0x79e3bd }),
+    new THREE.MeshBasicMaterial({ color: 0x79e3bd, transparent: true, opacity: active ? 1 : 0.28 }),
   )
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(0.055, 0.062, 32),
-    new THREE.MeshBasicMaterial({ color: 0x79e3bd, transparent: true, opacity: 0.55, side: THREE.DoubleSide }),
+    new THREE.MeshBasicMaterial({ color: 0x79e3bd, transparent: true, opacity: active ? 0.55 : 0.14, side: THREE.DoubleSide }),
   )
   ring.lookAt(camera?.position ?? new THREE.Vector3(0, 0, 8))
   observerMarker.add(point, ring)
   earthSystemGroup.add(observerMarker)
+}
+
+function applyDayNightMode() {
+  const enabled = props.dayNightEnabled !== false
+  if (earth && earthDayMaterial) {
+    earth.material = earthDayMaterial
+    earthDayMaterial.emissive.setHex(0x000000)
+    earthDayMaterial.emissiveIntensity = 0
+  }
+  if (nightLights) nightLights.visible = enabled
+  if (ambientLight) {
+    ambientLight.color.setHex(0x315873)
+    ambientLight.intensity = 1.08
+  }
+  if (observationLight) observationLight.intensity = enabled ? 0 : 3.1
+  if (sunLight) sunLight.intensity = enabled ? 3.1 : 0
 }
 
 function isOccludedByEarth(position: THREE.Vector3) {
@@ -280,21 +298,31 @@ function setupScene() {
   controls.enableZoom = false
 
   // 夜面保留一层低强度冷色环境光，让海陆轮廓可读但不会像白昼一样明亮。
-  scene.add(new THREE.AmbientLight(0x315873, 1.08))
+  ambientLight = new THREE.AmbientLight(0x315873, 1.08)
+  scene.add(ambientLight)
+  // 关闭晨昏线时让同色温白昼光跟随相机，明暗边界落在球体轮廓之外。
+  observationLight = new THREE.DirectionalLight(0xfff3dd, 0)
+  observationLight.position.copy(camera.position)
+  scene.add(observationLight)
   sunLight = new THREE.DirectionalLight(0xfff3dd, 3.1)
   scene.add(sunLight)
 
   const loader = new THREE.TextureLoader()
-  const material = new THREE.MeshPhongMaterial({ color: 0x244a63, shininess: 7, specular: 0x17364b })
-  earth = new THREE.Mesh(new THREE.SphereGeometry(EARTH_RADIUS, 128, 128), material)
+  earthDayMaterial = new THREE.MeshPhongMaterial({ color: 0x244a63, shininess: 7, specular: 0x17364b })
+  earth = new THREE.Mesh(
+    new THREE.SphereGeometry(EARTH_RADIUS, 128, 128),
+    earthDayMaterial,
+  )
   earthSystemGroup.add(earth)
   loader.load(
     'https://unpkg.com/three-globe@2.45.2/example/img/earth-blue-marble.jpg',
     (texture) => {
       texture.colorSpace = THREE.SRGBColorSpace
-      material.map = texture
-      material.color.set(0xffffff)
-      material.needsUpdate = true
+      if (earthDayMaterial) {
+        earthDayMaterial.map = texture
+        earthDayMaterial.color.set(0xffffff)
+        earthDayMaterial.needsUpdate = true
+      }
       if (nightLightsMaterial) nightLightsMaterial.uniforms.surfaceMap.value = texture
       textureState.value = 'ready'
     },
@@ -338,11 +366,13 @@ function setupScene() {
       }
     `,
   })
-  const nightLights = new THREE.Mesh(
+  nightLights = new THREE.Mesh(
     new THREE.SphereGeometry(EARTH_RADIUS * 1.0015, 128, 128),
     nightLightsMaterial,
   )
+  nightLights.visible = props.dayNightEnabled !== false
   earthSystemGroup.add(nightLights)
+  applyDayNightMode()
   loader.load(
     'https://unpkg.com/three-globe@2.45.2/example/img/earth-night.jpg',
     (texture) => {
@@ -464,6 +494,7 @@ function resize() {
 
 function onPointerDown(event: PointerEvent) {
   pointerStart.set(event.clientX, event.clientY)
+  pointerViewChangeAnnounced = false
 }
 
 function isNearEarth(clientX: number, clientY: number) {
@@ -482,6 +513,10 @@ function isNearEarth(clientX: number, clientY: number) {
 
 function onPointerMove(event: PointerEvent) {
   pointerNearEarth.value = isNearEarth(event.clientX, event.clientY)
+  if (event.buttons !== 0 && !pointerViewChangeAnnounced && pointerStart.distanceTo(new THREE.Vector2(event.clientX, event.clientY)) > 5) {
+    pointerViewChangeAnnounced = true
+    emit('view-change')
+  }
 }
 
 function onPointerLeave() {
@@ -491,6 +526,7 @@ function onPointerLeave() {
 function onSceneWheel(event: WheelEvent) {
   if (!camera || !controls || !isNearEarth(event.clientX, event.clientY)) return
   event.preventDefault()
+  emit('view-change')
   focusAnimation = undefined
   controls.enabled = true
   const normalizedDelta = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? event.deltaY * 16 : event.deltaY
@@ -510,7 +546,11 @@ function onPointerUp(event: PointerEvent) {
   raycaster.setFromCamera(pointer, camera)
   const hits = raycaster.intersectObjects([...markerObjects.values()])
   const target = hits[0]?.object.userData as { kind?: 'spacecraft' | 'site'; id?: string }
-  if (target?.kind && target.id) emit('select', { kind: target.kind, id: target.id })
+  if (target?.kind && target.id) {
+    emit('select', { kind: target.kind, id: target.id })
+    return
+  }
+  emit('blank-click')
 }
 
 function animate(time = 0) {
@@ -544,12 +584,12 @@ function animate(time = 0) {
     updateSun(new Date())
     lastSunUpdate = time
   }
-  spacecraftGroup?.traverse((item) => {
-    if (item instanceof THREE.Mesh && item.geometry.type === 'RingGeometry' && camera) item.lookAt(camera.position)
-  })
   observerMarker?.traverse((item) => {
     if (item instanceof THREE.Mesh && item.geometry.type === 'RingGeometry' && camera) item.lookAt(camera.position)
   })
+  if (observationLight && camera && props.dayNightEnabled === false) {
+    observationLight.position.copy(camera.position).normalize().multiplyScalar(12)
+  }
   updateLabels()
   if (scene && camera && renderer) renderer.render(scene, camera)
 }
@@ -567,7 +607,8 @@ watch(() => props.layers, () => {
 
 watch(selectionKey, rebuildDataLayers)
 watch(() => props.focusTarget?.key, beginFocus)
-watch(() => props.observerTarget, rebuildObserverMarker, { deep: true })
+watch(() => [props.observerTarget, props.observerActive], rebuildObserverMarker, { deep: true })
+watch(() => props.dayNightEnabled, applyDayNightMode)
 
 onMounted(setupScene)
 onBeforeUnmount(() => {
@@ -599,13 +640,11 @@ onBeforeUnmount(() => {
     >
       <i />{{ label.name }}
     </button>
-    <div class="scene-guide">
-      <span>拖动旋转</span><span>地球附近滚轮缩放</span><span>轨道高度 ×3.2</span>
-    </div>
     <div
       v-if="observerLabel"
       v-show="observerLabel.visible"
       class="scene-observer-label"
+      :class="{ inactive: props.observerActive === false }"
       :style="{ transform: `translate(${observerLabel.x}px, ${observerLabel.y}px)` }"
     >
       <i />{{ observerLabel.name }}
@@ -627,7 +666,7 @@ onBeforeUnmount(() => {
 .scene-observer-label { position: absolute; left: 0; top: 0; z-index: 3; display: flex; align-items: center; gap: 7px; padding: 5px 8px; border: 1px solid rgba(121, 227, 189, .34); background: rgba(3, 10, 17, .78); color: #c7eee1; font: 500 10px/1.2 var(--font-sans); white-space: nowrap; pointer-events: none; backdrop-filter: blur(8px); }
 .scene-observer-label::before { content: ''; position: absolute; right: 100%; top: 50%; width: 14px; height: 1px; background: rgba(121, 227, 189, .4); }
 .scene-observer-label i { width: 5px; height: 5px; border-radius: 50%; background: #79e3bd; box-shadow: 0 0 8px rgba(121, 227, 189, .65); }
-.scene-guide { position: absolute; z-index: 3; bottom: 22px; left: 50%; transform: translateX(-50%); display: flex; gap: 18px; color: rgba(169, 192, 206, .62); font: 500 9px/1 var(--font-mono); letter-spacing: .1em; text-transform: uppercase; pointer-events: none; }
-.scene-guide span + span::before { content: '·'; margin-right: 18px; }
+.scene-observer-label.inactive { opacity: .34; }
+.scene-observer-label.inactive i { box-shadow: none; }
 .texture-warning { position: absolute; z-index: 4; top: 82px; left: 50%; transform: translateX(-50%); color: #e6b985; font: 11px var(--font-mono); }
 </style>
