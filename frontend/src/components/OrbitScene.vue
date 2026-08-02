@@ -577,6 +577,8 @@ function resize() {
 function onPointerDown(event: PointerEvent) {
   pointerStart.set(event.clientX, event.clientY)
   pointerViewChangeAnnounced = false
+  // 按下瞬间：按在地球上 → 立即收起页头（拖拽中页头不应遮挡操作）
+  if (isNearEarth(event.clientX, event.clientY)) emit('blank-click')
 }
 
 function isNearEarth(clientX: number, clientY: number) {
@@ -622,7 +624,9 @@ function onSceneWheel(event: WheelEvent) {
 }
 
 function onPointerUp(event: PointerEvent) {
-  if (!renderer || !camera || pointerStart.distanceTo(new THREE.Vector2(event.clientX, event.clientY)) > 5) return
+  if (!renderer || !camera) return
+  const dragged = pointerStart.distanceTo(new THREE.Vector2(event.clientX, event.clientY)) > 5
+  if (dragged) return // 拖拽收起已在按下瞬间处理
   const bounds = renderer.domElement.getBoundingClientRect()
   pointer.set(((event.clientX - bounds.left) / bounds.width) * 2 - 1, -((event.clientY - bounds.top) / bounds.height) * 2 + 1)
   raycaster.setFromCamera(pointer, camera)
