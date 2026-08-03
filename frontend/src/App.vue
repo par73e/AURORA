@@ -477,9 +477,13 @@ function enterOrbit() {
 }
 
 function returnToCover(skipPush = false) {
-  // pushState(null,'','#home') 在部分浏览器对 hash-only 相对 URL 解析失效（hash 不变 →
-  // transitionTo 的 surfaceFromHash 校验 abort，返回首页被取消）——改用 location.hash 赋值（必然生效）
-  if (!skipPush) window.location.hash = '#home'
+  // hash 更新双保险：location.hash 赋值 + history.replaceState 兜底——
+  // 部分浏览器对 hash-only URL 的设置方式不生效（地址栏残留 #solar-system，刷新会进错页）；
+  // replaceState 不新增历史条目，后退行为不变
+  if (!skipPush) {
+    window.location.hash = '#home'
+    window.history.replaceState(null, '', '#home')
+  }
   transitionTo('cover', 0.96)
 }
 
