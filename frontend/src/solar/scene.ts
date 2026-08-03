@@ -1079,7 +1079,10 @@ export class SolarSystemScene {
     const earthPosition = earthRuntime.axial.getWorldPosition(this.tempWorldB)
     // 终点：正对地球（返回主视角对准地球，而非构图中心——构图中心附近有月球，
     // 拉远后月球会出现在画面中央）。镜头距离沿用当前构图距离，画面完整（太阳右上/海王星左下）
-    const aspect = this.host.clientWidth / this.host.clientHeight
+    // 宽高兜底：挂载瞬间容器可能 0×0，NaN 会传播进相机位置导致渲染崩溃
+    const host = this.host
+    const aspect =
+      host.clientWidth > 0 && host.clientHeight > 0 ? host.clientWidth / host.clientHeight : window.innerWidth / window.innerHeight
     const { distance } = this.computeModeComposition(aspect)
     this.fitDistance = distance
     this.lookAt.copy(earthPosition)
