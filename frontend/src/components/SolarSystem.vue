@@ -213,8 +213,8 @@ defineExpose({ resetView })
         :style="beltLabelStyle(belt)"
         aria-hidden="true"
       >
-        {{ belt.id === 'asteroid-belt' ? '小行星带' : '柯伊伯带' }}
-        <small>{{ belt.id === 'asteroid-belt' ? 'ASTEROID BELT' : 'KUIPER BELT' }}</small>
+        {{ belt.id === 'asteroid-belt' ? '小行星主带' : '柯伊伯带' }}
+        <small>{{ belt.id === 'asteroid-belt' ? 'THE BELT' : 'KUIPER BELT' }}</small>
       </div>
 
       <div
