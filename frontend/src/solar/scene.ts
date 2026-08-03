@@ -998,6 +998,7 @@ export class SolarSystemScene {
       startedAt: performance.now(),
       duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 250 : 1300,
       zoomed: false,
+      enterPlanet: true, // 仅此运镜完成时触发进入回调（onFlyComplete）
     }
     this.controls.enabled = false
   }
@@ -1059,6 +1060,7 @@ export class SolarSystemScene {
       // 1.6s 推镜（用户感知速度：由远及近缓推）
       duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 250 : 1600,
       zoomed: false,
+      enterPlanet: true, // 仅此运镜完成时触发进入回调（onFlyComplete）
     }
     this.controls.enabled = false
   }
@@ -1165,9 +1167,9 @@ export class SolarSystemScene {
       this.flyState = undefined
       this.entryFlyEased = null
       this.controls.enabled = true
-      // 仅点击行星的运镜（flyToEarth/flyToMoon）完成时触发进入回调；
-      // 入场推镜（entry，封面→太阳系）完成时不得触发——否则会自动进入地球
-      if (!fly.entry) this.callbacks.onFlyComplete?.()
+      // 白名单：仅 flyToEarth/flyToMoon（enterPlanet）完成时触发进入回调——
+      // 入场推镜/模式切换构图飞行/返回运镜一律不得触发（否则自动进入地球）
+      if (fly.enterPlanet) this.callbacks.onFlyComplete?.()
     }
   }
 
