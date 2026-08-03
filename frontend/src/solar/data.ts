@@ -6,7 +6,7 @@
 import mercuryUrl from '../assets/solar/2k_mercury.jpg'
 import venusUrl from '../assets/solar/2k_venus_atmosphere.jpg'
 import earthUrl from '../assets/solar/2k_earth_daymap.jpg'
-import marsUrl from '../assets/solar/2k_mars.jpg'
+import marsUrl from '../assets/solar/8k_mars.jpg'
 import jupiterUrl from '../assets/solar/2k_jupiter.jpg'
 import saturnUrl from '../assets/solar/2k_saturn.jpg'
 import saturnRingUrl from '../assets/solar/2k_saturn_ring_alpha.png'
@@ -14,7 +14,7 @@ import uranusUrl from '../assets/solar/2k_uranus.jpg'
 import neptuneUrl from '../assets/solar/2k_neptune.jpg'
 import moonUrl from '../assets/solar/2k_moon.jpg'
 import moon8kUrl from '../assets/solar/8k_moon.jpg'
-import sunUrl from '../assets/solar/2k_sun.jpg'
+import sunUrl from '../assets/solar/8k_sun.jpg'
 
 export interface RingSpec {
   kind: 'saturn' | 'uranus'
