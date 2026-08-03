@@ -601,16 +601,15 @@ export class SolarSystemScene {
     this.scene.add(asteroidGroup, kuiperGroup)
     this.beltGroups.push(asteroidGroup, kuiperGroup)
 
-    // 标签锚点：位于行星连线下方的带边缘
-    const lineAngle = PLANET_LINE_ANGLE_DEG * DEG
+    // 标签锚点：位于各自环带的偏左上角（默认视角 elevation 28°/azimuth -35° 下，
+    // 屏幕左上对应世界方位角 ≈ 240°——随环带跟随，转动视角时仍在环上）
+    const beltLabelAngle = 240 * DEG
     const asteroidAnchor = new THREE.Object3D()
     asteroidAnchor.name = 'asteroid-belt'
-    const asteroidAngle = lineAngle + 12 * DEG
-    asteroidAnchor.position.set(Math.cos(asteroidAngle) * (ASTEROID_BELT.outer + 0.4), 2.6, Math.sin(asteroidAngle) * (ASTEROID_BELT.outer + 0.4))
+    asteroidAnchor.position.set(Math.cos(beltLabelAngle) * (ASTEROID_BELT.outer + 0.4), 2.6, Math.sin(beltLabelAngle) * (ASTEROID_BELT.outer + 0.4))
     const kuiperAnchor = new THREE.Object3D()
     kuiperAnchor.name = 'kuiper-belt'
-    const kuiperAngle = lineAngle + 8 * DEG
-    kuiperAnchor.position.set(Math.cos(kuiperAngle) * (KUIPER_BELT.outer + 2), 3.4, Math.sin(kuiperAngle) * (KUIPER_BELT.outer + 2))
+    kuiperAnchor.position.set(Math.cos(beltLabelAngle) * (KUIPER_BELT.outer + 2), 3.4, Math.sin(beltLabelAngle) * (KUIPER_BELT.outer + 2))
     this.scene.add(asteroidAnchor, kuiperAnchor)
     this.beltAnchors.push(asteroidAnchor, kuiperAnchor)
   }
