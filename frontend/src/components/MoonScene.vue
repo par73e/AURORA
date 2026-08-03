@@ -226,12 +226,12 @@ watch(
     if (tick) sceneRevealed.value = true
   },
 )
-// 进入时启动分阶段揭示时间轴：球体渐亮(0.5s) → 着陆点 → 飞行器 → 标签
+// 进入时启动分阶段揭示时间轴：纯月球(0.5s) → 着陆点+飞行器一起 → 标签
 watch(sceneRevealed, (revealed) => {
   if (!revealed || revealStage.value >= 3) return
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  const delays = reduced ? [0, 0, 0] : [550, 1250, 1850]
-  ;[1, 2, 3].forEach((stage, index) => {
+  const delays = reduced ? [0, 0] : [550, 1350]
+  ;[1, 3].forEach((stage, index) => {
     window.setTimeout(() => {
       stageTimestamps[stage] = performance.now()
       revealStage.value = stage
@@ -514,7 +514,7 @@ onMounted(() => {
     // 距离自适应灵敏度：旋转速度 ∝ 相机距离——放大后不会"跟飞"（9 处保持原手感 0.48）
     if (controls) controls.rotateSpeed = 0.48 * (camera.position.length() / 9)
     // 分阶段揭示：飞行器/轨道在阶段 2 淡入（材质透明度），可见性由开关/遮挡各自控制
-    const craftStageOpacity = revealStage.value >= 2 ? stageFade(2) : 0
+    const craftStageOpacity = revealStage.value >= 1 ? stageFade(1) : 0
     for (const runtime of craftRuntimes) {
       const dotMat = runtime.dot.children[0]?.material as THREE.MeshBasicMaterial | undefined
       if (dotMat) dotMat.opacity = craftStageOpacity

@@ -483,12 +483,12 @@ function onEarthFlyZoom() {
   if (surface.value === 'orbit' || surfaceFromHash() !== 'orbit') return
   veilDuration.value = '0.22s'
   veilActive.value = true
-  // 遮罩完全变黑后（+600ms，黑屏留足余量）才开始 8k 解码——主线程解码/GPU 上传都发生在黑屏中；
+  // 遮罩完全变黑后（+800ms，黑屏留足余量）才开始 8k 解码——主线程解码/GPU 上传都发生在黑屏中；
   // 解码完成才换页（3s 超时兜底）
   window.setTimeout(() => {
     orbitTexturesReady().then(() => onEarthSelect())
     window.setTimeout(() => onEarthSelect(), 3000)
-  }, 600)
+  }, 800)
 }
 
 /** 地球放大完成（遮罩已黑）：换页，等首帧贴图 GPU 上传完成再渐亮 */
@@ -534,11 +534,11 @@ function onMoonFlyZoom() {
   if (surface.value === 'moon' || surfaceFromHash() !== 'moon') return
   veilDuration.value = '0.22s'
   veilActive.value = true
-  // 遮罩完全变黑后（+600ms，黑屏留足余量）才开始 16k 解码——主线程解码/GPU 上传都发生在黑屏中
+  // 遮罩完全变黑后（+800ms，黑屏留足余量）才开始 16k 解码——主线程解码/GPU 上传都发生在黑屏中
   window.setTimeout(() => {
     moonHdReady().then(() => onMoonSelect())
     window.setTimeout(() => onMoonSelect(), 3000)
-  }, 600)
+  }, 800)
 }
 
 /** 月球放大完成（遮罩已黑）：换页，等首帧贴图 GPU 上传完成再渐亮 */
