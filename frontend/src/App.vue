@@ -148,7 +148,11 @@ function transitionTo(nextSurface: AppSurface, zoom = 1, origin = '50% 50%', tim
   transitionTimer = window.setTimeout(() => {
     // 换页提前到全黑停留开始时：新页面在遮罩后完成挂载、shader 编译与首帧渲染，
     // 等全黑结束淡出时画面已在运动中（消除"黑幕亮起时画面才刚开始/还在编译"的卡顿）
-    if (surfaceFromHash() !== nextSurface) {
+    // abort 检查宽松化：hash 是浏览器中最不稳定的部分（pushState/location.hash 都可能不生效），
+    // 严格相等会误伤正常过渡（如返回首页被取消）——只拦"hash 指向其他已定义页面"的情况；
+    // hash 未生效时继续过渡（surface 状态才是真实导航，地址栏瑕疵不影响功能）
+    const currentFromHash = surfaceFromHash()
+    if (currentFromHash !== nextSurface && currentFromHash !== surface.value) {
       cancelPendingTransition()
       return
     }
