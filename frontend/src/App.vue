@@ -61,8 +61,16 @@ const sceneToolbarRef = ref<HTMLElement | null>(null)
 const sceneLocationRef = ref<HTMLElement | null>(null)
 watch(headerExpanded, (expanded) => {
   const transform = expanded ? 'translateY(76px)' : ''
-  if (sceneToolbarRef.value) sceneToolbarRef.value.style.transform = transform
-  if (sceneLocationRef.value) sceneLocationRef.value.style.transform = transform
+  // 显式设置 transition（inline 兜底）：与右侧面板同节奏的柔和下移（cubic-bezier 缓动）
+  const transition = 'transform .38s cubic-bezier(.22, 1, .36, 1)'
+  if (sceneToolbarRef.value) {
+    sceneToolbarRef.value.style.transition = transition
+    sceneToolbarRef.value.style.transform = transform
+  }
+  if (sceneLocationRef.value) {
+    sceneLocationRef.value.style.transition = transition
+    sceneLocationRef.value.style.transform = transform
+  }
 }, { immediate: true })
 const orbitPageActive = ref(true)
 const moonPageActive = ref(true)
