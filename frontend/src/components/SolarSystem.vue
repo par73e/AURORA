@@ -196,11 +196,13 @@ defineExpose({ resetView })
         v-if="sunLabel"
         v-show="sunLabel.visible"
         class="solar-label sun-label"
+        :class="{ active: activeId === 'sun' }"
         :style="sunLabelStyle(sunLabel)"
         aria-hidden="true"
       >
         <strong>太阳</strong>
         <small>SUN</small>
+        <i class="earth-entry">ENTER SUN ↗</i>
       </div>
 
       <div
