@@ -306,12 +306,12 @@ function startCraftFocus(id: string) {
   planFocusMotion(world, Math.min(camera.position.length(), 8))
 }
 
-/** 着陆点聚焦：方向对准着陆点（观察距离 4.2——不贴脸，月面区域整体可见） */
+/** 着陆点聚焦：方向对准着陆点（观察距离 5.2——月面区域与周边地形整体可见） */
 function startSiteFocus(id: string) {
   const marker = siteMarkers.get(id)
   if (!marker || !camera) return
   const world = marker.getWorldPosition(focusTmp).clone()
-  planFocusMotion(world, 4.2)
+  planFocusMotion(world, 5.2)
 }
 
 watch(selectedCraft, (id) => {
