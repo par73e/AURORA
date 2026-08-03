@@ -714,13 +714,14 @@ function updateSiteMarkerProximity() {
     if (!marker) continue
     const world = marker.getWorldPosition(focusTmp)
     const d = world.distanceTo(camera.position)
-    const fade = Math.min(1, Math.max(0, (d - 3.2) / (4.5 - 3.2)))
+    // 距离衰减：远视 1.0 → 贴面最低 0.6（半透明可见，不再消失）
+    const fade = Math.min(1, Math.max(0.6, (d - 3.2) / (4.5 - 3.2)))
     const material = marker.material as THREE.MeshBasicMaterial
-    // 距离淡出 × 阶段揭示淡入 × 返回渐隐
+    // 距离透明度 × 阶段揭示淡入 × 返回渐隐
     let leavingFade = 1
     if (props.leaving) leavingFade = Math.max(0, 1 - (performance.now() - leavingStartedAt) / 300)
     material.opacity = fade * (revealStage.value >= 1 ? stageFade(1) : 0) * leavingFade
-    marker.scale.setScalar(0.45 + 0.55 * fade)
+    marker.scale.setScalar(0.55 + 0.45 * fade)
   }
 }
 
