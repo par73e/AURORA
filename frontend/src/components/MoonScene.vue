@@ -3,7 +3,13 @@
     <div id="moon-scene" class="moon-scene-frame">
       <div ref="canvasHost" class="moon-scene-host" :class="{ revealed: sceneRevealed }" role="group" aria-label="月球三维视图，左上角可返回太阳系">
         <!-- 工具栏：与地球页同一套 scene-toolbar 结构（仅颜色走银灰覆盖） -->
-        <div class="scene-toolbar" aria-label="场景图层" :style="props.headerExpanded ? { transform: 'translateY(76px)' } : undefined">
+        <div
+          class="scene-toolbar"
+          aria-label="场景图层"
+          :style="props.headerExpanded
+            ? { transform: 'translateY(76px)', transition: 'transform .38s cubic-bezier(.22, 1, .36, 1)' }
+            : { transform: 'translateY(0)', transition: 'transform .38s cubic-bezier(.22, 1, .36, 1)' }"
+        >
           <span>图层</span>
           <label><input v-model="spacecraftEnabled" type="checkbox"><i />航天器</label>
           <label><input v-model="orbitsEnabled" type="checkbox"><i />轨道</label>
