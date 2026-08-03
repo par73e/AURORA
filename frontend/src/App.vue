@@ -472,9 +472,10 @@ function enterSolarSystemFromOrbit(skipPush = false) {
       cancelPendingTransition()
       return
     }
-    veilDuration.value = reduced ? '0.01s' : '0.4s' // 渐暗 400ms
+    veilDuration.value = reduced ? '0.01s' : '0.3s' // 渐暗 300ms（原 400ms——加速，卡顿窗口缩短）
     veilActive.value = true
-    // 阶段 3：切页——太阳系挂载并从地球近景拉回；遮罩随即淡出，拉回过程可见
+    // 阶段 3：切页推迟到渐暗完成后（300ms + 120ms 全黑缓冲）——切页是重操作，
+    // 若在渐暗进行中切页，其 JS 卡顿会被感知在渐暗过程；全黑中切页则不可见
     transitionTimer = window.setTimeout(() => {
       if (surfaceFromHash() !== 'solar-system') {
         cancelPendingTransition()
