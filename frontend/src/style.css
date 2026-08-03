@@ -159,7 +159,8 @@ button { cursor: pointer; }
     radial-gradient(.8px .8px at 82% 66%, rgba(198, 225, 255, .45), transparent 100%),
     radial-gradient(1px 1px at 91% 34%, rgba(198, 225, 255, .5), transparent 100%),
     radial-gradient(circle at 50% 48%, #09233a 0, #03070c 69%); }
-.scene-toolbar { position: absolute; z-index: 7; top: 18px; left: 32px; display: flex; align-items: center; gap: 6px; padding: 6px; border: 1px solid var(--line); border-radius: 4px; background: rgba(3, 9, 15, .8); transform: translateY(var(--header-overlay-offset)); transition: transform .38s cubic-bezier(.22, 1, .36, 1); backdrop-filter: blur(12px); }
+.scene-toolbar { position: absolute; z-index: 7; top: 18px; left: 32px; display: flex; align-items: center; gap: 6px; padding: 6px; border: 1px solid var(--line); border-radius: 4px; background: rgba(3, 9, 15, .8); backdrop-filter: blur(12px); }
+/* 注意：.scene-toolbar 的 transform 由 JS rAF 动画逐帧控制（CSS transform 会与 rAF 冲突导致首帧跳变再拉回） */
 .scene-toolbar > span { padding: 7px 9px; color: var(--quiet); font: 500 9px var(--font-mono); }
 .scene-toolbar label { position: relative; display: flex; align-items: center; gap: 7px; padding: 7px 9px; color: #9bb0bb; font-size: 10px; cursor: pointer; }
 .scene-toolbar input { position: absolute; opacity: 0; }
@@ -168,7 +169,7 @@ button { cursor: pointer; }
 .scene-toolbar input:checked + i.amber { background: var(--amber); }
 .scene-toolbar i.terminator { width: 7px; height: 7px; border: 1px solid #587789; background: #26404f; transform: rotate(-20deg); }
 .scene-toolbar input:checked + i.terminator { border-color: rgba(114, 215, 255, .78); background: linear-gradient(90deg, #78d7f7 0 50%, #102634 50% 100%); }
-.scene-location { position: absolute; z-index: 7; top: 18px; left: 386px; display: flex; align-items: center; gap: 10px; min-height: 43px; padding: 7px 11px; border: 1px solid var(--line); border-radius: 4px; background: rgba(3, 9, 15, .8); color: var(--ink); text-align: left; transform: translateY(var(--header-overlay-offset)); transition: transform .38s cubic-bezier(.22, 1, .36, 1); backdrop-filter: blur(12px); }
+.scene-location { position: absolute; z-index: 7; top: 18px; left: 386px; display: flex; align-items: center; gap: 10px; min-height: 43px; padding: 7px 11px; border: 1px solid var(--line); border-radius: 4px; background: rgba(3, 9, 15, .8); color: var(--ink); text-align: left; backdrop-filter: blur(12px); }
 .scene-location:hover, .scene-location:focus-visible { border-color: rgba(114, 215, 255, .5); outline: 0; }
 .scene-location > i { width: 7px; height: 7px; border: 1px solid #426779; border-radius: 50%; opacity: .48; transition: opacity .2s, border-color .2s, background .2s, box-shadow .2s; }
 .scene-location > i.locating { animation: location-pulse 1.2s ease-out infinite; }
