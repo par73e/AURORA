@@ -14,7 +14,7 @@
         <!-- 轨道飞行器标签 -->
         <button
           v-for="label in craftLabels"
-          v-show="label.visible && spacecraftEnabled"
+          v-show="label.visible && spacecraftEnabled && !leaving"
           :key="label.id"
           class="craft-label"
           :class="{ selected: selectedCraft === label.id, 'stage-late': revealStage < 3 }"
@@ -29,7 +29,7 @@
         <!-- 着陆点标签：图标（宇航员/着陆器/月球车/样本）+ 地点名 + 任务名 -->
         <button
           v-for="label in siteLabels"
-          v-show="label.visible && selectedSite === label.id"
+          v-show="label.visible && selectedSite === label.id && !leaving"
           :key="label.id"
           class="craft-label site-label"
           :class="{ selected: selectedSite === label.id }"
@@ -168,7 +168,7 @@ import { MOON_HD } from '../solar/data'
 import { solarTexture } from '../solar/textures'
 import type { MoonLandingSite, MoonSpacecraft } from '../types'
 
-const props = defineProps<{ revealTick?: number; enterFromSolar?: boolean }>()
+const props = defineProps<{ revealTick?: number; enterFromSolar?: boolean; leaving?: boolean }>()
 const emit = defineEmits<{
   'blank-click': []
   /** 场景首帧贴图渲染完成（16k 解码 + GPU 上传后）——过渡遮罩等待此信号再揭示 */
@@ -735,6 +735,28 @@ watch(spacecraftEnabled, (enabled) => {
 watch(orbitsEnabled, (enabled) => {
   for (const runtime of craftRuntimes) if (runtime.line) runtime.line.visible = enabled
 })
+// 返回太阳系：先清空月球以外的所有元素（标记/轨迹/飞行器/轨道/面板），只留月球球体——
+// 与地球返回流程"信息淡出只留地球"对齐，随后由 App 变暗切页
+watch(
+  () => props.leaving,
+  (leaving) => {
+    if (!leaving) return
+    selectedSite.value = null
+    selectedCraft.value = null
+    for (const site of landingSites.value) {
+      const marker = siteMarkers.get(site.id)
+      if (marker) marker.visible = false
+    }
+    for (const child of moonMesh?.children ?? []) {
+      if (child.name && child.name.startsWith('track:')) child.visible = false
+    }
+    for (const runtime of craftRuntimes) {
+      runtime.dot.visible = false
+      if (runtime.line) runtime.line.visible = false
+    }
+  },
+)
+
 // 着陆点开关：同步控制月面圆点 + 虚线轨迹（不只是标签）
 watch(sitesEnabled, (enabled) => {
   for (const site of landingSites.value) {

@@ -66,6 +66,8 @@ const solarEnterFromMoon = ref(false)
 const moonRevealTick = ref(0)
 /** 从太阳系进入月球：true 时月球页从"纯月球"开始分阶段揭示 */
 const moonEnterFromSolar = ref(false)
+/** 返回太阳系：true 时月球页清空月球以外元素（只留球体） */
+const moonLeaving = ref(false)
 const siteHeader = ref<HTMLElement | null>(null)
 const orbitSection = ref<HTMLElement | null>(null)
 const orbitSceneFrame = ref<HTMLElement | null>(null)
@@ -586,6 +588,10 @@ function enterSolarSystemFromMoon(skipPush = false) {
   cancelPendingTransition()
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   solarEnterFromMoon.value = true
+  // 阶段 1：滚回月球主视图 + 清空月球以外的所有元素（标记/飞行器/标签），只留月球球体
+  window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' })
+  moonLeaving.value = true
+  // 阶段 2：变暗，盖住月球界面
   veilDuration.value = reduced ? '0.01s' : '0.4s' // 渐暗 400ms
   veilActive.value = true
   transitionTimer = window.setTimeout(() => {
@@ -851,7 +857,7 @@ onBeforeUnmount(() => {
         </div>
       </header>
 
-      <MoonScene v-if="surface === 'moon'" :reveal-tick="moonRevealTick" :enter-from-solar="moonEnterFromSolar" @blank-click="collapseHeaderFromScene" @textures-ready="onMoonSceneReady" />
+      <MoonScene v-if="surface === 'moon'" :reveal-tick="moonRevealTick" :enter-from-solar="moonEnterFromSolar" :leaving="moonLeaving" @blank-click="collapseHeaderFromScene" @textures-ready="onMoonSceneReady" />
 
       <SolarSystem
         ref="solarSystemRef"
