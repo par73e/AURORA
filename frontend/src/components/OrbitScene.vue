@@ -332,7 +332,7 @@ function setupScene() {
   earthSystemGroup.name = 'earth-equatorial-frame'
   earthSystemGroup.quaternion.copy(EARTH_TILT)
   scene.add(earthSystemGroup)
-  camera = new THREE.PerspectiveCamera(42, host.clientWidth / host.clientHeight, 0.1, 120)
+  camera = new THREE.PerspectiveCamera(42, host.clientWidth / host.clientHeight, 0.1, 400) // far 400：容纳 60–150 星空壳层
   // 默认视角：对准东亚大陆，以南海为中心（约 12°N, 115°E）；
   // 自转轴仍保持黄道面参考的 23.44° 倾角（公转平面平行关系不变）
   const defaultDirection = latLonToVector(12, 115, 1)
@@ -488,16 +488,21 @@ function setupScene() {
   eclipticGuide.computeLineDistances()
   scene.add(eclipticGuide)
 
+  // 星空粒子球（与月球同参数）：3000 颗、壳层 60–150、浅蓝主题色
   const starGeometry = new THREE.BufferGeometry()
   const starData: number[] = []
-  for (let index = 0; index < 1000; index += 1) {
-    const radius = 32 + Math.random() * 45
+  for (let index = 0; index < 3000; index += 1) {
+    const radius = 60 + Math.random() * 90
     const theta = Math.random() * Math.PI * 2
     const phi = Math.acos(2 * Math.random() - 1)
     starData.push(radius * Math.sin(phi) * Math.cos(theta), radius * Math.cos(phi), radius * Math.sin(phi) * Math.sin(theta))
   }
   starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starData, 3))
-  scene.add(new THREE.Points(starGeometry, new THREE.PointsMaterial({ color: 0xa6c9df, size: 0.035, transparent: true, opacity: 0.58 })))
+  // 背景星空挂在相机上：屏幕固定，不随星球/相机旋转（世界固定会有视差，看起来像跟着星球转）
+  const starPoints = new THREE.Points(starGeometry, new THREE.PointsMaterial({ color: 0xb4d2e8, size: 0.15, transparent: true, opacity: 0.75 }))
+  starPoints.name = 'background-stars'
+  scene.add(camera)
+  camera.add(starPoints)
 
   renderer.domElement.addEventListener('pointerdown', onPointerDown)
   renderer.domElement.addEventListener('pointerup', onPointerUp)

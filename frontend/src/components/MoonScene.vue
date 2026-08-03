@@ -260,6 +260,22 @@ onMounted(() => {
   sunLight.position.set(-6, 4, 8)
   scene.add(sunLight)
 
+  // 星空粒子球（镜像地球 OrbitScene）：3000 颗、壳层 60–150、银灰主题色
+  const starGeometry = new THREE.BufferGeometry()
+  const starData: number[] = []
+  for (let index = 0; index < 3000; index += 1) {
+    const radius = 60 + Math.random() * 90
+    const theta = Math.random() * Math.PI * 2
+    const phi = Math.acos(2 * Math.random() - 1)
+    starData.push(radius * Math.sin(phi) * Math.cos(theta), radius * Math.cos(phi), radius * Math.sin(phi) * Math.sin(theta))
+  }
+  starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starData, 3))
+  // 背景星空挂在相机上：屏幕固定，不随星球/相机旋转（世界固定会有视差，看起来像跟着星球转）
+  const starPoints = new THREE.Points(starGeometry, new THREE.PointsMaterial({ color: 0xc7d1db, size: 0.15, transparent: true, opacity: 0.75 }))
+  starPoints.name = 'background-stars'
+  scene.add(camera)
+  camera.add(starPoints)
+
   // 轨道飞行器数据来自 /api/v1/moon/spacecraft（数据库 → Go → API → 前端），
   // 挂载后异步拉取并按数据构建轨道/圆点（镜像地球的数据链路）
   fetch('/api/v1/moon/spacecraft')
@@ -287,7 +303,10 @@ onMounted(() => {
     for (const runtime of craftRuntimes) {
       if (runtime.spec.kind !== 'orbital') continue
       runtime.nu += (Math.PI * 2 / runtime.spec.periodSeconds) * delta
-      const r = (runtime.spec.orbitA * (1 - runtime.spec.orbitE * runtime.spec.orbitE)) / (1 + runtime.spec.orbitE * Math.cos(runtime.nu))
+      const sn = runtime.spec.snapshot ?? null
+      const a = sn ? sn.aKm * MOON_SCENE_SCALE : runtime.spec.orbitA
+      const e = sn ? sn.eccentricity : runtime.spec.orbitE
+      const r = (a * (1 - e * e)) / (1 + e * Math.cos(runtime.nu))
       runtime.dot.position.set(r * Math.cos(runtime.nu), r * Math.sin(runtime.nu), 0)
     }
     // 观测光跟随相机：明暗边界始终落在球体轮廓之外（关闭晨昏线时 360° 全亮）
@@ -328,18 +347,37 @@ onMounted(() => {
   animate()
 })
 
-/** 按 API 数据构建单个飞行器（轨道平面/轨道线/运动点/拾取球） */
+/** 场景单位 ↔ 真实尺寸：月球半径 2.6（场景）↔ 1737.4 km（真实） */
+const MOON_SCENE_SCALE = 2.6 / 1737.4
+
+/** 平近点角 → 真近点角（Kepler 方程，牛顿迭代） */
+function keplerToTrueAnomaly(M: number, e: number): number {
+  let E = M
+  for (let k = 0; k < 8; k += 1) E = E - (E - e * Math.sin(E) - M) / (1 - e * Math.cos(E))
+  return 2 * Math.atan2(Math.sqrt(1 + e) * Math.sin(E / 2), Math.sqrt(1 - e) * Math.cos(E / 2))
+}
+
+/** 按 API 数据构建单个飞行器（轨道平面/轨道线/运动点/拾取球）
+ *  优先使用 JPL Horizons 日同步快照（真实形状 + 真实相位），无快照回退静态参数 */
 function buildCraft(spec: MoonSpacecraft) {
   if (!scene) return
+  const sn = spec.snapshot ?? null
+  // 真实轨道根数（快照优先）：半长轴 km → 场景单位
+  const a = sn ? sn.aKm * MOON_SCENE_SCALE : spec.orbitA
+  const e = sn ? sn.eccentricity : spec.orbitE
+  const inc = sn ? sn.inclinationDeg : spec.inclinationDeg
+  const raan = sn ? sn.raanDeg : spec.raanDeg
+  const argp = sn ? sn.argPeriapsisDeg : spec.argPeriapsisDeg
+
   const plane = new THREE.Object3D()
   if (spec.kind === 'orbital') {
     plane.rotation.order = 'YXZ'
-    plane.rotation.y = spec.raanDeg * DEG
-    plane.rotation.x = spec.inclinationDeg * DEG
+    plane.rotation.y = raan * DEG
+    plane.rotation.x = inc * DEG
   }
 
   const dot = new THREE.Object3D()
-  if (spec.kind === 'orbital') dot.rotation.z = spec.argPeriapsisDeg * DEG
+  if (spec.kind === 'orbital') dot.rotation.z = argp * DEG
   plane.add(dot)
   const dotMesh = new THREE.Mesh(
     new THREE.SphereGeometry(spec.kind === 'stationary' ? 0.045 : 0.04, 16, 16),
@@ -355,27 +393,35 @@ function buildCraft(spec: MoonSpacecraft) {
   craftHitMeshes.push(hitSphere)
 
   let line: THREE.Line | null = null
+  let initialNu = 0
   if (spec.kind === 'orbital') {
     const linePoints: THREE.Vector3[] = []
     for (let i = 0; i <= 180; i += 1) {
       const nu = (i / 180) * Math.PI * 2
-      const r = (spec.orbitA * (1 - spec.orbitE * spec.orbitE)) / (1 + spec.orbitE * Math.cos(nu))
+      const r = (a * (1 - e * e)) / (1 + e * Math.cos(nu))
       linePoints.push(new THREE.Vector3(r * Math.cos(nu), r * Math.sin(nu), 0))
     }
     line = new THREE.Line(
       new THREE.BufferGeometry().setFromPoints(linePoints),
       new THREE.LineBasicMaterial({ color: 0xb9c4cf, transparent: true, opacity: 0.5 }),
     )
-    line.rotation.z = spec.argPeriapsisDeg * DEG
+    line.rotation.z = argp * DEG
     plane.add(line)
-    dot.position.set(spec.orbitA * (1 - spec.orbitE), 0, 0)
+    // 真实初始相位：M = M0 + n·Δt（历元传播到当前时刻）→ 真近点角
+    if (sn) {
+      const elapsedSec = (Date.now() - Date.parse(sn.epoch)) / 1000
+      const n = (Math.PI * 2) / sn.periodSeconds
+      const M = (sn.meanAnomalyDeg * DEG + n * elapsedSec) % (Math.PI * 2)
+      initialNu = keplerToTrueAnomaly(M, e)
+    }
+    dot.position.set(a * (1 - e), 0, 0)
   } else {
     // 定点：固定在月球外侧（不参与公转）
     dot.position.set(spec.stationaryOffset[0], spec.stationaryOffset[1], spec.stationaryOffset[2])
   }
 
   scene.add(plane)
-  craftRuntimes.push({ spec, plane, dot, line, nu: 0 })
+  craftRuntimes.push({ spec, plane, dot, line, nu: initialNu })
 }
 
 // 晨昏线开关（镜像地球 applyDayNightMode）：

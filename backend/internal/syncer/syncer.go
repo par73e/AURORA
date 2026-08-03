@@ -6,20 +6,28 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"time"
 
+	"aurora/backend/internal/moon"
 	"aurora/backend/internal/orbit"
 )
 
 type Syncer struct {
 	repository *orbit.Repository
+	moonRepo   *moon.Repository
 	client     *http.Client
 }
 
 func New(repository *orbit.Repository) *Syncer {
 	return &Syncer{repository: repository, client: &http.Client{Timeout: 20 * time.Second}}
+}
+
+// NewWithMoon 附带月球仓库（月球飞行器同步需要）
+func NewWithMoon(repository *orbit.Repository, moonRepo *moon.Repository) *Syncer {
+	return &Syncer{repository: repository, moonRepo: moonRepo, client: &http.Client{Timeout: 30 * time.Second}}
 }
 
 func (s *Syncer) SyncCelesTrak(ctx context.Context) error {
@@ -184,4 +192,43 @@ func (s *Syncer) get(ctx context.Context, endpoint string) ([]byte, error) {
 		return nil, err
 	}
 	return body, nil
+}
+
+// SyncMoonSpacecraft 从 JPL Horizons 拉取月球飞行器实时轨道根数（镜像 SyncCelesTrak）。
+// 目前仅 LRO（NAIF -850）支持；失败时保留旧数据（前端回退静态参数）。
+func (s *Syncer) SyncMoonSpacecraft(ctx context.Context) error {
+	if s.moonRepo == nil {
+		return errors.New("moon repository 未配置")
+	}
+	runID, err := s.repository.StartSync(ctx, "jpl_horizons")
+	if err != nil {
+		return err
+	}
+	records := 0
+	var syncErr error
+	defer func() { _ = s.repository.FinishSync(context.Background(), runID, records, syncErr) }()
+
+	catalog, err := s.moonRepo.ListSpacecraft(ctx)
+	if err != nil {
+		syncErr = err
+		return err
+	}
+	for _, craft := range catalog {
+		if craft.Kind != "orbital" {
+			continue // 定点飞行器（鹊桥二号）无绕月轨道
+		}
+		result, err := moon.FetchMoonSpacecraftElements(ctx, s.client, craft.ID)
+		if err != nil {
+			syncErr = fmt.Errorf("horizons sync %s: %w", craft.ID, err)
+			return syncErr
+		}
+		if err := s.moonRepo.SaveMoonSnapshot(ctx, craft.ID, result.Epoch.UTC().Format(time.RFC3339), result.Elements, result.Raw); err != nil {
+			syncErr = err
+			return err
+		}
+		records++
+		slog.Info("moon orbit synced", "craft", craft.ID, "epoch", result.Epoch.UTC().Format(time.RFC3339),
+			"a_km", fmt.Sprintf("%.1f", result.Elements.A), "period", fmt.Sprintf("%.0fs", result.Elements.PeriodSeconds))
+	}
+	return nil
 }

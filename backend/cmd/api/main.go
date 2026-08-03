@@ -35,7 +35,7 @@ func main() {
 
 	repository := orbit.NewRepository(pool)
 	moonRepository := moon.NewRepository(pool)
-	dataSyncer := syncer.New(repository)
+	dataSyncer := syncer.NewWithMoon(repository, moonRepository)
 	initialSyncContext, cancelInitialSync := context.WithTimeout(ctx, 45*time.Second)
 	if err := dataSyncer.SyncCelesTrak(initialSyncContext); err != nil {
 		slog.Warn("CelesTrak startup sync failed; cached data remains available", "error", err)
@@ -43,10 +43,14 @@ func main() {
 	if err := dataSyncer.SyncLaunches(initialSyncContext); err != nil {
 		slog.Warn("Launch Library startup sync failed; cached data remains available", "error", err)
 	}
+	if err := dataSyncer.SyncMoonSpacecraft(initialSyncContext); err != nil {
+		slog.Warn("JPL Horizons startup sync failed; static moon data remains available", "error", err)
+	}
 	cancelInitialSync()
 
 	go schedule(ctx, 2*time.Hour, dataSyncer.SyncCelesTrak)
 	go schedule(ctx, 30*time.Minute, dataSyncer.SyncLaunches)
+	go schedule(ctx, 24*time.Hour, dataSyncer.SyncMoonSpacecraft) // 月球轨道：每日 JPL Horizons 同步
 
 	server := &http.Server{Addr: ":" + cfg.Port, Handler: httpapi.Router(repository, moonRepository), ReadHeaderTimeout: 5 * time.Second}
 	go func() {

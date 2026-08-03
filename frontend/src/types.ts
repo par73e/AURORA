@@ -92,6 +92,17 @@ export interface MoonSpacecraft {
   periodSeconds: number
   stationaryOffset: [number, number, number]
   sortOrder: number
+  /** JPL Horizons 日同步快照（无同步时为 null，回退静态参数） */
+  snapshot?: {
+    epoch: string
+    aKm: number
+    eccentricity: number
+    inclinationDeg: number
+    raanDeg: number
+    argPeriapsisDeg: number
+    meanAnomalyDeg: number
+    periodSeconds: number
+  } | null
 }
 
 export type Selection =
