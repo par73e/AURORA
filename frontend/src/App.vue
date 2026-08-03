@@ -602,13 +602,9 @@ function enterSolarSystemFromMoon(skipPush = false) {
   }, reduced ? 30 : 460) // 等遮罩全黑（400ms）再切页
 }
 
-function syncSurfaceFromHash() {
-  // 浏览器后退/前进等 hash 变化优先：先取消进行中的过渡，避免遮罩滞留或页面失步
-  cancelPendingTransition()
-  const nextSurface = surfaceFromHash()
-  if (nextSurface === surface.value) return
-  void setSurface(nextSurface)
-}
+// （已移除）syncSurfaceFromHash：hashchange 会在浏览器返回时与 popstate 竞争——
+// 直接 setSurface 无动画切页，把 popstate 的渐暗动画整体取消。
+// 所有 hash 变化均为 pushState 产生，动画流程自管 surface，popstate 统一处理前进/后退即可。
 
 function clearHeaderIdleTimer() {
   if (headerIdleTimer !== undefined) window.clearTimeout(headerIdleTimer)
@@ -778,7 +774,7 @@ onMounted(() => {
   window.addEventListener('wheel', registerHeaderActivity, { passive: true })
   window.addEventListener('keydown', registerHeaderActivity)
   window.addEventListener('scroll', handlePageScroll, { passive: true })
-  window.addEventListener('hashchange', syncSurfaceFromHash)
+  // 不监听 hashchange：与 popstate 竞争会跳过渐暗动画（见 syncSurfaceFromHash 说明）
   clock = window.setInterval(() => { now.value = new Date() }, 1000)
 })
 onBeforeUnmount(() => {
@@ -791,7 +787,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('wheel', registerHeaderActivity)
   window.removeEventListener('keydown', registerHeaderActivity)
   window.removeEventListener('scroll', handlePageScroll)
-  window.removeEventListener('hashchange', syncSurfaceFromHash)
+  // hashchange 监听已移除（popstate 统一处理）
 })
 </script>
 
