@@ -124,7 +124,8 @@ export const ASTEROID_BELT = {
   sizeMin: 0.055,
   sizeMax: 0.24,
   spreadY: 0.9,
-  periodSeconds: 210,
+  // 公转动画压缩比：真实 3-6 年 → 900s（15 分钟一圈）——缓慢漂移而非快速旋转
+  periodSeconds: 900,
   color: 0x9a8f80,
 }
 
