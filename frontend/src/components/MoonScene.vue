@@ -723,6 +723,16 @@ watch(spacecraftEnabled, (enabled) => {
 watch(orbitsEnabled, (enabled) => {
   for (const runtime of craftRuntimes) if (runtime.line) runtime.line.visible = enabled
 })
+// 着陆点开关：同步控制月面圆点 + 虚线轨迹（不只是标签）
+watch(sitesEnabled, (enabled) => {
+  for (const site of landingSites.value) {
+    const marker = siteMarkers.get(site.id)
+    if (marker) marker.visible = enabled
+  }
+  for (const child of moonMesh?.children ?? []) {
+    if (child.name && child.name.startsWith('track:')) child.visible = enabled
+  }
+})
 
 const moonPointerStart = new THREE.Vector2()
 
