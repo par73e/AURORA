@@ -160,6 +160,11 @@ button { cursor: pointer; }
     radial-gradient(1px 1px at 91% 34%, rgba(198, 225, 255, .5), transparent 100%),
     radial-gradient(circle at 50% 48%, #09233a 0, #03070c 69%); }
 .scene-toolbar { position: absolute; z-index: 7; top: 18px; left: 32px; display: flex; align-items: center; gap: 6px; padding: 6px; border: 1px solid var(--line); border-radius: 4px; background: rgba(3, 9, 15, .8); transform: translateY(var(--header-overlay-offset)); transition: transform .38s cubic-bezier(.22, 1, .36, 1); backdrop-filter: blur(12px); }
+/* 显式下移规则（不依赖 CSS 变量——变量继承失效时工具栏会被展开的页头遮住） */
+.desktop-app:not(.header-collapsed) .scene-toolbar,
+.desktop-app:not(.header-collapsed) .scene-location { transform: translateY(72px); }
+.desktop-app.header-collapsed .scene-toolbar,
+.desktop-app.header-collapsed .scene-location { transform: translateY(0); }
 .scene-toolbar > span { padding: 7px 9px; color: var(--quiet); font: 500 9px var(--font-mono); }
 .scene-toolbar label { position: relative; display: flex; align-items: center; gap: 7px; padding: 7px 9px; color: #9bb0bb; font-size: 10px; cursor: pointer; }
 .scene-toolbar input { position: absolute; opacity: 0; }
