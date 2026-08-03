@@ -15,6 +15,7 @@ import MoonScene from './components/MoonScene.vue'
 import { fetchOrbitOverview } from './api'
 import { spacecraftPoint } from './orbit/coordinates'
 import { preloadMoonHdTexture, preloadOrbitTextures, preloadSolarTextures } from './preload'
+import { solarTexturesReady } from './solar/textures'
 import type { LaunchEvent, LaunchSite, OrbitOverview, SceneLayers, Selection } from './types'
 
 type ObserverLocationStatus = 'locating' | 'located' | 'fallback'
