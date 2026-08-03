@@ -3,13 +3,7 @@
     <div id="moon-scene" class="moon-scene-frame">
       <div ref="canvasHost" class="moon-scene-host" :class="{ revealed: sceneRevealed }" role="group" aria-label="月球三维视图，左上角可返回太阳系">
         <!-- 工具栏：与地球页同一套 scene-toolbar 结构（仅颜色走银灰覆盖） -->
-        <div
-          class="scene-toolbar"
-          aria-label="场景图层"
-          :style="props.headerExpanded
-            ? { transform: 'translateY(76px)', transition: 'transform .38s cubic-bezier(.22, 1, .36, 1)' }
-            : { transform: 'translateY(0)', transition: 'transform .38s cubic-bezier(.22, 1, .36, 1)' }"
-        >
+        <div ref="sceneToolbarRef" class="scene-toolbar" aria-label="场景图层">
           <span>图层</span>
           <label><input v-model="spacecraftEnabled" type="checkbox"><i />航天器</label>
           <label><input v-model="orbitsEnabled" type="checkbox"><i />轨道</label>
@@ -215,6 +209,30 @@ const siteLabelOffsets = new Map<string, number>()
 
 /** 入场渐亮：从太阳系进入（enterFromSolar）时等待 revealTick 递增；直接加载默认已亮。
  *  不能用 revealTick 判初始态——它只增不减，第二次进入时非 0 会误判为"直接加载" */
+/** 工具栏被页头"推下/推回"：rAF 逐帧插值（CSS transition 被系统减弱动态效果禁用，JS 动画不受影响） */
+const sceneToolbarRef = ref<HTMLElement | null>(null)
+let moonToolbarShift = 0
+let moonToolbarAnim: number | undefined
+watch(
+  () => props.headerExpanded,
+  (expanded) => {
+    if (moonToolbarAnim !== undefined) cancelAnimationFrame(moonToolbarAnim)
+    const target = expanded ? 76 : 0
+    const from = moonToolbarShift
+    const start = performance.now()
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / 380)
+      const eased = 1 - Math.pow(1 - t, 3)
+      moonToolbarShift = from + (target - from) * eased
+      if (sceneToolbarRef.value) {
+        sceneToolbarRef.value.style.transform = moonToolbarShift > 0.5 ? `translateY(${moonToolbarShift.toFixed(2)}px)` : ''
+      }
+      moonToolbarAnim = t < 1 ? requestAnimationFrame(tick) : undefined
+    }
+    moonToolbarAnim = requestAnimationFrame(tick)
+  },
+)
+
 const sceneRevealed = ref(!props.enterFromSolar)
 /** 分阶段揭示：0 = 纯月球 → 1 = 着陆点标记/轨迹 → 2 = 飞行器/轨道 → 3 = 标签（直接加载默认全开） */
 const revealStage = ref(props.enterFromSolar ? 0 : 3)
