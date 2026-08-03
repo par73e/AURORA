@@ -217,10 +217,14 @@ function focusCraft(id: string) {
   document.getElementById('moon-scene')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
-/** 板块点击着陆点：返回月球场景 + 选中 + 镜头放大居中该点 */
+/** 板块点击着陆点：返回月球场景 + 选中 + 镜头放大居中该点
+ *  先平滑滚动回场景，滚动结束后再启动聚焦动画（并行会掉帧） */
 function focusSite(id: string) {
-  selectSite(id)
+  selectedSite.value = id
   document.getElementById('moon-scene')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  window.setTimeout(() => {
+    if (selectedSite.value === id) startSiteFocus(id)
+  }, 520)
 }
 
 /** 场景标签点击：切换选中（再次点击关闭），选中时镜头聚焦该点 */
@@ -446,21 +450,18 @@ onMounted(() => {
           dragResetTarget = false
         }
       }
-      const runtime = selectedCraft.value ? craftRuntimes.find((r) => r.spec.id === selectedCraft.value) : undefined
-      if (runtime && focusAnimation) {
-        const world = runtime.dot.getWorldPosition(focusTmp)
+      if (focusAnimation) {
         const t = Math.min(1, (now - focusAnimation.startedAt) / focusAnimation.duration)
         const eased = 1 - Math.pow(1 - t, 3)
         camera.position.lerpVectors(focusAnimation.fromPos, focusAnimation.toPos, eased)
-        controls.target.lerpVectors(focusAnimation.fromTarget, world, eased)
+        // 目标点：飞行器在动（每帧取最新位置）；着陆点/其他场景用动画存储的终点
+        const liveTarget = selectedCraft.value
+          ? (craftRuntimes.find((r) => r.spec.id === selectedCraft.value)?.dot.getWorldPosition(focusTmp) ?? focusAnimation.toTarget)
+          : focusAnimation.toTarget
+        controls.target.lerpVectors(focusAnimation.fromTarget, liveTarget, eased)
         if (t >= 1) focusAnimation = null
-      } else if (!runtime && focusAnimation) {
-        // 取消选中：相机与注视点缓动回月球（默认距离 9、中心原点）
-        const t = Math.min(1, (now - focusAnimation.startedAt) / focusAnimation.duration)
-        const eased = 1 - Math.pow(1 - t, 3)
-        camera.position.lerpVectors(focusAnimation.fromPos, focusAnimation.fromPos.clone().normalize().multiplyScalar(9), eased)
-        controls.target.lerpVectors(focusAnimation.fromTarget, new THREE.Vector3(0, 0, 0), eased)
-        if (t >= 1) focusAnimation = null
+      } else if (!selectedCraft.value && !selectedSite.value) {
+        // 未选中任何对象时的兜底：不执行任何相机插值（保持用户当前视角）
       }
     }
 
