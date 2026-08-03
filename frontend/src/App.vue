@@ -43,15 +43,9 @@ const observerViewActive = ref(false)
 const dayNightEnabled = ref(false)
 type AppSurface = 'cover' | 'solar-system' | 'orbit' | 'moon'
 
-// 初始页面：hash 明确指向某页（如分享链接 #orbit）时优先 hash；
-// 否则用 sessionStorage 记录（刷新回到上次所在页——hash 设置不可靠环境下的可靠恢复）
-const initialSurface = ((): AppSurface => {
-  const fromHash = surfaceFromHash()
-  if (fromHash !== 'cover') return fromHash
-  const stored = sessionStorage.getItem('aurora:surface') as AppSurface | null
-  return stored ?? 'cover'
-})()
-const surface = ref<AppSurface>(initialSurface)
+// 初始页面：纯 hash 决定（无 hash = 首页；#orbit/#moon/#solar-system = 对应页）。
+// 不用 sessionStorage 恢复——打开网站应总是首页（上次会话的页面残留会导致"打开就是 #solar-system"）
+const surface = ref<AppSurface>(surfaceFromHash())
 const solarSystemRef = ref<InstanceType<typeof SolarSystem> | null>(null)
 /** 地球界面"进入边界"信号：遮罩开始淡出时递增，OrbitScene 据此播放入场渐亮 */
 const orbitRevealTick = ref(0)
@@ -354,13 +348,6 @@ function timeOnly(value: Date | string) {
 
 
 async function setSurface(nextSurface: AppSurface) {
-  // 记录当前页面到 sessionStorage：hash 在该浏览器环境设置不可靠（刷新会进错页），
-  // 刷新恢复优先读这里（回到"刚才所在的地方"）
-  try {
-    sessionStorage.setItem('aurora:surface', nextSurface)
-  } catch {
-    /* sessionStorage 不可用时静默降级 */
-  }
   surface.value = nextSurface
   document.title = nextSurface === 'cover'
     ? 'AURORA'
@@ -487,14 +474,8 @@ function enterOrbit() {
 
 function returnToCover(skipPush = false) {
   if (!skipPush) {
-    // 该浏览器环境对 hash 的所有 API 设置（pushState/location.hash/replaceState）均不生效——
-    // 改用 location.href 强制导航（整页重载，地址栏必定更新为 #home）。
-    // 重载前预置 sessionStorage = 'cover'，新页面加载时恢复首页（否则会恢复旧页面）
-    try {
-      sessionStorage.setItem('aurora:surface', 'cover')
-    } catch {
-      /* 静默降级 */
-    }
+    // location.href 强制导航（整页重载，地址栏必定更新为 #home）——
+    // 该环境对 hash 的 API 设置（pushState/location.hash/replaceState）均不生效
     window.location.href = '#home'
     return // 页面即将重载，不再执行过渡动画
   }
