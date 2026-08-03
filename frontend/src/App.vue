@@ -473,7 +473,9 @@ function enterOrbit() {
 }
 
 function returnToCover(skipPush = false) {
-  if (!skipPush) window.history.pushState(null, '', '#home')
+  // pushState(null,'','#home') 在部分浏览器对 hash-only 相对 URL 解析失效（hash 不变 →
+  // transitionTo 的 surfaceFromHash 校验 abort，返回首页被取消）——改用 location.hash 赋值（必然生效）
+  if (!skipPush) window.location.hash = '#home'
   transitionTo('cover', 0.96)
 }
 
