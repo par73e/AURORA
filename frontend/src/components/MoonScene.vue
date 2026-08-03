@@ -306,7 +306,7 @@ function startCraftFocus(id: string) {
   const radial = world.clone().normalize()
   focusAnimation = {
     fromPos: camera.position.clone(),
-    toPos: world.clone().addScaledVector(radial, 3.8),
+    toPos: world.clone().addScaledVector(radial, 4.6),
     fromTarget: controls.target.clone(),
     toTarget: world.clone(),
     startedAt: performance.now(),
@@ -486,7 +486,7 @@ onMounted(() => {
       if (runtime.spec.kind !== 'orbital') continue
       runtime.nu += (Math.PI * 2 / runtime.spec.periodSeconds) * delta
       const sn = runtime.spec.snapshot ?? null
-      const a = sn ? sn.aKm * MOON_SCENE_SCALE : runtime.spec.orbitA
+      const a = exaggeratedA(sn ? sn.aKm * MOON_SCENE_SCALE : runtime.spec.orbitA)
       const e = sn ? sn.eccentricity : runtime.spec.orbitE
       const r = (a * (1 - e * e)) / (1 + e * Math.cos(runtime.nu))
       runtime.dot.position.set(r * Math.cos(runtime.nu), r * Math.sin(runtime.nu), 0)
@@ -547,6 +547,13 @@ onMounted(() => {
 
 /** 场景单位 ↔ 真实尺寸：月球半径 2.6（场景）↔ 1737.4 km（真实） */
 const MOON_SCENE_SCALE = 2.6 / 1737.4
+/** 轨道高度夸张（与地球 ALTITUDE_EXAGGERATION=3.2 同思路）：超出月面的部分放大 3 倍——
+ *  真实 LRO 轨道仅高出月面 5% 半径，视觉上贴脸飞行，聚焦时像"月球放大"而非"绕月飞行" */
+const MOON_ALTITUDE_EXAGGERATION = 3
+/** 轨道半径（场景单位，含高度夸张）：月心 + 超出月面部分 × 夸张系数 */
+function exaggeratedA(a: number) {
+  return 2.6 + Math.max(0, a - 2.6) * MOON_ALTITUDE_EXAGGERATION
+}
 
 /** 平近点角 → 真近点角（Kepler 方程，牛顿迭代） */
 function keplerToTrueAnomaly(M: number, e: number): number {
@@ -560,8 +567,8 @@ function keplerToTrueAnomaly(M: number, e: number): number {
 function buildCraft(spec: MoonSpacecraft) {
   if (!scene) return
   const sn = spec.snapshot ?? null
-  // 真实轨道根数（快照优先）：半长轴 km → 场景单位
-  const a = sn ? sn.aKm * MOON_SCENE_SCALE : spec.orbitA
+  // 真实轨道根数（快照优先）：半长轴 km → 场景单位 → 轨道高度夸张（贴面飞行观感修正）
+  const a = exaggeratedA(sn ? sn.aKm * MOON_SCENE_SCALE : spec.orbitA)
   const e = sn ? sn.eccentricity : spec.orbitE
   const inc = sn ? sn.inclinationDeg : spec.inclinationDeg
   const raan = sn ? sn.raanDeg : spec.raanDeg
