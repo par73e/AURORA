@@ -893,6 +893,7 @@ onBeforeUnmount(() => {
               :spacecraft="overview.spacecraft"
               :sites="overview.launchSites"
               :events="overview.events"
+              :header-expanded="headerExpanded"
               :layers="layers"
               :selection="selection"
               :focus-target="focusTarget"
@@ -907,7 +908,7 @@ onBeforeUnmount(() => {
               @blank-click="collapseHeaderFromScene"
             />
 
-            <div class="scene-toolbar" aria-label="场景图层">
+            <div class="scene-toolbar" aria-label="场景图层" :style="headerExpanded ? { transform: 'translateY(76px)' } : undefined">
               <span>图层</span>
               <label><input v-model="layers.spacecraft" type="checkbox"><i />航天器</label>
               <label><input v-model="layers.orbits" type="checkbox"><i />轨道</label>
@@ -918,6 +919,7 @@ onBeforeUnmount(() => {
             <button
               class="scene-location"
               :class="{ active: observerViewActive }"
+              :style="headerExpanded ? { transform: 'translateY(76px)' } : undefined"
               type="button"
               :aria-pressed="observerViewActive"
               :aria-label="observerViewActive ? `当前视角位于${observerLocation.label}` : `返回${observerLocation.label}`"

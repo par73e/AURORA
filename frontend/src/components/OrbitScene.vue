@@ -16,6 +16,7 @@ const props = defineProps<{
   sites: LaunchSite[]
   layers: SceneLayers
   selection: Selection | null
+  headerExpanded?: boolean
   focusTarget?: { latitude: number; longitude: number; distance?: number; key: string } | null
   observerTarget?: { latitude: number; longitude: number; label: string } | null
   observerActive?: boolean
@@ -846,7 +847,7 @@ onBeforeUnmount(() => {
     <div v-if="textureState === 'fallback'" class="texture-warning">地表影像未加载，已切换基础材质</div>
 
     <!-- 信息面板（组件内渲染，本地 selection 驱动——参照月球架构，不依赖 App 全局渲染） -->
-    <aside v-if="localSelection" class="context-panel" aria-label="所选对象详情">
+    <aside v-if="localSelection" class="context-panel" aria-label="所选对象详情" :style="props.headerExpanded ? { transform: 'translateY(76px)' } : undefined">
       <button class="panel-close" aria-label="关闭详情" @click="localSelection = null; emit('clear-selection')">关闭</button>
 
       <template v-if="selectedSpacecraft">
