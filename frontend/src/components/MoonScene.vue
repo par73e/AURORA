@@ -257,6 +257,7 @@ const filteredCrafts = computed(() => {
 /** 点击搜索结果/场景标签：选中并聚焦（滚回主视图 → 飞行器居中 → 右侧面板） */
 function focusCraft(id: string) {
   selectedCraft.value = id
+  selectedSite.value = null // 选中互斥：聚焦飞行器时取消着陆点选中
   document.getElementById('moon-scene')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
@@ -274,7 +275,10 @@ function focusSite(id: string) {
 function selectSite(id: string) {
   const next = selectedSite.value === id ? null : id
   selectedSite.value = next
-  if (next) startSiteFocus(next)
+  if (next) {
+    selectedCraft.value = null // 选中互斥：聚焦着陆点时取消飞行器选中（否则注视点追飞行器）
+    startSiteFocus(next)
+  }
 }
 
 /** 着陆点聚焦动画：相机移到该点外侧（月球在正后方作背景，居中且放大） */
@@ -290,6 +294,7 @@ function startSiteFocus(id: string) {
     toTarget: world.clone(),
     startedAt: performance.now(),
     duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 150 : 900,
+    kind: 'site',
   }
 }
 
@@ -306,6 +311,7 @@ function startCraftFocus(id: string) {
     toTarget: world.clone(),
     startedAt: performance.now(),
     duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 150 : 900,
+    kind: 'craft',
   }
 }
 
@@ -336,6 +342,8 @@ let focusAnimation: {
   toTarget: THREE.Vector3
   startedAt: number
   duration: number
+  /** 目标类型：craft = 注视点实时跟踪移动中的飞行器；site = 固定注视着陆点 */
+  kind: 'craft' | 'site'
 } | null = null
 const focusTmp = new THREE.Vector3()
 const raycaster = new THREE.Raycaster()
@@ -500,10 +508,12 @@ onMounted(() => {
         const t = Math.min(1, (now - focusAnimation.startedAt) / focusAnimation.duration)
         const eased = 1 - Math.pow(1 - t, 3)
         camera.position.lerpVectors(focusAnimation.fromPos, focusAnimation.toPos, eased)
-        // 目标点：飞行器在动（每帧取最新位置）；着陆点/其他场景用动画存储的终点
-        const liveTarget = selectedCraft.value
-          ? (craftRuntimes.find((r) => r.spec.id === selectedCraft.value)?.dot.getWorldPosition(focusTmp) ?? focusAnimation.toTarget)
-          : focusAnimation.toTarget
+        // 目标点：仅飞行器聚焦（kind='craft'）实时跟踪移动中的飞行器；
+        // 着陆点聚焦（kind='site'）用固定终点——否则注视点会追着飞行器转出诡异旋转
+        const liveTarget =
+          focusAnimation.kind === 'craft'
+            ? (craftRuntimes.find((r) => r.spec.id === selectedCraft.value)?.dot.getWorldPosition(focusTmp) ?? focusAnimation.toTarget)
+            : focusAnimation.toTarget
         controls.target.lerpVectors(focusAnimation.fromTarget, liveTarget, eased)
         if (t >= 1) focusAnimation = null
       } else if (!selectedCraft.value && !selectedSite.value) {
