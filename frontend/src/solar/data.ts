@@ -3,13 +3,13 @@
 // 布局为静态示意：太阳位于右上角（非居中），行星静止在各自轨道上沿右上→左下方向排成一线；
 // 小行星带与柯伊伯带保留；大小与距离只保留大致相对关系，非等比。
 
-import mercuryUrl from '../assets/solar/2k_mercury.jpg'
-import venusUrl from '../assets/solar/2k_venus_atmosphere.jpg'
-import earthUrl from '../assets/solar/2k_earth_daymap.jpg'
+import mercuryUrl from '../assets/solar/8k_mercury.jpg'
+import venusUrl from '../assets/solar/4k_venus_atmosphere.jpg'
+import earthUrl from '../assets/solar/4k_earth_daymap.jpg'
 import marsUrl from '../assets/solar/8k_mars.jpg'
-import jupiterUrl from '../assets/solar/2k_jupiter.jpg'
-import saturnUrl from '../assets/solar/2k_saturn.jpg'
-import saturnRingUrl from '../assets/solar/2k_saturn_ring_alpha.png'
+import jupiterUrl from '../assets/solar/8k_jupiter.jpg'
+import saturnUrl from '../assets/solar/8k_saturn.jpg'
+import saturnRingUrl from '../assets/solar/8k_saturn_ring_alpha.png'
 import uranusUrl from '../assets/solar/2k_uranus.jpg'
 import neptuneUrl from '../assets/solar/2k_neptune.jpg'
 import moonUrl from '../assets/solar/2k_moon.jpg'
