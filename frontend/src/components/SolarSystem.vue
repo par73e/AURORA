@@ -17,7 +17,8 @@ const emit = defineEmits<{
 }>()
 
 const canvasHost = ref<HTMLDivElement | null>(null)
-const activeId = ref('earth')
+// 选中光标：默认地球；从地球/月球返回时恢复对应星球（组件重新挂载，props 决定初始选中）
+const activeId = ref(props.enterFromMoon ? 'moon' : props.enterFromOrbit ? 'earth' : 'earth')
 const labels = ref<SolarLabel[]>([])
 let scene: SolarSystemScene | undefined
 /** 当前飞行动画的目标：true = 月球（事件回调据此分发） */
