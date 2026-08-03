@@ -630,8 +630,8 @@ function buildSiteMarkers() {
       new THREE.SphereGeometry(0.02, 12, 12),
       new THREE.MeshBasicMaterial({ color, transparent: true, opacity: revealStage.value >= 1 ? 1 : 0 }),
     )
-    // 距表面 0.078 单位：足够避开深度缓冲精度（1.004 倍在贴面时 z-fighting → 圆点乱跳）
-    marker.position.copy(sitePosition(site.latitude, site.longitude, 2.6 * 1.03))
+    // 距表面 0.026 单位：贴附月面但保留深度间隔（1.03 倍太远会悬浮）
+    marker.position.copy(sitePosition(site.latitude, site.longitude, 2.6 * 1.01))
     marker.userData = { kind: 'landing-site', siteId: site.id }
     moonMesh.add(marker)
     siteMarkers.set(site.id, marker)
@@ -645,7 +645,7 @@ function buildSiteMarkers() {
 
     // 月球车行驶轨迹：虚线折线（示意图，数据存库可替换真实遥测）
     if (site.track && site.track.length >= 2) {
-      const points = site.track.map(([lat, lon]) => sitePosition(lat, lon, 2.6 * 1.02))
+      const points = site.track.map(([lat, lon]) => sitePosition(lat, lon, 2.6 * 1.008))
       const trackLine = new THREE.Line(
         new THREE.BufferGeometry().setFromPoints(points),
         new THREE.LineDashedMaterial({ color, dashSize: 0.055, gapSize: 0.05, transparent: true, opacity: revealStage.value >= 1 ? 0.85 : 0 }),
