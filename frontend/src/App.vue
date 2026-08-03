@@ -483,11 +483,11 @@ function enterSolarSystemFromOrbit(skipPush = false) {
       orbitSectionLeaving.value = false
       void setSurface('solar-system')
       requestAnimationFrame(() => {
-        veilDuration.value = reduced ? '0.01s' : '0.5s' // 渐亮 500ms
+        veilDuration.value = reduced ? '0.01s' : '0.3s' // 渐亮 300ms（原 500ms 太长）
         veilActive.value = false
       })
       transitionTimer = undefined
-    }, reduced ? 30 : 460) // 等遮罩全黑（400ms）再切页
+    }, reduced ? 30 : 300) // 全黑等待缩短：切页后更快渐亮（原 460ms）
   }, reduced ? 20 : 420)
 }
 

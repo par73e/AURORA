@@ -1158,7 +1158,7 @@ export class SolarSystemScene {
     // 反向与相机位置共用同一 eased——两者锁步运动，视线角速度单调（慢→快→慢），无摆动抖动
     const targetEase = fly.reverse ? eased : 1 - Math.pow(1 - t, 3)
     this.controls.target.lerpVectors(fly.fromTarget, fly.toTarget, targetEase)
-    if (!fly.zoomed && eased >= 0.78) {
+    if (!fly.zoomed && eased >= 0.6) { // 渐暗提前：镜头推进约 60% 时触发变暗（原 78% 太晚）
       fly.zoomed = true
       this.callbacks.onFlyZoom?.()
     }
