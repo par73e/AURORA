@@ -17,7 +17,7 @@
           v-show="label.visible && spacecraftEnabled"
           :key="label.id"
           class="craft-label"
-          :class="{ selected: selectedCraft === label.id, 'stage-late': revealStage < 3, 'leaving-fade': leaving }"
+          :class="{ selected: selectedCraft === label.id, 'stage-late': revealStage < 1, 'leaving-fade': leaving }"
           :style="craftLabelStyle(label)"
           :aria-label="`${craftById(label.id)?.nameZh}（${craftById(label.id)?.nameEn}）`"
           @click="selectedCraft = label.id"
@@ -226,17 +226,15 @@ watch(
     if (tick) sceneRevealed.value = true
   },
 )
-// 进入时启动分阶段揭示时间轴：纯月球(0.5s) → 着陆点+飞行器一起 → 标签
+// 进入时启动揭示时间轴：纯月球(0.5s) → 所有元素（着陆点+飞行器+标签）一起淡入——
+// 与地球"标签/飞行器/发射场一起出现"同节奏，且更快
 watch(sceneRevealed, (revealed) => {
-  if (!revealed || revealStage.value >= 3) return
+  if (!revealed || revealStage.value >= 1) return
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  const delays = reduced ? [0, 0] : [550, 1350]
-  ;[1, 3].forEach((stage, index) => {
-    window.setTimeout(() => {
-      stageTimestamps[stage] = performance.now()
-      revealStage.value = stage
-    }, delays[index])
-  })
+  window.setTimeout(() => {
+    stageTimestamps[1] = performance.now()
+    revealStage.value = 1
+  }, reduced ? 0 : 400)
 })
 
 /** 月球飞行器列表（API 数据驱动，镜像地球 fetch overview 模式） */
