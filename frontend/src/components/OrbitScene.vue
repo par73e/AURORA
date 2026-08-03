@@ -387,6 +387,8 @@ function setupScene() {
     new THREE.SphereGeometry(EARTH_RADIUS, 128, 128),
     earthDayMaterial,
   )
+  // 纹理就绪前不显示地球（避免"裸水球再浮现"）；就绪瞬间直接带纹理出现
+  earth.visible = false
   earthSystemGroup.add(earth)
   loader.load(
     EARTH_DAY_TEXTURE_URL,
@@ -399,10 +401,14 @@ function setupScene() {
       }
       if (nightLightsMaterial) nightLightsMaterial.uniforms.surfaceMap.value = texture
       textureState.value = 'ready'
+      if (earth) earth.visible = true // 纹理就绪瞬间显示（黑屏后直接是带纹理的地球）
       emitTexturesReady()
     },
     undefined,
-    () => { textureState.value = 'fallback' },
+    () => {
+      textureState.value = 'fallback'
+      if (earth) earth.visible = true // 失败降级为纯色地球，不能永久隐藏
+    },
   )
 
   nightLightsMaterial = new THREE.ShaderMaterial({
