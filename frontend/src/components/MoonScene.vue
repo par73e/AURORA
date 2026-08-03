@@ -297,12 +297,13 @@ function planFocusMotion(targetPos: THREE.Vector3, targetDistance: number) {
   controls.enabled = false
 }
 
-/** 飞行器聚焦：方向对准飞行器（观察距离 4.6，轨道高度夸张后飞行器与月面分离可见） */
+/** 飞行器聚焦：方向对准飞行器，保持当前观察距离（不强制放大——卫星无需大特写，
+ *  只做平滑转动；轨道高度夸张已保证飞行器与月面分离可见） */
 function startCraftFocus(id: string) {
   const runtime = craftRuntimes.find((r) => r.spec.id === id)
   if (!runtime || !camera) return
   const world = runtime.dot.getWorldPosition(focusTmp).clone()
-  planFocusMotion(world, 4.6)
+  planFocusMotion(world, camera.position.length())
 }
 
 /** 着陆点聚焦：方向对准着陆点（观察距离 3.4） */
