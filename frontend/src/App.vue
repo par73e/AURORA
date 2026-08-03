@@ -494,16 +494,17 @@ function onEarthSelect() {
   if (surface.value === 'orbit' || surfaceFromHash() !== 'orbit') return
   veilActive.value = true
   void setSurface('orbit')
+  let revealDone = false
   const reveal = () => {
-    if (pendingOrbitReveal) {
-      pendingOrbitReveal = null
-      requestAnimationFrame(() => {
-        veilDuration.value = '0.3s'
-        veilActive.value = false
-        // 进入边界：遮罩开始淡出的同一帧递增信号，地球场景据此 0.2s 渐亮
-        orbitRevealTick.value += 1
-      })
-    }
+    if (revealDone) return // 防止兜底超时与信号重复触发
+    revealDone = true
+    pendingOrbitReveal = null
+    requestAnimationFrame(() => {
+      veilDuration.value = '0.3s'
+      veilActive.value = false
+      // 进入边界：遮罩开始淡出的同一帧递增信号，地球场景据此 0.2s 渐亮
+      orbitRevealTick.value += 1
+    })
   }
   if (orbitSceneReadyFlag.value) reveal()
   else {
@@ -543,16 +544,17 @@ function onMoonSelect() {
   veilActive.value = true
   solarEnterFromMoon.value = false
   void setSurface('moon')
+  let revealDone = false
   const reveal = () => {
-    if (pendingMoonReveal) {
-      pendingMoonReveal = null
-      requestAnimationFrame(() => {
-        veilDuration.value = '0.3s'
-        veilActive.value = false
-        // 进入边界：遮罩开始淡出的同一帧递增信号，月球场景据此 0.5s 渐亮
-        moonRevealTick.value += 1
-      })
-    }
+    if (revealDone) return // 防止兜底超时与信号重复触发
+    revealDone = true
+    pendingMoonReveal = null
+    requestAnimationFrame(() => {
+      veilDuration.value = '0.3s'
+      veilActive.value = false
+      // 进入边界：遮罩开始淡出的同一帧递增信号，月球场景据此 0.5s 渐亮
+      moonRevealTick.value += 1
+    })
   }
   if (moonSceneReadyFlag.value) reveal()
   else {
