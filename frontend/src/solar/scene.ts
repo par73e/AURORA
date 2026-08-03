@@ -978,8 +978,9 @@ export class SolarSystemScene {
     if (!moonPosition) return
     const p0 = this.camera.position.clone()
     const moonDir = moonPosition.clone().normalize()
-    // 终点：太阳→月球连线上、距月球中心 5（月球视半径约 8°，带 1 单位仰角）
-    const p3 = moonPosition.clone().addScaledVector(moonDir, -5)
+    // 终点：太阳→月球连线上、距月球中心 3.6（月球视半径约 10.8°，占画面 ~26%——
+    // 更接近月球页初始大小，变黑衔接更顺；带 1 单位仰角）
+    const p3 = moonPosition.clone().addScaledVector(moonDir, -3.6)
     p3.y += 1
     const delta = p3.clone().sub(p0)
     const p1 = p0.clone().addScaledVector(delta, 0.3)
