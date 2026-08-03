@@ -663,6 +663,10 @@ watch(terminatorEnabled, (enabled) => {
   if (!observationLight || !sunLight) return
   observationLight.intensity = enabled ? 0 : 3.1
   sunLight.intensity = enabled ? 3.1 : 0
+  if (enabled) {
+    // 真实月相方向：晨昏线位置 = 此刻太阳方位（严格按时间，每天月相不同）
+    sunLight.position.copy(realSunDirection()).multiplyScalar(10)
+  }
 })
 
 // 航天器开关：显示/隐藏飞行器圆点（标签由 v-show 联动）
