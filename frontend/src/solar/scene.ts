@@ -980,7 +980,7 @@ export class SolarSystemScene {
     const moonDir = moonPosition.clone().normalize()
     // 终点：太阳→月球连线上、距月球中心 3.6（月球视半径约 10.8°，占画面 ~26%——
     // 更接近月球页初始大小，变黑衔接更顺；带 1 单位仰角）
-    const p3 = moonPosition.clone().addScaledVector(moonDir, -3.6)
+    const p3 = moonPosition.clone().addScaledVector(moonDir, -4.2)
     p3.y += 1
     const delta = p3.clone().sub(p0)
     const p1 = p0.clone().addScaledVector(delta, 0.3)
@@ -1080,15 +1080,14 @@ export class SolarSystemScene {
     const earthRuntime = this.planetRuntimes.get('earth')
     if (!earthRuntime) return
     const earthPosition = earthRuntime.axial.getWorldPosition(this.tempWorldB)
-    // 终点：默认构图（与封面入场推镜一致——还原到"原来的镜头"）。
-    // 此前"正对月球"是 0×0 容器导致 aspect=NaN 的渲染异常假象，非构图问题。
+    // 终点：严格以地球为中心（注视点 = 地球位置，镜头距地球 = 构图距离，画面完整）
     // 宽高兜底：挂载瞬间容器可能 0×0，NaN 会传播进相机位置导致渲染崩溃
     const host = this.host
     const aspect =
       host.clientWidth > 0 && host.clientHeight > 0 ? host.clientWidth / host.clientHeight : window.innerWidth / window.innerHeight
-    const { target, distance } = this.computeModeComposition(aspect)
+    const { distance } = this.computeModeComposition(aspect)
     this.fitDistance = distance
-    this.lookAt.copy(target)
+    this.lookAt.copy(earthPosition)
     this.camera.position.copy(this.lookAt).addScaledVector(this.dir, distance)
     this.camera.lookAt(this.lookAt)
     this.camera.updateMatrixWorld(true)
