@@ -281,22 +281,6 @@ function selectSite(id: string) {
   }
 }
 
-/** 着陆点聚焦动画：相机移到该点外侧（月球在正后方作背景，居中且放大） */
-function startSiteFocus(id: string) {
-  const marker = siteMarkers.get(id)
-  if (!marker || !camera || !controls) return
-  const world = marker.getWorldPosition(focusTmp).clone()
-  const radial = world.clone().normalize()
-  focusAnimation = {
-    fromPos: camera.position.clone(),
-    toPos: world.clone().addScaledVector(radial, 3.4),
-    fromTarget: controls.target.clone(),
-    toTarget: world.clone(),
-    startedAt: performance.now(),
-    duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 150 : 900,
-    kind: 'site',
-  }
-}
 
 /** 通用运镜规划（学习地球 beginFocus）：任何目标（飞行器/着陆点）统一走此函数——
  *  相机方向球面插值（方向 lerp+normalize，不穿星球）+ 距离独立插值 + 注视月球中心。
