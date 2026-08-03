@@ -29,6 +29,8 @@ const emit = defineEmits<{
   'blank-click': []
   /** 场景首帧贴图渲染完成（解码 + GPU 上传后）——过渡遮罩等待此信号再揭示 */
   'textures-ready': []
+  /** 面板关闭（同步 App 的 selection） */
+  'clear-selection': []
 }>()
 
 let texturesReadySent = false
@@ -62,6 +64,62 @@ watch(
     }
   },
 )
+/** 本地选中状态：面板渲染只依赖它（与 App 全局 selection 解耦——参照月球组件内面板架构，
+ *  避免 App 渲染异常时信息栏不弹） */
+const localSelection = ref<Selection | null>(null)
+const showEventOriginal = ref(false)
+watch(
+  () => props.selection,
+  (next) => {
+    if (next) localSelection.value = next // App 驱动（下方列表点击）→ 同步本地
+  },
+  { immediate: true },
+)
+const selectedSpacecraft = computed(() =>
+  localSelection.value?.kind === 'spacecraft' ? props.spacecraft.find((item) => item.id === localSelection.value?.id) : undefined,
+)
+const selectedSite = computed(() =>
+  localSelection.value?.kind === 'site' ? props.sites.find((item) => item.id === localSelection.value?.id) : undefined,
+)
+const selectedEvent = computed(() =>
+  localSelection.value?.kind === 'event' ? props.events.find((item) => item.externalId === localSelection.value?.id) : undefined,
+)
+const selectedEventSite = computed(() => (selectedEvent.value ? nearestSite(selectedEvent.value) : undefined))
+watch(() => selectedEvent.value?.externalId, () => {
+  showEventOriginal.value = false
+})
+function nearestSite(event: LaunchEvent): LaunchSite | undefined {
+  if (event.latitude == null || event.longitude == null) return undefined
+  let best: LaunchSite | undefined
+  let bestDistance = Infinity
+  for (const site of props.sites) {
+    const distance = (site.latitude - event.latitude) ** 2 + (site.longitude - event.longitude) ** 2
+    if (distance < bestDistance) {
+      bestDistance = distance
+      best = site
+    }
+  }
+  return best
+}
+function orbitPeriodText(meanMotion: string) {
+  const mm = Number(meanMotion)
+  if (!Number.isFinite(mm) || mm <= 0) return '—'
+  return `${(1440 / mm).toFixed(1)} 分钟`
+}
+function formatCoordinate(value: number, positive: string, negative: string) {
+  return `${Math.abs(value).toFixed(2)}° ${value >= 0 ? positive : negative}`
+}
+function eventDate(value: string) {
+  const date = new Date(value)
+  return {
+    day: new Intl.DateTimeFormat('zh-CN', { day: '2-digit', timeZone: 'Asia/Shanghai' }).format(date),
+    month: new Intl.DateTimeFormat('en-US', { month: 'short', timeZone: 'Asia/Shanghai' }).format(date).toUpperCase(),
+    time: new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Shanghai' }).format(date),
+  }
+}
+function launchVehicleName(event: LaunchEvent) {
+  return event.name.split(' | ')[0]?.trim() || event.providerName || '运载火箭待确认'
+}
 const textureState = ref<'loading' | 'ready' | 'fallback'>('loading')
 const pointerNearEarth = ref(false)
 
@@ -681,6 +739,7 @@ function onPointerUp(event: PointerEvent) {
   const hits = raycaster.intersectObjects([...markerObjects.values()])
   const target = hits[0]?.object.userData as { kind?: 'spacecraft' | 'site'; id?: string }
   if (target?.kind && target.id) {
+    localSelection.value = { kind: target.kind, id: target.id } // 本地立即驱动面板（不依赖 App 渲染）
     emit('select', { kind: target.kind, id: target.id })
     return
   }
@@ -771,7 +830,7 @@ onBeforeUnmount(() => {
       class="scene-label"
       :class="[label.kind, { selected: selectionKey === `${label.kind}:${label.id}` }]"
       :style="{ transform: `translate(${label.x + 14}px, ${label.y - 11}px)` }"
-      @click="emit('select', { kind: label.kind, id: label.id })"
+      @click="localSelection = { kind: label.kind, id: label.id }; emit('select', { kind: label.kind, id: label.id })"
     >
       <i />{{ label.name }}
     </button>
@@ -785,6 +844,90 @@ onBeforeUnmount(() => {
       <i />{{ observerLabel.name }}
     </div>
     <div v-if="textureState === 'fallback'" class="texture-warning">地表影像未加载，已切换基础材质</div>
+
+    <!-- 信息面板（组件内渲染，本地 selection 驱动——参照月球架构，不依赖 App 全局渲染） -->
+    <aside v-if="localSelection" class="context-panel" aria-label="所选对象详情">
+      <button class="panel-close" aria-label="关闭详情" @click="localSelection = null; emit('clear-selection')">关闭</button>
+
+      <template v-if="selectedSpacecraft">
+        <p class="context-type">NORAD {{ selectedSpacecraft.noradCatalogId }}</p>
+        <h2>{{ selectedSpacecraft.nameZh }}</h2>
+        <p class="context-subtitle">{{ selectedSpacecraft.nameEn }}</p>
+        <p class="context-description">{{ selectedSpacecraft.description }}</p>
+        <dl>
+          <div><dt>运营方</dt><dd>{{ selectedSpacecraft.operatorName }}</dd></div>
+          <div v-if="selectedSpacecraft.launchDate"><dt>发射</dt><dd>{{ selectedSpacecraft.launchDate }} · {{ selectedSpacecraft.launchSite }} · {{ selectedSpacecraft.launchVehicle }}</dd></div>
+          <div><dt>轨道倾角</dt><dd>{{ Number(selectedSpacecraft.omm.INCLINATION).toFixed(2) }}°</dd></div>
+          <div><dt>偏心率</dt><dd>{{ Number(selectedSpacecraft.omm.ECCENTRICITY).toFixed(6) }}</dd></div>
+          <div><dt>轨道周期</dt><dd>{{ orbitPeriodText(selectedSpacecraft.omm.MEAN_MOTION) }}</dd></div>
+        </dl>
+        <p class="source-caption">轨道历元 {{ new Date(selectedSpacecraft.orbitEpoch).toLocaleString('zh-CN', { hour12: false }) }}<br>{{ selectedSpacecraft.sourceName }}</p>
+      </template>
+
+      <template v-else-if="selectedSite">
+        <p class="context-type launch-context">LAUNCH SITE · {{ selectedSite.countryCode }}</p>
+        <h2>{{ selectedSite.nameZh }}</h2>
+        <p class="context-subtitle">{{ selectedSite.nameEn }}</p>
+        <p class="context-description">{{ selectedSite.description }}</p>
+        <dl>
+          <div><dt>国家 / 地区</dt><dd>{{ selectedSite.countryNameZh }}</dd></div>
+          <div><dt>纬度</dt><dd>{{ formatCoordinate(selectedSite.latitude, 'N', 'S') }}</dd></div>
+          <div><dt>经度</dt><dd>{{ formatCoordinate(selectedSite.longitude, 'E', 'W') }}</dd></div>
+        </dl>
+      </template>
+
+      <template v-else-if="selectedEvent">
+        <p class="context-type launch-context">LAUNCH · {{ selectedEvent.statusAbbrev }}</p>
+        <h2 lang="en">{{ selectedEvent.missionName || selectedEvent.name }}</h2>
+        <p
+          v-if="selectedEvent.missionNameZh && selectedEvent.missionNameZh !== selectedEvent.missionName"
+          class="context-translation"
+        >
+          {{ selectedEvent.missionNameZh }}
+        </p>
+        <p class="context-subtitle">
+          {{ launchVehicleName(selectedEvent) }}<template v-if="selectedEvent.providerName"> · {{ selectedEvent.providerName }}</template>
+        </p>
+        <div class="event-clock"><strong>{{ eventDate(selectedEvent.net).month }} {{ eventDate(selectedEvent.net).day }}</strong><span>{{ eventDate(selectedEvent.net).time }} UTC+8</span></div>
+        <p class="context-description">{{ selectedEvent.missionDescriptionZh || '任务详情暂未公开。' }}</p>
+        <dl>
+          <div><dt>任务类型</dt><dd>{{ selectedEvent.missionTypeZh || '待确认' }}</dd></div>
+          <div><dt>状态</dt><dd>{{ selectedEvent.statusNameZh }}</dd></div>
+          <div><dt>发射台</dt><dd>{{ selectedEvent.padNameZh || '待确认' }}</dd></div>
+          <div><dt>地点</dt><dd>{{ selectedEvent.locationNameZh || '待确认' }}</dd></div>
+        </dl>
+        <div class="site-context">
+          <p>发射场</p>
+          <template v-if="selectedEventSite">
+            <strong>{{ selectedEventSite.nameZh }}</strong>
+            <span>{{ selectedEventSite.description }}</span>
+          </template>
+          <template v-else>
+            <strong>{{ selectedEvent.padNameZh || selectedEvent.locationNameZh }}</strong>
+            <span>当前事件源提供了位置和发射台信息，详细场地资料将在后续数据扩充中补充。</span>
+          </template>
+        </div>
+        <div v-if="selectedEvent.hasOriginal" class="event-original-disclosure">
+          <button
+            type="button"
+            :aria-expanded="showEventOriginal"
+            @click="showEventOriginal = !showEventOriginal"
+          >
+            {{ showEventOriginal ? '收起原文' : '查看原文' }}
+          </button>
+          <div v-if="showEventOriginal" class="event-original-copy">
+            <p>来源原文</p>
+            <strong>{{ selectedEvent.missionName || selectedEvent.name }}</strong>
+            <span>{{ selectedEvent.name }}</span>
+            <dl>
+              <div><dt>STATUS</dt><dd>{{ selectedEvent.statusName }}</dd></div>
+              <div v-if="selectedEvent.padName"><dt>PAD</dt><dd>{{ selectedEvent.padName }}</dd></div>
+              <div v-if="selectedEvent.locationName"><dt>LOCATION</dt><dd>{{ selectedEvent.locationName }}</dd></div>
+            </dl>
+          </div>
+        </div>
+      </template>
+    </aside>
   </div>
 </template>
 

@@ -41,7 +41,6 @@ const observerLocation = ref<ObserverLocation>({ ...fallbackObserver, status: 'l
 const observerFocusRevision = ref(0)
 const observerViewActive = ref(false)
 const dayNightEnabled = ref(false)
-const showEventOriginal = ref(false)
 type AppSurface = 'cover' | 'solar-system' | 'orbit' | 'moon'
 
 // 初始页面：hash 明确指向某页（如分享链接 #orbit）时优先 hash；
@@ -240,11 +239,7 @@ const catalogResult = computed(() => {
   return { items, error: queryError }
 })
 
-const selectedEventSite = computed(() => selectedEvent.value ? nearestSite(selectedEvent.value) : undefined)
 
-watch(() => selectedEvent.value?.externalId, () => {
-  showEventOriginal.value = false
-})
 
 const focusTarget = computed(() => {
   if (selectedEvent.value?.latitude != null && selectedEvent.value.longitude != null) {
@@ -316,18 +311,6 @@ function leaveObserverView() {
   observerViewActive.value = false
 }
 
-function nearestSite(event: LaunchEvent): LaunchSite | undefined {
-  if (event.latitude == null || event.longitude == null) return undefined
-  const candidates = overview.value?.launchSites ?? []
-  let best: { site: LaunchSite; distance: number } | undefined
-  for (const site of candidates) {
-    const latDistance = site.latitude - event.latitude
-    const lonDistance = (site.longitude - event.longitude) * Math.cos(event.latitude * Math.PI / 180)
-    const distance = Math.hypot(latDistance, lonDistance)
-    if (!best || distance < best.distance) best = { site, distance }
-  }
-  return best && best.distance < 3 ? best.site : undefined
-}
 
 function selectAndFocus(nextSelection: Selection) {
   observerViewActive.value = false
@@ -345,19 +328,7 @@ function timeOnly(value: Date | string) {
   }).format(new Date(value))
 }
 
-function eventDate(value: string) {
-  const date = new Date(value)
-  return {
-    day: new Intl.DateTimeFormat('zh-CN', { day: '2-digit', timeZone: DISPLAY_TIME_ZONE }).format(date),
-    month: new Intl.DateTimeFormat('en-US', { month: 'short', timeZone: DISPLAY_TIME_ZONE }).format(date).toUpperCase(),
-    weekday: new Intl.DateTimeFormat('zh-CN', { weekday: 'short', timeZone: DISPLAY_TIME_ZONE }).format(date),
-    time: new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: DISPLAY_TIME_ZONE }).format(date),
-  }
-}
 
-function launchVehicleName(event: LaunchEvent) {
-  return event.name.split(' | ')[0]?.trim() || event.providerName || '运载火箭待确认'
-}
 
 async function setSurface(nextSurface: AppSurface) {
   // 记录当前页面到 sessionStorage：hash 在该浏览器环境设置不可靠（刷新会进错页），
@@ -747,12 +718,17 @@ function handlePageScroll() {
 }
 
 /** 每日圈数 → 轨道周期（分钟） */
-function orbitPeriodText(meanMotion: string) {
-  const mm = Number(meanMotion)
-  if (!Number.isFinite(mm) || mm <= 0) return '—'
-  return `${(1440 / mm).toFixed(1)} 分钟`
-}
 
+
+function eventDate(value: string) {
+  const date = new Date(value)
+  return {
+    day: new Intl.DateTimeFormat('zh-CN', { day: '2-digit', timeZone: DISPLAY_TIME_ZONE }).format(date),
+    month: new Intl.DateTimeFormat('en-US', { month: 'short', timeZone: DISPLAY_TIME_ZONE }).format(date).toUpperCase(),
+    weekday: new Intl.DateTimeFormat('zh-CN', { weekday: 'short', timeZone: DISPLAY_TIME_ZONE }).format(date),
+    time: new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: DISPLAY_TIME_ZONE }).format(date),
+  }
+}
 function formatCoordinate(value: number, positive: string, negative: string) {
   return `${Math.abs(value).toFixed(2)}° ${value >= 0 ? positive : negative}`
 }
@@ -916,6 +892,7 @@ onBeforeUnmount(() => {
               v-if="overview"
               :spacecraft="overview.spacecraft"
               :sites="overview.launchSites"
+              :events="overview.events"
               :layers="layers"
               :selection="selection"
               :focus-target="focusTarget"
@@ -925,6 +902,7 @@ onBeforeUnmount(() => {
               :reveal-tick="orbitRevealTick"
               @textures-ready="onOrbitSceneReady"
               @select="selectFromScene"
+              @clear-selection="selection = null"
               @view-change="leaveObserverView"
               @blank-click="collapseHeaderFromScene"
             />
@@ -955,90 +933,7 @@ onBeforeUnmount(() => {
             </div>
             <div class="scene-credits" aria-hidden="true">NASA Blue Marble / Earth at Night</div>
 
-            <aside v-if="selection" class="context-panel" aria-label="所选对象详情">
-              <button class="panel-close" aria-label="关闭详情" @click="selection = null">关闭</button>
-
-              <template v-if="selectedSpacecraft">
-                <p class="context-type">NORAD {{ selectedSpacecraft.noradCatalogId }}</p>
-                <h2>{{ selectedSpacecraft.nameZh }}</h2>
-                <p class="context-subtitle">{{ selectedSpacecraft.nameEn }}</p>
-                <p class="context-description">{{ selectedSpacecraft.description }}</p>
-                <dl>
-                  <div><dt>运营方</dt><dd>{{ selectedSpacecraft.operatorName }}</dd></div>
-                  <div v-if="selectedSpacecraft.launchDate"><dt>发射</dt><dd>{{ selectedSpacecraft.launchDate }} · {{ selectedSpacecraft.launchSite }} · {{ selectedSpacecraft.launchVehicle }}</dd></div>
-                  <div><dt>轨道倾角</dt><dd>{{ Number(selectedSpacecraft.omm.INCLINATION).toFixed(2) }}°</dd></div>
-                  <div><dt>偏心率</dt><dd>{{ Number(selectedSpacecraft.omm.ECCENTRICITY).toFixed(6) }}</dd></div>
-                  <div><dt>轨道周期</dt><dd>{{ orbitPeriodText(selectedSpacecraft.omm.MEAN_MOTION) }}</dd></div>
-                </dl>
-                <p class="source-caption">轨道历元 {{ new Date(selectedSpacecraft.orbitEpoch).toLocaleString('zh-CN', { hour12: false }) }}<br>{{ selectedSpacecraft.sourceName }}</p>
-              </template>
-
-              <template v-else-if="selectedSite">
-                <p class="context-type launch-context">LAUNCH SITE · {{ selectedSite.countryCode }}</p>
-                <h2>{{ selectedSite.nameZh }}</h2>
-                <p class="context-subtitle">{{ selectedSite.nameEn }}</p>
-                <p class="context-description">{{ selectedSite.description }}</p>
-                <dl>
-                  <div><dt>国家 / 地区</dt><dd>{{ selectedSite.countryNameZh }}</dd></div>
-                  <div><dt>纬度</dt><dd>{{ formatCoordinate(selectedSite.latitude, 'N', 'S') }}</dd></div>
-                  <div><dt>经度</dt><dd>{{ formatCoordinate(selectedSite.longitude, 'E', 'W') }}</dd></div>
-                </dl>
-              </template>
-
-              <template v-else-if="selectedEvent">
-                <p class="context-type launch-context">LAUNCH · {{ selectedEvent.statusAbbrev }}</p>
-                <h2 lang="en">{{ selectedEvent.missionName || selectedEvent.name }}</h2>
-                <p
-                  v-if="selectedEvent.missionNameZh && selectedEvent.missionNameZh !== selectedEvent.missionName"
-                  class="context-translation"
-                >
-                  {{ selectedEvent.missionNameZh }}
-                </p>
-                <p class="context-subtitle">
-                  {{ launchVehicleName(selectedEvent) }}<template v-if="selectedEvent.providerName"> · {{ selectedEvent.providerName }}</template>
-                </p>
-                <div class="event-clock"><strong>{{ eventDate(selectedEvent.net).month }} {{ eventDate(selectedEvent.net).day }}</strong><span>{{ eventDate(selectedEvent.net).time }} UTC+8</span></div>
-                <p class="context-description">{{ selectedEvent.missionDescriptionZh || '任务详情暂未公开。' }}</p>
-                <dl>
-                  <div><dt>任务类型</dt><dd>{{ selectedEvent.missionTypeZh || '待确认' }}</dd></div>
-                  <div><dt>状态</dt><dd>{{ selectedEvent.statusNameZh }}</dd></div>
-                  <div><dt>发射台</dt><dd>{{ selectedEvent.padNameZh || '待确认' }}</dd></div>
-                  <div><dt>地点</dt><dd>{{ selectedEvent.locationNameZh || '待确认' }}</dd></div>
-                </dl>
-                <div class="site-context">
-                  <p>发射场</p>
-                  <template v-if="selectedEventSite">
-                    <strong>{{ selectedEventSite.nameZh }}</strong>
-                    <span>{{ selectedEventSite.description }}</span>
-                  </template>
-                  <template v-else>
-                    <strong>{{ selectedEvent.padNameZh || selectedEvent.locationNameZh }}</strong>
-                    <span>当前事件源提供了位置和发射台信息，详细场地资料将在后续数据扩充中补充。</span>
-                  </template>
-                </div>
-                <div v-if="selectedEvent.hasOriginal" class="event-original-disclosure">
-                  <button
-                    type="button"
-                    :aria-expanded="showEventOriginal"
-                    @click="showEventOriginal = !showEventOriginal"
-                  >
-                    {{ showEventOriginal ? '收起原文' : '查看原文' }}
-                  </button>
-                  <div v-if="showEventOriginal" class="event-original-copy">
-                    <p>来源原文</p>
-                    <strong>{{ selectedEvent.missionName || selectedEvent.name }}</strong>
-                    <span>{{ selectedEvent.name }}</span>
-                    <dl>
-                      <div><dt>STATUS</dt><dd>{{ selectedEvent.statusName }}</dd></div>
-                      <div v-if="selectedEvent.padName"><dt>PAD</dt><dd>{{ selectedEvent.padName }}</dd></div>
-                      <div v-if="selectedEvent.locationName"><dt>LOCATION</dt><dd>{{ selectedEvent.locationName }}</dd></div>
-                    </dl>
-                    <p class="event-original-description">{{ selectedEvent.missionDescription || 'No mission description is currently available.' }}</p>
-                    <a :href="selectedEvent.sourceUrl" target="_blank" rel="noreferrer">打开来源页</a>
-                  </div>
-                </div>
-              </template>
-            </aside>
+            
 
             <section v-if="loading" class="system-message"><strong>正在建立轨道数据链路</strong><small>CONNECTING TO AURORA CORE</small></section>
             <section v-else-if="error" class="system-message error-message"><strong>数据链路未建立</strong><p>{{ error }}</p><button @click="load">重新连接</button></section>
