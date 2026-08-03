@@ -56,7 +56,29 @@ const solarSystemRef = ref<InstanceType<typeof SolarSystem> | null>(null)
 /** 地球界面"进入边界"信号：遮罩开始淡出时递增，OrbitScene 据此播放入场渐亮 */
 const orbitRevealTick = ref(0)
 const headerExpanded = ref(true)
-// 工具栏/位置按钮：下移由 :style 绑定驱动（与右侧信息面板同款——CSS transition 提供柔和动画）
+/** 工具栏/位置按钮：被页头"推下/推回"——rAF 逐帧插值动画。
+ *  CSS transition 在该环境被系统减弱动态效果禁用（跳变），JS 动画不受影响 */
+const sceneToolbarRef = ref<HTMLElement | null>(null)
+const sceneLocationRef = ref<HTMLElement | null>(null)
+let toolbarShift = 0
+let toolbarAnim: number | undefined
+function animateToolbarShift(expanded: boolean) {
+  if (toolbarAnim !== undefined) cancelAnimationFrame(toolbarAnim)
+  const target = expanded ? 76 : 0
+  const from = toolbarShift
+  const start = performance.now()
+  const tick = (now: number) => {
+    const t = Math.min(1, (now - start) / 380)
+    const eased = 1 - Math.pow(1 - t, 3)
+    toolbarShift = from + (target - from) * eased
+    const transform = toolbarShift > 0.5 ? `translateY(${toolbarShift.toFixed(2)}px)` : ''
+    if (sceneToolbarRef.value) sceneToolbarRef.value.style.transform = transform
+    if (sceneLocationRef.value) sceneLocationRef.value.style.transform = transform
+    toolbarAnim = t < 1 ? requestAnimationFrame(tick) : undefined
+  }
+  toolbarAnim = requestAnimationFrame(tick)
+}
+watch(headerExpanded, animateToolbarShift, { immediate: true })
 const orbitPageActive = ref(true)
 const moonPageActive = ref(true)
 
@@ -909,13 +931,7 @@ onBeforeUnmount(() => {
               @blank-click="collapseHeaderFromScene"
             />
 
-            <div
-              class="scene-toolbar"
-              aria-label="场景图层"
-              :style="headerExpanded
-                ? { transform: 'translateY(76px)', transition: 'transform .38s cubic-bezier(.22, 1, .36, 1)' }
-                : { transform: 'translateY(0)', transition: 'transform .38s cubic-bezier(.22, 1, .36, 1)' }"
-            >
+            <div ref="sceneToolbarRef" class="scene-toolbar" aria-label="场景图层">
               <span>图层</span>
               <label><input v-model="layers.spacecraft" type="checkbox"><i />航天器</label>
               <label><input v-model="layers.orbits" type="checkbox"><i />轨道</label>
@@ -924,11 +940,9 @@ onBeforeUnmount(() => {
             </div>
 
             <button
+              ref="sceneLocationRef"
               class="scene-location"
               :class="{ active: observerViewActive }"
-              :style="headerExpanded
-                ? { transform: 'translateY(76px)', transition: 'transform .38s cubic-bezier(.22, 1, .36, 1)' }
-                : { transform: 'translateY(0)', transition: 'transform .38s cubic-bezier(.22, 1, .36, 1)' }"
               type="button"
               :aria-pressed="observerViewActive"
               :aria-label="observerViewActive ? `当前视角位于${observerLocation.label}` : `返回${observerLocation.label}`"
