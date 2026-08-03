@@ -2,6 +2,7 @@ package moon
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -73,6 +74,46 @@ func (r *Repository) ListSpacecraft(ctx context.Context) ([]Spacecraft, error) {
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate moon spacecraft: %w", err)
+	}
+	return items, nil
+}
+
+/** 月球着陆点列表（真实经纬度，按任务时间排序） */
+func (r *Repository) ListLandingSites(ctx context.Context) ([]LandingSite, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT id, name_zh, name_en, program, operator_name,
+		       landing_date, latitude, longitude, region, description, sort_order,
+		       site_name, official_name, mission_name, hardware, side, category, icon, track
+		FROM moon_landing_sites
+		ORDER BY sort_order`)
+	if err != nil {
+		return nil, fmt.Errorf("query moon landing sites: %w", err)
+	}
+	defer rows.Close()
+
+	items := []LandingSite{}
+	for rows.Next() {
+		var item LandingSite
+		var hardwareRaw []byte
+		var trackRaw []byte
+		if err := rows.Scan(
+			&item.ID, &item.NameZH, &item.NameEN, &item.Program, &item.OperatorName,
+			&item.LandingDate, &item.Latitude, &item.Longitude, &item.Region, &item.Description,
+			&item.SortOrder,
+			&item.SiteName, &item.OfficialName, &item.MissionName, &hardwareRaw, &item.Side, &item.Category, &item.Icon, &trackRaw,
+		); err != nil {
+			return nil, fmt.Errorf("scan moon landing site: %w", err)
+		}
+		if len(hardwareRaw) > 0 {
+			_ = json.Unmarshal(hardwareRaw, &item.Hardware)
+		}
+		if len(trackRaw) > 0 {
+			_ = json.Unmarshal(trackRaw, &item.Track)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate moon landing sites: %w", err)
 	}
 	return items, nil
 }

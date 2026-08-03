@@ -29,6 +29,29 @@ type Spacecraft struct {
 	Snapshot            *OrbitSnapshot `json:"snapshot"`
 }
 
+// LandingSite 月球着陆点（真实经纬度，历史测量值）
+type LandingSite struct {
+	ID           string      `json:"id"`
+	NameZH       string      `json:"nameZh"`
+	NameEN       string      `json:"nameEn"`
+	Program      string      `json:"program"`
+	OperatorName string      `json:"operatorName"`
+	LandingDate  string      `json:"landingDate"`
+	Latitude     float64     `json:"latitude"`
+	Longitude    float64     `json:"longitude"`
+	Region       string      `json:"region"`
+	Description  string      `json:"description"`
+	SortOrder    int         `json:"sortOrder"`
+	SiteName     string      `json:"siteName"`
+	OfficialName string      `json:"officialName"`
+	MissionName  string      `json:"missionName"`
+	Hardware     []string    `json:"hardware"`
+	Side         string      `json:"side"`
+	Category     string      `json:"category"`
+	Icon         string      `json:"icon"`
+	Track        [][]float64 `json:"track"`
+}
+
 // OrbitSnapshot 月球飞行器瞬时轨道根数快照
 type OrbitSnapshot struct {
 	Epoch            string  `json:"epoch"`

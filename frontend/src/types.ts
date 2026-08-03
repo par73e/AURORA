@@ -69,6 +69,28 @@ export interface OrbitOverview {
 }
 
 /** 月球飞行器（来自 /api/v1/moon/spacecraft，镜像地球 Spacecraft 类型） */
+export interface MoonLandingSite {
+  id: string
+  nameZh: string
+  nameEn: string
+  program: string
+  operatorName: string
+  landingDate: string
+  latitude: number
+  longitude: number
+  region: string
+  description: string
+  sortOrder: number
+  siteName: string
+  officialName: string
+  missionName: string
+  hardware: string[]
+  side: 'NEAR_SIDE' | 'FAR_SIDE'
+  category: string
+  icon: 'astronaut' | 'lander' | 'rover' | 'sample'
+  track: number[][]
+}
+
 export interface MoonSpacecraft {
   id: string
   nameZh: string

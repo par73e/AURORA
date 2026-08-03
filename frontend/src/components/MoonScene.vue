@@ -8,6 +8,7 @@
           <label><input v-model="spacecraftEnabled" type="checkbox"><i />航天器</label>
           <label><input v-model="orbitsEnabled" type="checkbox"><i />轨道</label>
           <label><input v-model="terminatorEnabled" type="checkbox"><i class="terminator" />晨昏线</label>
+          <label><input v-model="sitesEnabled" type="checkbox"><i class="sites" />着陆点</label>
         </div>
 
         <!-- 轨道飞行器标签 -->
@@ -24,6 +25,47 @@
           <strong>{{ craftById(label.id)?.nameZh }}</strong>
           <small>{{ craftById(label.id)?.nameEn }}</small>
         </button>
+
+        <!-- 着陆点标签：图标（宇航员/着陆器/月球车/样本）+ 地点名 + 任务名 -->
+        <button
+          v-for="label in siteLabels"
+          v-show="label.visible && sitesEnabled"
+          :key="label.id"
+          class="craft-label site-label"
+          :class="{ selected: selectedSite === label.id }"
+          :data-icon="siteById(label.id)?.icon ?? 'lander'"
+          :style="siteLabelStyle(label)"
+          :aria-label="`${siteById(label.id)?.siteName}（${siteById(label.id)?.missionName}）`"
+          @click="selectedSite = selectedSite === label.id ? null : label.id"
+        >
+          <span class="site-glyph" v-html="siteGlyph(siteById(label.id)?.icon ?? 'lander')" />
+          <strong>{{ siteById(label.id)?.siteName }}</strong>
+          <small>{{ siteById(label.id)?.missionName }}</small>
+        </button>
+
+        <!-- 选中着陆点的信息卡 -->
+        <aside v-if="selectedSite && siteById(selectedSite)" class="site-panel" :class="{ visible: sceneRevealed }">
+          <button class="site-panel-close" aria-label="关闭" @click="selectedSite = null">×</button>
+          <div class="site-panel-head">
+            <span class="site-glyph large" v-html="siteGlyph(siteById(selectedSite)?.icon ?? 'lander')" />
+            <div>
+              <h3>{{ siteById(selectedSite)?.siteName }}</h3>
+              <p v-if="siteById(selectedSite)?.officialName">{{ siteById(selectedSite)?.officialName }}</p>
+            </div>
+          </div>
+          <dl>
+            <div><dt>任务</dt><dd>{{ siteById(selectedSite)?.missionName }}</dd></div>
+            <div><dt>着陆日期</dt><dd>{{ siteById(selectedSite)?.landingDate }}</dd></div>
+            <div><dt>区域</dt><dd>{{ siteById(selectedSite)?.region }}</dd></div>
+            <div><dt>月面</dt><dd>{{ siteById(selectedSite)?.side === 'FAR_SIDE' ? '背面（远离地球）' : '正面' }}</dd></div>
+            <div><dt>机构</dt><dd>{{ siteById(selectedSite)?.operatorName }}</dd></div>
+            <div><dt>简介</dt><dd>{{ siteById(selectedSite)?.description }}</dd></div>
+          </dl>
+          <div class="site-hardware">
+            <h4>遗留设施 / 硬件</h4>
+            <ul><li v-for="(h, i) in siteById(selectedSite)?.hardware" :key="i">{{ h }}</li></ul>
+          </div>
+        </aside>
 
         <!-- 左下角读数：常驻月球 -->
         <div class="moon-readout" aria-live="polite">
@@ -91,7 +133,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { MOON_HD } from '../solar/data'
 import { solarTexture } from '../solar/textures'
-import type { MoonSpacecraft } from '../types'
+import type { MoonLandingSite, MoonSpacecraft } from '../types'
 
 const props = defineProps<{ revealTick?: number }>()
 const emit = defineEmits<{ 'blank-click': [] }>()
@@ -100,9 +142,14 @@ const canvasHost = ref<HTMLDivElement | null>(null)
 const terminatorEnabled = ref(false)
 const spacecraftEnabled = ref(true)
 const orbitsEnabled = ref(true)
+const sitesEnabled = ref(true)
 const selectedCraft = ref<string | null>(null)
 const craftQuery = ref('')
 const craftLabels = ref<Array<{ id: string; x: number; y: number; visible: boolean }>>([])
+const siteLabels = ref<Array<{ id: string; x: number; y: number; visible: boolean }>>([])
+const landingSites = ref<MoonLandingSite[]>([])
+const selectedSite = ref<string | null>(null)
+const siteMarkers = new Map<string, THREE.Object3D>()
 
 /** 入场渐亮：进入边界（revealTick 递增）时置 true，0.5s 过渡；直接加载默认已亮 */
 const sceneRevealed = ref(!props.revealTick)
@@ -288,6 +335,15 @@ onMounted(() => {
     .catch((error) => {
       console.error('加载月球飞行器数据失败:', error)
     })
+  fetch('/api/v1/moon/landing-sites')
+    .then((res) => res.json())
+    .then((data: { landingSites: MoonLandingSite[] }) => {
+      landingSites.value = data.landingSites ?? []
+      buildSiteMarkers()
+    })
+    .catch((error) => {
+      console.error('加载月球着陆点数据失败:', error)
+    })
 
   renderer.render(scene, camera)
 
@@ -424,6 +480,71 @@ function buildCraft(spec: MoonSpacecraft) {
   craftRuntimes.push({ spec, plane, dot, line, nu: initialNu })
 }
 
+/** 经纬度 → 球面坐标（与地球页 latLonToVector 同公式） */
+function sitePosition(latitude: number, longitude: number, radius: number) {
+  const lat = latitude * DEG
+  const lon = longitude * DEG
+  return new THREE.Vector3(
+    radius * Math.cos(lat) * Math.cos(lon),
+    radius * Math.sin(lat),
+    -radius * Math.cos(lat) * Math.sin(lon),
+  )
+}
+
+/** 着陆点标记：小圆点贴在月面（moonMesh 子节点，天然随球面），不参与任何旋转 */
+function buildSiteMarkers() {
+  if (!scene || !moonMesh) return
+  for (const site of landingSites.value) {
+    if (siteMarkers.has(site.id)) continue
+    // 图标类型着色：astronaut 金 / rover 橙 / sample 青 / lander 银
+    const color = site.icon === 'astronaut' ? 0xffcf8f : site.icon === 'rover' ? 0xffb27d : site.icon === 'sample' ? 0x8fd6c2 : 0xcfd8e2
+    const marker = new THREE.Mesh(
+      new THREE.SphereGeometry(0.035, 12, 12),
+      new THREE.MeshBasicMaterial({ color }),
+    )
+    marker.position.copy(sitePosition(site.latitude, site.longitude, 2.6 * 1.004))
+    marker.userData = { kind: 'landing-site', siteId: site.id }
+    moonMesh.add(marker)
+    siteMarkers.set(site.id, marker)
+
+    // 月球车行驶轨迹：虚线折线（示意图，数据存库可替换真实遥测）
+    if (site.track && site.track.length >= 2) {
+      const points = site.track.map(([lat, lon]) => sitePosition(lat, lon, 2.6 * 1.006))
+      const trackLine = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(points),
+        new THREE.LineDashedMaterial({ color, dashSize: 0.055, gapSize: 0.05, transparent: true, opacity: 0.85 }),
+      )
+      trackLine.computeLineDistances()
+      trackLine.name = `track:${site.id}`
+      moonMesh.add(trackLine)
+    }
+  }
+}
+
+function siteById(id: string) {
+  return landingSites.value.find((site) => site.id === id)
+}
+
+/** 着陆点标签样式：右侧偏移，垂直对齐圆点 */
+function siteLabelStyle(label: { id: string; x: number; y: number }) {
+  return { transform: `translate(calc(${label.x}px + 10px), ${label.y - 14}px)` }
+}
+
+/** 站点图标（内联 SVG）：宇航员 / 着陆器 / 月球车 / 样本返回舱 */
+function siteGlyph(icon: 'astronaut' | 'lander' | 'rover' | 'sample') {
+  const stroke = 'currentColor'
+  switch (icon) {
+    case 'astronaut':
+      return `<svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="${stroke}" stroke-width="1.1" stroke-linecap="round"><circle cx="6" cy="3.6" r="2.3"/><path d="M2.6 11c0-2.1 1.5-3.4 3.4-3.4s3.4 1.3 3.4 3.4"/></svg>`
+    case 'rover':
+      return `<svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="${stroke}" stroke-width="1.1" stroke-linecap="round"><rect x="2.8" y="4.4" width="6.4" height="3" rx="0.6"/><path d="M3.6 2.6h2.2M6.4 2.6h2"/><circle cx="4.2" cy="8.4" r="1.1"/><circle cx="7.8" cy="8.4" r="1.1"/></svg>`
+    case 'sample':
+      return `<svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="${stroke}" stroke-width="1.1" stroke-linecap="round"><path d="M5 1.6h2l1.4 2v6a1 1 0 0 1-1 1H4.6a1 1 0 0 1-1-1v-6z"/><path d="M3.6 5.4h4.8"/></svg>`
+    default:
+      return `<svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="${stroke}" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"><path d="M6 1.6 9.4 10.4H2.6z"/><path d="M6 5.4v5"/></svg>`
+  }
+}
+
 // 晨昏线开关（镜像地球 applyDayNightMode）：
 // 关闭 = 观测光(相机方向) 3.1 + 太阳光 0 → 360° 全亮；
 // 打开 = 太阳光 3.1 + 观测光 0 → 真实阴影
@@ -539,6 +660,24 @@ function updateLabels() {
     })
   }
   craftLabels.value = next
+
+  // 着陆点标签：背面隐藏（圆点本体由材质深度测试自然遮挡）
+  const siteNext: Array<{ id: string; x: number; y: number; visible: boolean }> = []
+  const siteTmp = new THREE.Vector3()
+  for (const site of landingSites.value) {
+    const marker = siteMarkers.get(site.id)
+    if (!marker) continue
+    const world = marker.getWorldPosition(siteTmp)
+    const cp = world.clone().project(camera)
+    const occluded = isCraftOccluded(world) // 同款背面判定：法线朝向相机才显示
+    siteNext.push({
+      id: site.id,
+      x: (cp.x * 0.5 + 0.5) * width,
+      y: (-cp.y * 0.5 + 0.5) * height,
+      visible: cp.z > -1 && cp.z < 1 && !occluded,
+    })
+  }
+  siteLabels.value = siteNext
 }
 
 function craftLabelStyle(label: { id: string; x: number; y: number }) {
@@ -690,6 +829,60 @@ onBeforeUnmount(() => {
   border-color: rgba(200, 208, 216, .65);
   background: rgba(16, 22, 28, .85);
 }
+
+/* 着陆点标签：图标着色 + 银灰主题 */
+.site-label { gap: 5px !important; }
+.site-label .site-glyph { display: inline-flex; flex-shrink: 0; }
+.site-label strong { color: #e2e8ee !important; }
+.site-label small { color: var(--moon-quiet) !important; }
+.site-label[class*='selected'] .site-glyph { color: #ffd9a0 !important; }
+/* 图标类型颜色：astronaut 金 / rover 橙 / sample 青 / lander 银 */
+.site-label .site-glyph { color: #cfd8e2; }
+.site-label[data-icon='astronaut'] .site-glyph { color: #ffcf8f; }
+.site-label[data-icon='rover'] .site-glyph { color: #ffb27d; }
+.site-label[data-icon='sample'] .site-glyph { color: #8fd6c2; }
+
+/* 选中着陆点信息卡（银灰主题，右侧） */
+.site-panel {
+  position: absolute;
+  z-index: 8;
+  top: 18px;
+  right: 32px;
+  width: clamp(300px, 22vw, 380px);
+  padding: 22px 24px;
+  border: 1px solid var(--moon-line);
+  border-radius: 10px;
+  background: rgba(10, 14, 18, .9);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .5);
+  backdrop-filter: blur(18px);
+  color: var(--moon-text);
+  font-size: 12px;
+  transition: transform .3s cubic-bezier(.22, 1, .36, 1);
+}
+.site-panel .site-panel-close {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  border: 0;
+  background: none;
+  color: var(--moon-quiet);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.site-panel .site-panel-close:hover { color: var(--moon-text); }
+.site-panel-head { display: flex; gap: 12px; align-items: center; padding-bottom: 14px; border-bottom: 1px solid var(--moon-line); }
+.site-panel-head .site-glyph.large { color: #ffd9a0; }
+.site-panel-head h3 { margin: 0; font-size: 15px; font-weight: 500; color: #e8edf2; }
+.site-panel-head p { margin: 3px 0 0; color: var(--moon-quiet); font: 400 10px var(--font-mono); letter-spacing: .06em; }
+.site-panel dl { display: grid; gap: 8px; padding: 14px 0; margin: 0; }
+.site-panel dl > div { display: grid; grid-template-columns: 64px 1fr; gap: 10px; }
+.site-panel dt { color: var(--moon-quiet); font-size: 11px; }
+.site-panel dd { margin: 0; color: var(--moon-text); font-size: 11px; line-height: 1.5; }
+.site-hardware { padding-top: 12px; border-top: 1px solid var(--moon-line); }
+.site-hardware h4 { margin: 0 0 8px; color: var(--moon-quiet); font: 500 9px var(--font-mono); letter-spacing: .12em; }
+.site-hardware ul { margin: 0; padding-left: 16px; display: grid; gap: 5px; }
+.site-hardware li { color: var(--moon-text); font-size: 11px; line-height: 1.5; }
 
 /* 右下角署名（银灰，与太阳系页同位置同风格） */
 .moon-credits {

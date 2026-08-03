@@ -35,6 +35,15 @@ func Router(repository *orbit.Repository, moonRepository *moon.Repository) http.
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"spacecraft": items})
 	})
+	router.Get("/api/v1/moon/landing-sites", func(w http.ResponseWriter, r *http.Request) {
+		items, err := moonRepository.ListLandingSites(r.Context())
+		if err != nil {
+			slog.Error("load moon landing sites", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "暂时无法读取月球着陆点数据"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"landingSites": items})
+	})
 	return router
 }
 
