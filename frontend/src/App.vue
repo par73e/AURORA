@@ -626,11 +626,11 @@ function enterSolarSystemFromMoon(skipPush = false) {
   // 阶段 1：滚回月球主视图 + 清空月球以外的所有元素（标记/飞行器/标签），只留月球球体
   window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' })
   moonLeaving.value = true
-  // 阶段 2（清空效果可见后才变暗——与地球返回"信息淡出只留地球"同节奏）：变暗 400ms
+  // 阶段 2（清空效果可见后才变暗——与地球返回"信息淡出只留地球"同节奏）：变暗 300ms（原 400ms——加速，卡顿窗口缩短）
   transitionTimer = window.setTimeout(() => {
-    veilDuration.value = reduced ? '0.01s' : '0.4s'
+    veilDuration.value = reduced ? '0.01s' : '0.3s'
     veilActive.value = true
-    // 阶段 3：等遮罩全黑再切页
+    // 阶段 3：切页推迟到渐暗完成后（全黑中切页，切页重操作卡顿不可见）
     transitionTimer = window.setTimeout(() => {
       if (surfaceFromHash() !== 'solar-system') {
         cancelPendingTransition()
@@ -642,7 +642,7 @@ function enterSolarSystemFromMoon(skipPush = false) {
         veilActive.value = false
       })
       transitionTimer = undefined
-    }, reduced ? 30 : 300)
+    }, reduced ? 30 : 420)
   }, reduced ? 20 : 450)
 }
 
