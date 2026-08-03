@@ -27,7 +27,21 @@ const emit = defineEmits<{
   select: [selection: Selection]
   'view-change': []
   'blank-click': []
+  /** 场景首帧贴图渲染完成（解码 + GPU 上传后）——过渡遮罩等待此信号再揭示 */
+  'textures-ready': []
 }>()
+
+let texturesReadySent = false
+/** 纹理上传完成信号：双 rAF（等 renderer.render 真正把贴图传到 GPU 之后） */
+function emitTexturesReady() {
+  if (texturesReadySent) return
+  texturesReadySent = true
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      emit('textures-ready')
+    })
+  })
+}
 
 const canvasHost = ref<HTMLDivElement | null>(null)
 const labels = ref<Array<{ id: string; kind: 'spacecraft' | 'site'; name: string; x: number; y: number; visible: boolean }>>([])
@@ -385,6 +399,7 @@ function setupScene() {
       }
       if (nightLightsMaterial) nightLightsMaterial.uniforms.surfaceMap.value = texture
       textureState.value = 'ready'
+      emitTexturesReady()
     },
     undefined,
     () => { textureState.value = 'fallback' },

@@ -79,6 +79,12 @@ const veilActive = ref(false)
 const coverLingering = ref(false)
 /** 太阳系入场推镜延迟：封面路径 = 变暗时长（全黑开始时起飞）；直接加载 = 0 */
 const solarFlyDelay = ref(0)
+/** OrbitScene/MoonScene 首帧贴图上传完成信号（textures-ready） */
+const orbitSceneReadyFlag = ref(false)
+const moonSceneReadyFlag = ref(false)
+/** 等待组件就绪后再渐亮的回调（onEarthSelect/onMoonSelect 注册，组件信号或超时触发） */
+let pendingOrbitReveal: (() => void) | null = null
+let pendingMoonReveal: (() => void) | null = null
 /** 封面路径进入时播放入场推镜；刷新/直接加载不播（静态恢复现场） */
 const solarEntryFly = ref(false)
 const shellZoom = ref(1)
@@ -475,23 +481,41 @@ function onEarthFlyZoom() {
   if (surface.value === 'orbit' || surfaceFromHash() !== 'orbit') return
   veilDuration.value = '0.22s'
   veilActive.value = true
-  // 黑幕期间等待地球 21k 纹理解码就绪（就绪才换页揭示；2.5s 超时兜底）——
-  // 避免 23MB 本地纹理在揭示瞬间解码导致的卡顿
-  orbitTexturesReady().then(() => onEarthSelect())
-  window.setTimeout(() => onEarthSelect(), 2500)
+  // 遮罩完全变黑后（+350ms）才开始 16k 解码——主线程解码发生在黑屏中，用户不可见；
+  // 解码完成才换页（3s 超时兜底）
+  window.setTimeout(() => {
+    orbitTexturesReady().then(() => onEarthSelect())
+    window.setTimeout(() => onEarthSelect(), 3000)
+  }, 350)
 }
 
-/** 地球放大完成（遮罩已黑）：换页，页面内容淡入浮现 */
+/** 地球放大完成（遮罩已黑）：换页，等首帧贴图 GPU 上传完成再渐亮 */
 function onEarthSelect() {
   if (surface.value === 'orbit' || surfaceFromHash() !== 'orbit') return
   veilActive.value = true
   void setSurface('orbit')
-  requestAnimationFrame(() => {
-    veilDuration.value = '0.3s'
-    veilActive.value = false
-    // 进入边界：遮罩开始淡出的同一帧递增信号，地球场景据此 0.2s 渐亮
-    orbitRevealTick.value += 1
-  })
+  const reveal = () => {
+    if (pendingOrbitReveal) {
+      pendingOrbitReveal = null
+      requestAnimationFrame(() => {
+        veilDuration.value = '0.3s'
+        veilActive.value = false
+        // 进入边界：遮罩开始淡出的同一帧递增信号，地球场景据此 0.2s 渐亮
+        orbitRevealTick.value += 1
+      })
+    }
+  }
+  if (orbitSceneReadyFlag.value) reveal()
+  else {
+    pendingOrbitReveal = reveal
+    window.setTimeout(reveal, 3000) // 兜底：上传异常时最迟 3s 揭示
+  }
+}
+
+/** OrbitScene 首帧贴图上传完成 */
+function onOrbitSceneReady() {
+  orbitSceneReadyFlag.value = true
+  if (pendingOrbitReveal) pendingOrbitReveal()
 }
 
 /** 点击月球瞬间：URL 切到 #moon，预热 8k 月球纹理 */
@@ -506,23 +530,41 @@ function onMoonFlyZoom() {
   if (surface.value === 'moon' || surfaceFromHash() !== 'moon') return
   veilDuration.value = '0.22s'
   veilActive.value = true
-  // 黑幕期间等待月球 16k 纹理解码就绪（就绪才换页揭示；2.5s 超时兜底）
-  moonHdReady().then(() => onMoonSelect())
-  window.setTimeout(() => onMoonSelect(), 2500)
+  // 遮罩完全变黑后（+350ms）才开始 16k 解码——主线程解码发生在黑屏中，用户不可见
+  window.setTimeout(() => {
+    moonHdReady().then(() => onMoonSelect())
+    window.setTimeout(() => onMoonSelect(), 3000)
+  }, 350)
 }
 
-/** 月球放大完成（遮罩已黑）：换页，月球页面渐亮旋转入场 */
+/** 月球放大完成（遮罩已黑）：换页，等首帧贴图 GPU 上传完成再渐亮 */
 function onMoonSelect() {
   if (surface.value === 'moon' || surfaceFromHash() !== 'moon') return
   veilActive.value = true
   solarEnterFromMoon.value = false
   void setSurface('moon')
-  requestAnimationFrame(() => {
-    veilDuration.value = '0.3s'
-    veilActive.value = false
-    // 进入边界：遮罩开始淡出的同一帧递增信号，月球场景据此 0.5s 渐亮
-    moonRevealTick.value += 1
-  })
+  const reveal = () => {
+    if (pendingMoonReveal) {
+      pendingMoonReveal = null
+      requestAnimationFrame(() => {
+        veilDuration.value = '0.3s'
+        veilActive.value = false
+        // 进入边界：遮罩开始淡出的同一帧递增信号，月球场景据此 0.5s 渐亮
+        moonRevealTick.value += 1
+      })
+    }
+  }
+  if (moonSceneReadyFlag.value) reveal()
+  else {
+    pendingMoonReveal = reveal
+    window.setTimeout(reveal, 3000) // 兜底
+  }
+}
+
+/** MoonScene 首帧贴图上传完成 */
+function onMoonSceneReady() {
+  moonSceneReadyFlag.value = true
+  if (pendingMoonReveal) pendingMoonReveal()
 }
 
 /** 月球 → 太阳系：渐暗 → 切页（太阳系从月球近景拉回）→ 渐亮 */
@@ -770,7 +812,7 @@ onBeforeUnmount(() => {
         </div>
       </header>
 
-      <MoonScene v-if="surface === 'moon'" :reveal-tick="moonRevealTick" @blank-click="collapseHeaderFromScene" />
+      <MoonScene v-if="surface === 'moon'" :reveal-tick="moonRevealTick" @blank-click="collapseHeaderFromScene" @textures-ready="onMoonSceneReady" />
 
       <SolarSystem
         ref="solarSystemRef"
@@ -802,6 +844,7 @@ onBeforeUnmount(() => {
               :observer-active="observerViewActive"
               :day-night-enabled="dayNightEnabled"
               :reveal-tick="orbitRevealTick"
+              @textures-ready="onOrbitSceneReady"
               @select="selectFromScene"
               @view-change="leaveObserverView"
               @blank-click="collapseHeaderFromScene"

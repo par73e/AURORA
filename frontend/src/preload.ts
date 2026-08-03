@@ -3,7 +3,7 @@
 
 import { EARTH_DAY_TEXTURE_URL, EARTH_NIGHT_TEXTURE_URL } from './orbit/coordinates'
 import { MOON_HD } from './solar/data'
-import { preloadSolarTextures as preloadSolarTextureObjects, solarTexture } from './solar/textures'
+import { preloadSolarTextures as preloadSolarTextureObjects } from './solar/textures'
 
 const preloaded = new Set<string>()
 const decodePromises = new Map<string, Promise<void>>()
@@ -52,9 +52,10 @@ export function orbitTexturesReady(): Promise<void> {
   return Promise.all([warmAndDecode(EARTH_DAY_TEXTURE_URL), warmAndDecode(EARTH_NIGHT_TEXTURE_URL)]).then(() => undefined)
 }
 
-/** 预热月球高清贴图（8k 本地资源，进入月球页面时已解码就绪） */
+/** 预热月球高清贴图：仅下载不解码（THREE 加载器会立即主线程解码 16k，点击瞬间解码会卡镜头动画；
+ *  解码由 moonHdReady 在遮罩全黑后显式触发） */
 export function preloadMoonHdTexture() {
-  solarTexture(MOON_HD.textureUrl)
+  warm(MOON_HD.textureUrl)
 }
 
 /** 月球 16k 纹理解码就绪（黑幕期间等待） */

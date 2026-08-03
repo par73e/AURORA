@@ -169,7 +169,23 @@ import { solarTexture } from '../solar/textures'
 import type { MoonLandingSite, MoonSpacecraft } from '../types'
 
 const props = defineProps<{ revealTick?: number }>()
-const emit = defineEmits<{ 'blank-click': [] }>()
+const emit = defineEmits<{
+  'blank-click': []
+  /** 场景首帧贴图渲染完成（16k 解码 + GPU 上传后）——过渡遮罩等待此信号再揭示 */
+  'textures-ready': []
+}>()
+
+let texturesReadySent = false
+/** 纹理上传完成信号：双 rAF（等 renderer.render 真正把贴图传到 GPU 之后） */
+function emitTexturesReady() {
+  if (texturesReadySent) return
+  texturesReadySent = true
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      emit('textures-ready')
+    })
+  })
+}
 
 const canvasHost = ref<HTMLDivElement | null>(null)
 const terminatorEnabled = ref(false)
@@ -358,7 +374,7 @@ onMounted(() => {
   controls.maxDistance = 60
 
   // 月球本体：8k 贴图 + PBR 材质（保留质感，同地球模式）
-  const texture = solarTexture(MOON_HD.textureUrl)
+  const texture = solarTexture(MOON_HD.textureUrl, () => emitTexturesReady())
   texture.colorSpace = THREE.SRGBColorSpace
   texture.anisotropy = 16
   moonMaterial = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.92, metalness: 0.02 })

@@ -1,14 +1,14 @@
 import * as THREE from 'three'
 import { eciToGeodetic, gstime, json2satrec, propagate } from 'satellite.js'
 import type { Spacecraft } from '../types'
-import earthDay21kUrl from '../assets/earth/blue-marble-21k.jpg'
+import earthDay16kUrl from '../assets/earth/blue-marble-16k.jpg'
 
 export const EARTH_RADIUS = 2.15
 const EARTH_RADIUS_KM = 6371
 const ALTITUDE_EXAGGERATION = 3.2
 
 /** 地球日间/夜间纹理（远端 CDN，切换页面时提前预热避免卡顿） */
-export const EARTH_DAY_TEXTURE_URL = earthDay21kUrl // NASA Blue Marble Next Generation 21k（本地化，替代 unpkg 4k 远程）
+export const EARTH_DAY_TEXTURE_URL = earthDay16kUrl // NASA Blue Marble NG 16k（本地；21k 位图 933MB 上传/解码过重，16k 在 4k 屏无感知差异）
 export const EARTH_NIGHT_TEXTURE_URL = 'https://unpkg.com/three-globe@2.45.2/example/img/earth-night.jpg'
 
 export interface OrbitalPoint {
