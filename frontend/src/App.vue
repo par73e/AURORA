@@ -474,10 +474,13 @@ function enterOrbit() {
 
 function returnToCover(skipPush = false) {
   if (!skipPush) {
-    // location.href 强制导航（整页重载，地址栏必定更新为 #home）——
-    // 该环境对 hash 的 API 设置（pushState/location.hash/replaceState）均不生效
-    window.location.href = '#home'
-    return // 页面即将重载，不再执行过渡动画
+    // 原生 fragment 导航（<a href="#home"> 未 prevent）已处理地址栏；此处 JS 导航仅作兜底
+    try {
+      window.location.href = '#home'
+      return // 若整页导航生效，页面重载，不再执行过渡
+    } catch {
+      /* 该环境禁止 JS 导航——忽略，原生 fragment 导航已生效 */
+    }
   }
   transitionTo('cover', 0.96)
 }
@@ -839,7 +842,9 @@ onBeforeUnmount(() => {
       >
         <div class="page-frame header-inner">
           <div class="header-left">
-            <a class="brand" href="#home" aria-label="返回 AURORA 封面" @click.prevent="returnToCover">
+            <!-- 不 prevent：让浏览器原生执行 href="#home" fragment 导航（该环境禁止 JS 导航 API，
+                 但原生同文档 hash 跳转不受限——导航栏链接一直可用即证明）；returnToCover 负责过渡动画 -->
+            <a class="brand" href="#home" aria-label="返回 AURORA 封面" @click="returnToCover">
               <span class="brand-mark"><i /><i /><i /></span>
               <span><strong>AURORA</strong><small>ORBITAL OBSERVATORY</small></span>
             </a>
