@@ -376,8 +376,7 @@ function enterSolarSystem() {
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   const exitMs = reduced ? 40 : 200 // 星野渐入 200ms
   const dwellMs = reduced ? 0 : 400 // 星野停留 400ms（对应之前的黑屏时间）
-  solarFlyDelay.value = 0 // 推镜从挂载（点击）即刻开始
-  solarEntryFly.value = true // 封面路径：播放入场推镜
+  solarEntryFly.value = true // 封面路径：播放入场推镜（启动由 SolarSystem 侧等纹理就绪）
   shellOrigin.value = '50% 42%'
   shellZoom.value = 1.05
   shellTransitioning.value = true
@@ -385,26 +384,33 @@ function enterSolarSystem() {
   veilActive.value = true
   coverLingering.value = true
   void setSurface('solar-system')
-  transitionTimer = window.setTimeout(() => {
+  // 停留结束 = 纹理解码就绪（或 2.5s 超时兜底）——黑幕时长与加载同步，
+  // 渐亮揭示时推镜正在中途（SolarSystem 侧同源就绪信号启动推镜）
+  let revealed = false
+  const reveal = () => {
+    if (revealed) return
+    revealed = true
+    transitionTimer = undefined
+    if (surfaceFromHash() !== 'solar-system') {
+      cancelPendingTransition()
+      return
+    }
+    coverLingering.value = false
+    transitionFrame = requestAnimationFrame(() => {
+      transitionFrame = undefined
+      shellZoom.value = 1
+      veilDuration.value = reduced ? '0.01s' : '0.6s' // 渐亮时长
+      veilActive.value = false
+    })
     transitionTimer = window.setTimeout(() => {
-      if (surfaceFromHash() !== 'solar-system') {
-        cancelPendingTransition()
-        return
-      }
-      // 停留结束：撤封面 → 渐亮揭示（推镜已在中途）
-      coverLingering.value = false
-      transitionFrame = requestAnimationFrame(() => {
-        transitionFrame = undefined
-        shellZoom.value = 1
-        veilDuration.value = reduced ? '0.01s' : '0.6s' // 渐亮时长
-        veilActive.value = false
-      })
-      transitionTimer = window.setTimeout(() => {
-        shellTransitioning.value = false
-        transitionTimer = undefined
-      }, 620 + 60)
-    }, dwellMs)
-  }, exitMs)
+      shellTransitioning.value = false
+      transitionTimer = undefined
+    }, 620 + 60)
+  }
+  transitionTimer = window.setTimeout(() => {
+    solarTexturesReady().then(reveal)
+    window.setTimeout(reveal, 2500) // 兜底：加载异常时最迟 2.5s 揭示
+  }, exitMs + dwellMs)
 }
 
 
