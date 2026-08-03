@@ -1127,7 +1127,7 @@ onBeforeUnmount(() => {
 .site-label[data-icon='rover'] .site-glyph { color: #ffb27d; }
 .site-label[data-icon='sample'] .site-glyph { color: #8fd6c2; }
 
-/* 选中着陆点信息卡（银灰主题，右侧） */
+/* 选中着陆点信息卡（深灰渐变质感：顶部受光 → 底部沉底，无浅蓝） */
 .site-panel {
   position: absolute;
   z-index: 8;
@@ -1137,16 +1137,38 @@ onBeforeUnmount(() => {
   max-height: calc(100% - 36px - var(--header-overlay-offset));
   overflow-y: auto;
   padding: 22px 24px;
-  border: 1px solid var(--moon-line);
+  border: 1px solid rgba(200, 208, 216, .14);
+  border-top-color: rgba(215, 224, 232, .3); /* 顶部受光 */
   border-radius: 10px;
-  background: rgba(10, 14, 18, .9);
-  box-shadow: 0 24px 70px rgba(0, 0, 0, .5);
+  /* 深浅渐变：顶部略亮（受光）→ 底部沉底 */
+  background: linear-gradient(168deg, rgba(32, 40, 48, .95) 0%, rgba(16, 22, 28, .95) 42%, rgba(9, 13, 17, .96) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(220, 230, 238, .1), /* 内顶部高光 */
+    0 24px 70px rgba(0, 0, 0, .55);
   backdrop-filter: blur(18px);
   color: var(--moon-text);
   font-size: 12px;
   /* 顶部菜单栏展开时整体下移（与地球页信息卡同机制） */
   transform: translateY(var(--header-overlay-offset, 0px));
   transition: transform .38s cubic-bezier(.22, 1, .36, 1);
+}
+/* 信息卡内部层次：头部区与设施区用浅灰底块区分 */
+.site-panel .site-hardware {
+  padding: 14px 14px 12px;
+  border: 1px solid rgba(200, 208, 216, .08);
+  border-radius: 6px;
+  background: rgba(200, 208, 216, .035);
+}
+.site-panel-head h3 { text-shadow: 0 1px 8px rgba(0, 0, 0, .6); }
+/* 飞行器信息面板（月球页同样覆盖为深灰渐变质感） */
+.site-panel ~ .context-panel,
+.moon-scene-host .context-panel {
+  border-color: rgba(200, 208, 216, .14);
+  border-top-color: rgba(215, 224, 232, .3);
+  background: linear-gradient(168deg, rgba(32, 40, 48, .95) 0%, rgba(16, 22, 28, .95) 42%, rgba(9, 13, 17, .96) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(220, 230, 238, .1),
+    0 24px 70px rgba(0, 0, 0, .55);
 }
 .site-panel .site-panel-close {
   position: absolute;
