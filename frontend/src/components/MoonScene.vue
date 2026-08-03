@@ -7,8 +7,8 @@
           <span>图层</span>
           <label><input v-model="spacecraftEnabled" type="checkbox"><i />航天器</label>
           <label><input v-model="orbitsEnabled" type="checkbox"><i />轨道</label>
-          <label><input v-model="terminatorEnabled" type="checkbox"><i class="terminator" />晨昏线</label>
           <label><input v-model="sitesEnabled" type="checkbox"><i class="sites" />着陆点</label>
+          <label><input v-model="terminatorEnabled" type="checkbox"><i class="terminator" />晨昏线</label>
         </div>
 
         <!-- 轨道飞行器标签 -->
@@ -125,6 +125,39 @@
       </div>
     </div>
   </section>
+
+  <!-- 下方：月球着陆点板块（镜像航天器板块；点击 → 返回月球场景并放大居中该点） -->
+  <section id="moon-sites" class="content-section moon-sites-section">
+    <div class="page-frame">
+      <div class="section-heading">
+        <div><p class="section-kicker">LUNAR LANDING SITES</p><h2><i class="sec-num">Ⅲ</i>着陆点</h2></div>
+      </div>
+      <div class="catalog-workspace">
+        <div class="catalog-controls">
+          <label class="search-field">
+            <span>地点、任务或机构</span>
+            <input v-model="siteQuery" type="search" placeholder="输入 静海基地、Apollo 11、嫦娥…" spellcheck="false" />
+          </label>
+        </div>
+        <div class="catalog-meta">
+          <span>共 {{ filteredSites.length }} 个着陆点</span>
+          <span>真实历史坐标 · 人类探月足迹</span>
+        </div>
+        <div class="object-table" role="table" aria-label="月球着陆点列表">
+          <div class="object-table-head" role="row"><span>地点</span><span>任务</span><span>着陆日期</span></div>
+          <button v-for="site in filteredSites" :key="site.id" class="object-row site-row" :data-icon="site.icon" role="row" @click="focusSite(site.id)">
+            <span class="site-row-name">
+              <span class="site-glyph" v-html="siteGlyph(site.icon)" />
+              <span><strong>{{ site.siteName }}</strong><small>{{ site.officialName || site.region }}</small></span>
+            </span>
+            <span>{{ site.missionName }}<small>{{ site.operatorName }}</small></span>
+            <span>{{ site.landingDate }}<small>{{ site.side === 'FAR_SIDE' ? '月球背面' : '月球正面' }}</small></span>
+          </button>
+          <div v-if="!filteredSites.length" class="catalog-empty">没有符合条件的着陆点。请修改搜索词。</div>
+        </div>
+      </div>
+    </div>
+  </section>
 </template>
 
 <script setup lang="ts">
@@ -145,6 +178,7 @@ const orbitsEnabled = ref(true)
 const sitesEnabled = ref(true)
 const selectedCraft = ref<string | null>(null)
 const craftQuery = ref('')
+const siteQuery = ref('')
 const craftLabels = ref<Array<{ id: string; x: number; y: number; visible: boolean }>>([])
 const siteLabels = ref<Array<{ id: string; x: number; y: number; visible: boolean }>>([])
 const landingSites = ref<MoonLandingSite[]>([])
@@ -183,6 +217,28 @@ function focusCraft(id: string) {
   document.getElementById('moon-scene')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
+/** 板块点击着陆点：返回月球场景 + 选中 + 镜头放大居中该点 */
+function focusSite(id: string) {
+  selectedSite.value = id
+  document.getElementById('moon-scene')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+/** 着陆点聚焦动画：相机移到该点外侧（月球在正后方作背景，居中且放大） */
+function startSiteFocus(id: string) {
+  const marker = siteMarkers.get(id)
+  if (!marker || !camera || !controls) return
+  const world = marker.getWorldPosition(focusTmp).clone()
+  const radial = world.clone().normalize()
+  focusAnimation = {
+    fromPos: camera.position.clone(),
+    toPos: world.clone().addScaledVector(radial, 3.4),
+    fromTarget: controls.target.clone(),
+    toTarget: world.clone(),
+    startedAt: performance.now(),
+    duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 150 : 900,
+  }
+}
+
 /** 启动聚焦动画：相机移到飞行器外侧 3.8 单位（月球在正后方作背景 → 居中且放大） */
 function startCraftFocus(id: string) {
   const runtime = craftRuntimes.find((r) => r.spec.id === id)
@@ -201,6 +257,11 @@ function startCraftFocus(id: string) {
 
 watch(selectedCraft, (id) => {
   if (id) startCraftFocus(id)
+})
+
+// 着陆点选中（场景标签点击或板块点击）→ 镜头飞向该点居中放大
+watch(selectedSite, (id) => {
+  if (id) startSiteFocus(id)
 })
 
 let renderer: THREE.WebGLRenderer | undefined
@@ -292,6 +353,9 @@ onMounted(() => {
   texture.anisotropy = 8
   moonMaterial = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.92, metalness: 0.02 })
   moonMesh = new THREE.Mesh(new THREE.SphereGeometry(2.6, 96, 96), moonMaterial)
+  // 潮汐锁定：月球近地面（lon 0°，即 sitePosition(0,0) 的 +X 方向）默认对准相机，
+  // 进入页面即可看到熟悉的正面（大片月海）；着陆点/轨迹作为子节点随球面一起转
+  moonMesh.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), camera.position.clone().normalize())
   scene.add(moonMesh)
 
   // 光照（镜像地球）：固定环境光 + 太阳方向光 + 跟随相机的观测光
@@ -525,6 +589,19 @@ function siteById(id: string) {
   return landingSites.value.find((site) => site.id === id)
 }
 
+const filteredSites = computed(() => {
+  const q = siteQuery.value.trim().toLowerCase()
+  if (!q) return landingSites.value
+  return landingSites.value.filter(
+    (site) =>
+      site.siteName.toLowerCase().includes(q) ||
+      site.missionName.toLowerCase().includes(q) ||
+      site.officialName.toLowerCase().includes(q) ||
+      site.operatorName.toLowerCase().includes(q) ||
+      site.region.toLowerCase().includes(q),
+  )
+})
+
 /** 着陆点标签样式：右侧偏移，垂直对齐圆点 */
 function siteLabelStyle(label: { id: string; x: number; y: number }) {
   return { transform: `translate(calc(${label.x}px + 10px), ${label.y - 14}px)` }
@@ -727,43 +804,43 @@ onBeforeUnmount(() => {
     radial-gradient(ellipse at 50% 50%, #060b13 0%, #010307 100%);
 }
 /* 航天器板块 UI 全银灰（覆盖全局浅蓝） */
-.moon-objects-section .catalog-workspace { background: #0d1217; }
-.moon-objects-section .section-kicker { color: #b6bfc8; }
-.moon-objects-section .sec-num { color: #aab4be; }
-.moon-objects-section .catalog-controls label > span { color: #9aa4ae; }
-.moon-objects-section .catalog-controls input {
+.moon-objects-section .moon-sites-section catalog-workspace { background: #0d1217; }
+.moon-objects-section .moon-sites-section section-kicker { color: #b6bfc8; }
+.moon-objects-section .moon-sites-section sec-num { color: #aab4be; }
+.moon-objects-section .moon-sites-section catalog-controls label > span { color: #9aa4ae; }
+.moon-objects-section .moon-sites-section catalog-controls input {
   border-color: rgba(200, 208, 216, .25);
   background: #0a0f14;
   color: #e2e7ec;
 }
-.moon-objects-section .catalog-controls input:focus {
+.moon-objects-section .moon-sites-section catalog-controls input:focus {
   border-color: rgba(200, 208, 216, .6);
   box-shadow: 0 0 0 3px rgba(200, 208, 216, .08);
 }
-.moon-objects-section .catalog-meta {
+.moon-objects-section .moon-sites-section catalog-meta {
   border-top-color: rgba(200, 208, 216, .15);
   color: #8b959f;
 }
-.moon-objects-section .object-table-head,
-.moon-objects-section .object-row {
+.moon-objects-section .moon-sites-section object-table-head,
+.moon-objects-section .moon-sites-section object-row {
   grid-template-columns: 150px minmax(260px, 1.6fr) minmax(180px, 1fr);
 }
-.moon-objects-section .object-table-head {
+.moon-objects-section .moon-sites-section object-table-head {
   border-top-color: rgba(200, 208, 216, .15);
   border-bottom-color: rgba(200, 208, 216, .15);
   color: #8b959f;
 }
-.moon-objects-section .object-row {
+.moon-objects-section .moon-sites-section object-row {
   border-bottom-color: rgba(200, 208, 216, .12);
   color: #aab4be;
 }
-.moon-objects-section .object-row:hover,
-.moon-objects-section .object-row:focus-visible {
+.moon-objects-section .moon-sites-section object-row:hover,
+.moon-objects-section .moon-sites-section object-row:focus-visible {
   background: rgba(200, 208, 216, .06);
   color: #e6ebf0;
 }
-.moon-objects-section .object-row small { color: #7c8791; }
-.moon-objects-section .catalog-empty { color: #8b959f; }
+.moon-objects-section .moon-sites-section object-row small { color: #7c8791; }
+.moon-objects-section .moon-sites-section catalog-empty { color: #8b959f; }
 
 /* 粘性场景区：首屏 100dvh，下滑进入航天器板块 */
 .moon-scene-frame {
@@ -829,6 +906,14 @@ onBeforeUnmount(() => {
   border-color: rgba(200, 208, 216, .65);
   background: rgba(16, 22, 28, .85);
 }
+
+/* 着陆点板块行：图标 + 名称两行 */
+.site-row { grid-template-columns: minmax(260px, 1.4fr) minmax(220px, 1fr) 150px !important; }
+.site-row .site-glyph { color: #cfd8e2; flex-shrink: 0; }
+.site-row[data-icon='astronaut'] .site-glyph { color: #ffcf8f; }
+.site-row[data-icon='rover'] .site-glyph { color: #ffb27d; }
+.site-row[data-icon='sample'] .site-glyph { color: #8fd6c2; }
+.site-row-name { display: flex; align-items: center; gap: 10px; }
 
 /* 着陆点标签：图标着色 + 银灰主题 */
 .site-label { gap: 5px !important; }

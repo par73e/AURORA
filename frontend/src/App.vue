@@ -599,9 +599,9 @@ function collapseHeaderFromScene() {
 function updateActivePage() {
   pageSurfaceFrame = 0
   if (surface.value === 'moon') {
-    // 主视图 = #moon-objects 顶部仍在视口下半区；进入上半区（滚动超过场景区一半）即进入航天器板块
-    const moonObjects = document.getElementById('moon-objects')
-    const objectsTop = moonObjects?.getBoundingClientRect().top ?? window.innerHeight
+    // 主视图 = #moon-sites（最下方板块）顶部仍在视口下半区；进入上半区即离开主视图（页头展开）
+    const moonSites = document.getElementById('moon-sites')
+    const objectsTop = moonSites?.getBoundingClientRect().top ?? window.innerHeight
     const nextMoonPageActive = objectsTop > window.innerHeight / 2
     if (nextMoonPageActive === moonPageActive.value) {
       if (moonPageActive.value && headerExpanded.value) scheduleHeaderCollapse()
@@ -739,6 +739,7 @@ onBeforeUnmount(() => {
           <nav v-else-if="surface === 'moon'" aria-label="页面导航">
             <a href="#moon-scene"><i class="nav-num">Ⅰ</i>月球观测</a>
             <a href="#moon-objects"><i class="nav-num">Ⅱ</i>航天器</a>
+            <a href="#moon-sites"><i class="nav-num">Ⅲ</i>着陆点</a>
           </nav>
           <nav v-else-if="surface === 'solar-system'" aria-label="当前位置">
             <SolarSystemItem title="太阳系" :icon-size="30" :active="true" :animated="true" @click="solarSystemRef?.resetView?.()" />
