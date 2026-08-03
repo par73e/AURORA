@@ -492,12 +492,17 @@ function enterOrbit() {
 }
 
 function returnToCover(skipPush = false) {
-  // hash 更新双保险：location.hash 赋值 + history.replaceState 兜底——
-  // 部分浏览器对 hash-only URL 的设置方式不生效（地址栏残留 #solar-system，刷新会进错页）；
-  // replaceState 不新增历史条目，后退行为不变
   if (!skipPush) {
-    window.location.hash = '#home'
-    window.history.replaceState(null, '', '#home')
+    // 该浏览器环境对 hash 的所有 API 设置（pushState/location.hash/replaceState）均不生效——
+    // 改用 location.href 强制导航（整页重载，地址栏必定更新为 #home）。
+    // 重载前预置 sessionStorage = 'cover'，新页面加载时恢复首页（否则会恢复旧页面）
+    try {
+      sessionStorage.setItem('aurora:surface', 'cover')
+    } catch {
+      /* 静默降级 */
+    }
+    window.location.href = '#home'
+    return // 页面即将重载，不再执行过渡动画
   }
   transitionTo('cover', 0.96)
 }
