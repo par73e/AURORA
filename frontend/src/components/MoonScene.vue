@@ -213,10 +213,11 @@ const sceneRevealed = ref(!props.enterFromSolar)
 /** 分阶段揭示：0 = 纯月球 → 1 = 着陆点标记/轨迹 → 2 = 飞行器/轨道 → 3 = 标签（直接加载默认全开） */
 const revealStage = ref(props.enterFromSolar ? 0 : 3)
 const stageTimestamps: Record<number, number> = {}
-/** 阶段淡入因子（0→1，350ms） */
+/** 阶段淡入因子（0→1，350ms）。阶段未到时 0；阶段已越过但无时间戳（直接加载/刷新，时间轴未跑）→ 全亮 */
 function stageFade(stage: number, duration = 350): number {
+  if (revealStage.value < stage) return 0
   const t = stageTimestamps[stage]
-  if (t === undefined) return 0
+  if (t === undefined) return 1
   return Math.min(1, (performance.now() - t) / duration)
 }
 watch(
