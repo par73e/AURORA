@@ -14,7 +14,7 @@ import SolarSystemItem from './components/SolarSystemItem.vue'
 import MoonScene from './components/MoonScene.vue'
 import { fetchOrbitOverview } from './api'
 import { spacecraftPoint } from './orbit/coordinates'
-import { preloadMoonHdTexture, preloadOrbitTextures, preloadSolarTextures } from './preload'
+import { moonHdReady, orbitTexturesReady, preloadMoonHdTexture, preloadOrbitTextures, preloadSolarTextures } from './preload'
 import { solarTexturesReady } from './solar/textures'
 import type { LaunchEvent, LaunchSite, OrbitOverview, SceneLayers, Selection } from './types'
 
@@ -475,6 +475,10 @@ function onEarthFlyZoom() {
   if (surface.value === 'orbit' || surfaceFromHash() !== 'orbit') return
   veilDuration.value = '0.22s'
   veilActive.value = true
+  // 黑幕期间等待地球 21k 纹理解码就绪（就绪才换页揭示；2.5s 超时兜底）——
+  // 避免 23MB 本地纹理在揭示瞬间解码导致的卡顿
+  orbitTexturesReady().then(() => onEarthSelect())
+  window.setTimeout(() => onEarthSelect(), 2500)
 }
 
 /** 地球放大完成（遮罩已黑）：换页，页面内容淡入浮现 */
@@ -502,6 +506,9 @@ function onMoonFlyZoom() {
   if (surface.value === 'moon' || surfaceFromHash() !== 'moon') return
   veilDuration.value = '0.22s'
   veilActive.value = true
+  // 黑幕期间等待月球 16k 纹理解码就绪（就绪才换页揭示；2.5s 超时兜底）
+  moonHdReady().then(() => onMoonSelect())
+  window.setTimeout(() => onMoonSelect(), 2500)
 }
 
 /** 月球放大完成（遮罩已黑）：换页，月球页面渐亮旋转入场 */

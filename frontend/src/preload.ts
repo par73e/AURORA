@@ -6,6 +6,7 @@ import { MOON_HD } from './solar/data'
 import { preloadSolarTextures as preloadSolarTextureObjects, solarTexture } from './solar/textures'
 
 const preloaded = new Set<string>()
+const decodePromises = new Map<string, Promise<void>>()
 
 function warm(url: string) {
   if (preloaded.has(url)) return
@@ -13,6 +14,26 @@ function warm(url: string) {
   const image = new Image()
   image.crossOrigin = 'anonymous'
   image.src = url
+}
+
+/** 强制浏览器解码（异步、不卡主线程）；返回就绪 Promise（失败也 resolve，避免卡死过渡） */
+function warmAndDecode(url: string): Promise<void> {
+  warm(url)
+  if (!decodePromises.has(url)) {
+    decodePromises.set(
+      url,
+      new Promise((resolve) => {
+        const img = new Image()
+        img.crossOrigin = 'anonymous'
+        img.onload = () => {
+          img.decode().then(() => resolve()).catch(() => resolve())
+        }
+        img.onerror = () => resolve()
+        img.src = url
+      }),
+    )
+  }
+  return decodePromises.get(url)!
 }
 
 /** 预热太阳系纹理：真正加载成 THREE.Texture 对象，场景复用后首帧即带贴图编译 */
@@ -26,7 +47,17 @@ export function preloadOrbitTextures() {
   warm(EARTH_NIGHT_TEXTURE_URL)
 }
 
+/** 地球纹理解码就绪（黑幕期间等待；就绪才揭示，避免 21k 解码卡顿） */
+export function orbitTexturesReady(): Promise<void> {
+  return Promise.all([warmAndDecode(EARTH_DAY_TEXTURE_URL), warmAndDecode(EARTH_NIGHT_TEXTURE_URL)]).then(() => undefined)
+}
+
 /** 预热月球高清贴图（8k 本地资源，进入月球页面时已解码就绪） */
 export function preloadMoonHdTexture() {
   solarTexture(MOON_HD.textureUrl)
+}
+
+/** 月球 16k 纹理解码就绪（黑幕期间等待） */
+export function moonHdReady(): Promise<void> {
+  return warmAndDecode(MOON_HD.textureUrl)
 }
