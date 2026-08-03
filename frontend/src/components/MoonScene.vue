@@ -3,7 +3,7 @@
     <div id="moon-scene" class="moon-scene-frame">
       <div ref="canvasHost" class="moon-scene-host" :class="{ revealed: sceneRevealed }" role="group" aria-label="月球三维视图，左上角可返回太阳系">
         <!-- 工具栏：与地球页同一套 scene-toolbar 结构（仅颜色走银灰覆盖） -->
-        <div class="scene-toolbar" aria-label="场景图层">
+        <div class="scene-toolbar" aria-label="场景图层" :style="props.headerExpanded ? { transform: 'translateY(76px)' } : undefined">
           <span>图层</span>
           <label><input v-model="spacecraftEnabled" type="checkbox"><i />航天器</label>
           <label><input v-model="orbitsEnabled" type="checkbox"><i />轨道</label>
@@ -168,7 +168,7 @@ import { MOON_HD } from '../solar/data'
 import { solarTexture } from '../solar/textures'
 import type { MoonLandingSite, MoonSpacecraft } from '../types'
 
-const props = defineProps<{ revealTick?: number; enterFromSolar?: boolean; leaving?: boolean }>()
+const props = defineProps<{ revealTick?: number; enterFromSolar?: boolean; leaving?: boolean; headerExpanded?: boolean }>()
 const emit = defineEmits<{
   'blank-click': []
   /** 场景首帧贴图渲染完成（16k 解码 + GPU 上传后）——过渡遮罩等待此信号再揭示 */

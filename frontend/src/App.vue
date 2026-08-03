@@ -56,22 +56,7 @@ const solarSystemRef = ref<InstanceType<typeof SolarSystem> | null>(null)
 /** 地球界面"进入边界"信号：遮罩开始淡出时递增，OrbitScene 据此播放入场渐亮 */
 const orbitRevealTick = ref(0)
 const headerExpanded = ref(true)
-/** 工具栏/位置按钮：header 展开时直接操作 DOM style（绕过模板渲染层，100% 生效） */
-const sceneToolbarRef = ref<HTMLElement | null>(null)
-const sceneLocationRef = ref<HTMLElement | null>(null)
-watch(headerExpanded, (expanded) => {
-  const transform = expanded ? 'translateY(76px)' : ''
-  // 显式设置 transition（inline 兜底）：与右侧面板同节奏的柔和下移（cubic-bezier 缓动）
-  const transition = 'transform .38s cubic-bezier(.22, 1, .36, 1)'
-  if (sceneToolbarRef.value) {
-    sceneToolbarRef.value.style.transition = transition
-    sceneToolbarRef.value.style.transform = transform
-  }
-  if (sceneLocationRef.value) {
-    sceneLocationRef.value.style.transition = transition
-    sceneLocationRef.value.style.transform = transform
-  }
-}, { immediate: true })
+// 工具栏/位置按钮：下移由 :style 绑定驱动（与右侧信息面板同款——CSS transition 提供柔和动画）
 const orbitPageActive = ref(true)
 const moonPageActive = ref(true)
 
@@ -924,7 +909,7 @@ onBeforeUnmount(() => {
               @blank-click="collapseHeaderFromScene"
             />
 
-            <div ref="sceneToolbarRef" class="scene-toolbar" aria-label="场景图层">
+            <div class="scene-toolbar" aria-label="场景图层" :style="headerExpanded ? { transform: 'translateY(76px)' } : undefined">
               <span>图层</span>
               <label><input v-model="layers.spacecraft" type="checkbox"><i />航天器</label>
               <label><input v-model="layers.orbits" type="checkbox"><i />轨道</label>
@@ -933,9 +918,9 @@ onBeforeUnmount(() => {
             </div>
 
             <button
-              ref="sceneLocationRef"
               class="scene-location"
               :class="{ active: observerViewActive }"
+              :style="headerExpanded ? { transform: 'translateY(76px)' } : undefined"
               type="button"
               :aria-pressed="observerViewActive"
               :aria-label="observerViewActive ? `当前视角位于${observerLocation.label}` : `返回${observerLocation.label}`"
