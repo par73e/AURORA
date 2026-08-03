@@ -535,6 +535,7 @@ function onMoonFlyStart() {
   cancelPendingTransition()
   preloadMoonHdTexture() // 预热 8k 月球贴图（本地资源，提前解码避免切换后卡顿）
   moonEnterFromSolar.value = true // 入场路径：月球页分阶段揭示（每次进入都从纯月球开始）
+  moonLeaving.value = false // 重置返回清空状态（否则第二次进入残留 true，清空流程失效）
 }
 
 /** 月球放大到一定程度：遮罩快速变暗 */
