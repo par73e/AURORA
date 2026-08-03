@@ -27,5 +27,34 @@ export function solarTexture(url: string, onReady?: (texture: THREE.Texture) => 
 
 /** 启动预热：真正加载全部太阳系纹理（浏览器缓存命中时解码极快） */
 export function preloadSolarTextures() {
-  for (const url of ALL_TEXTURE_URLS) solarTexture(url)
+  for (const url of ALL_TEXTURE_URLS) {
+    solarTexture(url)
+    ensureDecoded(url) // 强制浏览器解码（8k JPG 解码耗时，提前到封面加载时完成）
+  }
+}
+
+const decodedPromises = new Map<string, Promise<void>>()
+
+/** 强制浏览器解码纹理（Image.decode 异步解码，不卡主线程；THREE 复用同一缓存） */
+function ensureDecoded(url: string): Promise<void> {
+  if (!decodedPromises.has(url)) {
+    decodedPromises.set(
+      url,
+      new Promise((resolve) => {
+        const img = new Image()
+        img.crossOrigin = 'anonymous'
+        img.onload = () => {
+          img.decode().then(() => resolve()).catch(() => resolve())
+        }
+        img.onerror = () => resolve()
+        img.src = url
+      }),
+    )
+  }
+  return decodedPromises.get(url)!
+}
+
+/** 全部太阳系纹理解码就绪（进入动画等待此 Promise：就绪即开始，超时由调用方兜底） */
+export function solarTexturesReady(): Promise<void> {
+  return Promise.all(ALL_TEXTURE_URLS.map(ensureDecoded)).then(() => undefined)
 }

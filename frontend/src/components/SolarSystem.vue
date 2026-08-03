@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { SolarSystemScene, type SolarLabel } from '../solar/scene'
 import { solarSession } from '../solar/session'
 import { MOON, planets, SUN, type PlanetSpec } from '../solar/data'
+import { solarTexturesReady } from '../solar/textures'
 
 const props = defineProps<{ enterFromOrbit?: boolean; enterFromMoon?: boolean; flyDelay?: number; playEntryFly?: boolean }>()
 
