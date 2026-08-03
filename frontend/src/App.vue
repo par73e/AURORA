@@ -44,7 +44,15 @@ const dayNightEnabled = ref(false)
 const showEventOriginal = ref(false)
 type AppSurface = 'cover' | 'solar-system' | 'orbit' | 'moon'
 
-const surface = ref<AppSurface>(surfaceFromHash())
+// 初始页面：hash 明确指向某页（如分享链接 #orbit）时优先 hash；
+// 否则用 sessionStorage 记录（刷新回到上次所在页——hash 设置不可靠环境下的可靠恢复）
+const initialSurface = ((): AppSurface => {
+  const fromHash = surfaceFromHash()
+  if (fromHash !== 'cover') return fromHash
+  const stored = sessionStorage.getItem('aurora:surface') as AppSurface | null
+  return stored ?? 'cover'
+})()
+const surface = ref<AppSurface>(initialSurface)
 const solarSystemRef = ref<InstanceType<typeof SolarSystem> | null>(null)
 /** 地球界面"进入边界"信号：遮罩开始淡出时递增，OrbitScene 据此播放入场渐亮 */
 const orbitRevealTick = ref(0)
@@ -352,6 +360,13 @@ function launchVehicleName(event: LaunchEvent) {
 }
 
 async function setSurface(nextSurface: AppSurface) {
+  // 记录当前页面到 sessionStorage：hash 在该浏览器环境设置不可靠（刷新会进错页），
+  // 刷新恢复优先读这里（回到"刚才所在的地方"）
+  try {
+    sessionStorage.setItem('aurora:surface', nextSurface)
+  } catch {
+    /* sessionStorage 不可用时静默降级 */
+  }
   surface.value = nextSurface
   document.title = nextSurface === 'cover'
     ? 'AURORA'
