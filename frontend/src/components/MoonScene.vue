@@ -298,25 +298,35 @@ function startSiteFocus(id: string) {
   }
 }
 
-/** 启动聚焦动画：相机移到飞行器外侧 3.8 单位（月球在正后方作背景 → 居中且放大） */
-function startCraftFocus(id: string) {
-  const runtime = craftRuntimes.find((r) => r.spec.id === id)
-  if (!runtime || !camera || !controls) return
-  const world = runtime.dot.getWorldPosition(focusTmp).clone()
-  // 等距球面弧线：保持当前相机距月心的距离，只沿球面滑到飞行器方向——平稳旋转、无放大缩小
-  const fromDir = camera.position.clone().normalize()
-  const toDir = world.clone().normalize()
-  const radius = camera.position.length()
+/** 通用运镜规划（学习地球 beginFocus）：任何目标（飞行器/着陆点）统一走此函数——
+ *  相机方向球面插值（方向 lerp+normalize，不穿星球）+ 距离独立插值 + 注视月球中心。
+ *  任意时刻被新目标覆盖时，fromPos=当前相机位置 → 平滑续接，无抽搐 */
+function planFocusMotion(targetPos: THREE.Vector3, targetDistance: number) {
+  if (!camera || !controls) return
+  const distance = THREE.MathUtils.clamp(targetDistance, controls.minDistance, controls.maxDistance)
   focusAnimation = {
     fromPos: camera.position.clone(),
-    toPos: toDir.clone().multiplyScalar(radius),
-    fromTarget: controls.target.clone(),
-    toTarget: world.clone(),
+    toPos: targetPos.clone().normalize().multiplyScalar(distance),
     startedAt: performance.now(),
-    duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 150 : 900,
-    kind: 'craft',
-    spherical: { fromDir, toDir, radius },
+    duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 150 : 950,
   }
+  controls.enabled = false
+}
+
+/** 飞行器聚焦：方向对准飞行器（观察距离 4.6，轨道高度夸张后飞行器与月面分离可见） */
+function startCraftFocus(id: string) {
+  const runtime = craftRuntimes.find((r) => r.spec.id === id)
+  if (!runtime || !camera) return
+  const world = runtime.dot.getWorldPosition(focusTmp).clone()
+  planFocusMotion(world, 4.6)
+}
+
+/** 着陆点聚焦：方向对准着陆点（观察距离 3.4） */
+function startSiteFocus(id: string) {
+  const marker = siteMarkers.get(id)
+  if (!marker || !camera) return
+  const world = marker.getWorldPosition(focusTmp).clone()
+  planFocusMotion(world, 3.4)
 }
 
 watch(selectedCraft, (id) => {
@@ -342,19 +352,13 @@ let dragResetTarget = false
 let focusAnimation: {
   fromPos: THREE.Vector3
   toPos: THREE.Vector3
-  fromTarget: THREE.Vector3
-  toTarget: THREE.Vector3
   startedAt: number
   duration: number
-  /** 目标类型：craft = 注视点实时跟踪移动中的飞行器；site = 固定注视着陆点 */
-  kind: 'craft' | 'site'
-  /** 球面弧线模式（飞行器聚焦）：相机沿"以月心为球心的等距球面"滑到目标方向——
-   *  距离不变、只有旋转，无放大缩小感 */
-  spherical?: { fromDir: THREE.Vector3; toDir: THREE.Vector3; radius: number }
 } | null = null
 const focusTmp = new THREE.Vector3()
 const focusTmp2 = new THREE.Vector3()
-const focusQuat = new THREE.Quaternion()
+const focusTmp3 = new THREE.Vector3()
+const focusTmp4 = new THREE.Vector3()
 const raycaster = new THREE.Raycaster()
 const pointerNDC = new THREE.Vector2()
 /** 飞行器拾取球（不可见，挂在圆点上，扩大点击命中区域） */
@@ -516,26 +520,22 @@ onMounted(() => {
       if (focusAnimation) {
         const t = Math.min(1, (now - focusAnimation.startedAt) / focusAnimation.duration)
         const eased = 1 - Math.pow(1 - t, 3)
-        if (focusAnimation.spherical) {
-          // 球面弧线：方向绕旋转轴插值，距离恒定（无放大缩小）
-          const { fromDir, toDir, radius } = focusAnimation.spherical
-          const axis = focusTmp2.crossVectors(fromDir, toDir).normalize()
-          const angle = fromDir.angleTo(toDir)
-          const q = focusQuat.setFromAxisAngle(axis, angle * eased)
-          camera.position.copy(fromDir.clone().applyQuaternion(q).multiplyScalar(radius))
-        } else {
-          camera.position.lerpVectors(focusAnimation.fromPos, focusAnimation.toPos, eased)
+        // 方向球面插值（lerp + normalize = 短弧滑动，不穿星球）+ 距离独立插值（无突兀缩放）
+        const dir = focusTmp2
+          .copy(focusAnimation.fromPos)
+          .normalize()
+          .lerp(focusTmp3.copy(focusAnimation.toPos).normalize(), eased)
+          .normalize()
+        const dist = THREE.MathUtils.lerp(focusAnimation.fromPos.length(), focusAnimation.toPos.length(), eased)
+        camera.position.copy(dir.multiplyScalar(dist))
+        camera.lookAt(0, 0, 0) // 注视月球中心（与地球 lookAt 中心一致，永远稳定）
+        controls.target.multiplyScalar(1 - eased) // 注视点平滑衰减回月球中心
+        if (t >= 1) {
+          focusAnimation = null
+          controls.target.set(0, 0, 0) // 结束后绕月球中心旋转（与地球一致）
+          controls.enabled = true
+          controls.update()
         }
-        // 目标点：仅飞行器聚焦（kind='craft'）实时跟踪移动中的飞行器；
-        // 着陆点聚焦（kind='site'）用固定终点——否则注视点会追着飞行器转出诡异旋转
-        const liveTarget =
-          focusAnimation.kind === 'craft'
-            ? (craftRuntimes.find((r) => r.spec.id === selectedCraft.value)?.dot.getWorldPosition(focusTmp) ?? focusAnimation.toTarget)
-            : focusAnimation.toTarget
-        controls.target.lerpVectors(focusAnimation.fromTarget, liveTarget, eased)
-        if (t >= 1) focusAnimation = null
-      } else if (!selectedCraft.value && !selectedSite.value) {
-        // 未选中任何对象时的兜底：不执行任何相机插值（保持用户当前视角）
       }
     }
 
