@@ -146,11 +146,13 @@ function onKeydown(event: KeyboardEvent) {
   const index = SELECTION_ORDER.indexOf(activeId.value)
   if (index < 0) return
   if (event.key === 'ArrowRight') {
-    event.preventDefault()
-    activeId.value = SELECTION_ORDER[(index + 1) % SELECTION_ORDER.length]
-  } else if (event.key === 'ArrowLeft') {
+    // 右箭头 = 向内侧（水星方向）
     event.preventDefault()
     activeId.value = SELECTION_ORDER[(index - 1 + SELECTION_ORDER.length) % SELECTION_ORDER.length]
+  } else if (event.key === 'ArrowLeft') {
+    // 左箭头 = 向外侧（海王星方向）
+    event.preventDefault()
+    activeId.value = SELECTION_ORDER[(index + 1) % SELECTION_ORDER.length]
   } else if (event.key === 'Enter') {
     if (activeId.value === 'earth') choosePlanet('earth')
     else if (activeId.value === 'moon') choosePlanet('moon')
@@ -187,7 +189,7 @@ defineExpose({ resetView })
       >
         <strong>{{ nameById.get(label.id) }}</strong>
         <small>{{ nameEnById.get(label.id) }}</small>
-        <i v-if="label.id === 'earth'" class="earth-entry">进入 ORBIT ↗</i>
+        <i class="earth-entry">ENTER {{ nameEnById.get(label.id) }} ↗</i>
       </button>
 
       <div
