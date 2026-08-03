@@ -850,8 +850,9 @@ function updateLabels() {
   }
   // 标签避让：屏幕距离过近（横向 <72px 且纵向 <28px）的可见标签对，后者向下错开一档。
   // 真实站点可能相距仅 180m（阿波罗 12 与勘测者 3），投影后完全重叠——错开保证可读
-  const SITE_LABEL_W = 72
-  const SITE_LABEL_H = 28
+  // 标签实际尺寸：向右展开约 150px 宽、两行文字约 36px 高——阈值按实际标签盒取
+  const SITE_LABEL_W = 170
+  const SITE_LABEL_H = 36
   for (let i = 0; i < siteNext.length; i += 1) {
     const a = siteNext[i]
     if (!a.visible) continue
