@@ -29,10 +29,10 @@
         <!-- 着陆点标签：图标（宇航员/着陆器/月球车/样本）+ 地点名 + 任务名 -->
         <button
           v-for="label in siteLabels"
-          v-show="label.visible && sitesEnabled"
+          v-show="label.visible && selectedSite === label.id"
           :key="label.id"
           class="craft-label site-label"
-          :class="{ selected: selectedSite === label.id, 'stage-late': revealStage < 1 }"
+          :class="{ selected: selectedSite === label.id }"
           :data-icon="siteById(label.id)?.icon ?? 'lander'"
           :style="siteLabelStyle(label)"
           :aria-label="`${siteById(label.id)?.siteName}（${siteById(label.id)?.missionName}）`"
@@ -200,6 +200,10 @@ const siteLabels = ref<Array<{ id: string; x: number; y: number; visible: boolea
 const landingSites = ref<MoonLandingSite[]>([])
 const selectedSite = ref<string | null>(null)
 const siteMarkers = new Map<string, THREE.Object3D>()
+/** 拾取用：所有站点圆点（含拾取球） */
+function siteMarkersArray() {
+  return [...siteMarkers.values()]
+}
 /** 标签避让偏移缓存：每帧向目标偏移 lerp，避免重叠判定在阈值边缘抖动导致标签乱跳 */
 const siteLabelOffsets = new Map<string, number>()
 
@@ -630,6 +634,13 @@ function buildSiteMarkers() {
     marker.userData = { kind: 'landing-site', siteId: site.id }
     moonMesh.add(marker)
     siteMarkers.set(site.id, marker)
+    // 拾取球：扩大点击命中区域（点击圆点 → 选中并聚焦，标签随选中出现）
+    const siteHit = new THREE.Mesh(
+      new THREE.SphereGeometry(0.12, 8, 8),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
+    )
+    siteHit.userData.siteId = site.id
+    marker.add(siteHit)
 
     // 月球车行驶轨迹：虚线折线（示意图，数据存库可替换真实遥测）
     if (site.track && site.track.length >= 2) {
@@ -756,6 +767,16 @@ function onPointerUp(event: PointerEvent) {
   })
   if (hit && hit.object.userData.craftId) {
     selectedCraft.value = hit.object.userData.craftId
+    return
+  }
+  // 站点圆点拾取：点击圆点 → 选中并聚焦（标签随选中出现）
+  const siteHits = raycaster.intersectObjects(siteMarkersArray())
+  const siteHit = siteHits.find((h) => {
+    const world = h.object.getWorldPosition(focusTmp)
+    return !isCraftOccluded(world)
+  })
+  if (siteHit && siteHit.object.userData.siteId) {
+    selectSite(siteHit.object.userData.siteId)
     return
   }
   selectedCraft.value = null
