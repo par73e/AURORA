@@ -320,9 +320,9 @@ defineExpose({ resetView })
   transform: translateY(3px);
   transition: opacity .25s, transform .4s cubic-bezier(.16, 1, .3, 1);
 }
-.planet-label.earth:hover .earth-entry,
-.planet-label.earth:focus-visible .earth-entry,
-.planet-label.earth.active .earth-entry { opacity: 1; transform: translateY(0); }
+.planet-label:hover .earth-entry,
+.planet-label:focus-visible .earth-entry,
+.planet-label.active .earth-entry { opacity: 1; transform: translateY(0); }
 
 .you-marker {
   position: absolute;
