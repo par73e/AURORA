@@ -48,6 +48,9 @@ interface PlanetRuntime {
 
 const DEG = Math.PI / 180
 
+/** 拉远上限 = 当前构图距离的 32 倍（限制最小缩小比例；原 Infinity） */
+const MAX_ZOOM_OUT_FACTOR = 32
+
 /** 把 RingGeometry 的平面 UV 改写为径向条带 UV（u = 内缘 → 外缘），以匹配环带纹理 */
 function radialRingGeometry(inner: number, outer: number, segments: number) {
   const geometry = new THREE.RingGeometry(inner, outer, segments, 1)
@@ -487,7 +490,7 @@ export class SolarSystemScene {
     const p1 = p0.clone().addScaledVector(delta, 0.3)
     const p2 = p0.clone().addScaledVector(delta, 0.68)
     this.controls.minDistance = VIEW.minDistance
-    this.controls.maxDistance = Infinity // 不限制拉远距离（远裁剪面 120000 兜底）
+    this.controls.maxDistance = this.fitDistance * MAX_ZOOM_OUT_FACTOR // 拉远上限：构图距离的 32 倍
     this.flyState = {
       p0,
       p1,
@@ -863,7 +866,7 @@ export class SolarSystemScene {
     const p1 = p0.clone().addScaledVector(delta, 0.3)
     const p2 = p0.clone().addScaledVector(delta, 0.68)
     this.controls.minDistance = VIEW.minDistance
-    this.controls.maxDistance = Infinity // 不限制拉远距离（远裁剪面 120000 兜底）
+    this.controls.maxDistance = this.fitDistance * MAX_ZOOM_OUT_FACTOR // 拉远上限：构图距离的 32 倍
     this.flyState = {
       p0,
       p1,
@@ -928,7 +931,7 @@ export class SolarSystemScene {
     this.controls.target.copy(this.lookAt)
     this.controls.minDistance = VIEW.minDistance
     // 拉远上限 600：星空球半径 700–1100，超出会穿出星幕坠入虚空
-    this.controls.maxDistance = Infinity // 不限制拉远距离（远裁剪面 120000 兜底）
+    this.controls.maxDistance = this.fitDistance * MAX_ZOOM_OUT_FACTOR // 拉远上限：构图距离的 32 倍
   }
 
   private onResize = () => {
@@ -1200,7 +1203,7 @@ export class SolarSystemScene {
     const p2 = p0.clone().addScaledVector(delta, 0.68)
     this.controls.minDistance = VIEW.minDistance
     // 拉远上限 600：星空球半径 700–1100，超出会穿出星幕坠入虚空
-    this.controls.maxDistance = Infinity // 不限制拉远距离（远裁剪面 120000 兜底）
+    this.controls.maxDistance = this.fitDistance * MAX_ZOOM_OUT_FACTOR // 拉远上限：构图距离的 32 倍
     this.flyState = {
       p0,
       p1,
