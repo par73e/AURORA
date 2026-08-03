@@ -630,8 +630,9 @@ function buildSiteMarkers() {
       new THREE.SphereGeometry(0.02, 12, 12),
       new THREE.MeshBasicMaterial({ color, transparent: true, opacity: revealStage.value >= 1 ? 1 : 0 }),
     )
-    // 距表面 0.026 单位：贴附月面但保留深度间隔（1.03 倍太远会悬浮）
-    marker.position.copy(sitePosition(site.latitude, site.longitude, 2.6 * 1.01))
+    // 球心落在月面半径上（2.6）：球体一半嵌进表面（被月球深度遮挡）、一半露出——
+    // "镶嵌"在月面上的观感；露出半球深度 < 表面 → 通过深度测试，无 z-fighting
+    marker.position.copy(sitePosition(site.latitude, site.longitude, 2.6))
     marker.userData = { kind: 'landing-site', siteId: site.id }
     moonMesh.add(marker)
     siteMarkers.set(site.id, marker)
