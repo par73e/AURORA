@@ -673,9 +673,9 @@ function collapseHeaderFromScene() {
 function updateActivePage() {
   pageSurfaceFrame = 0
   if (surface.value === 'moon') {
-    // 主视图 = #moon-sites（最下方板块）顶部仍在视口下半区；进入上半区即离开主视图（页头展开）
-    const moonSites = document.getElementById('moon-sites')
-    const objectsTop = moonSites?.getBoundingClientRect().top ?? window.innerHeight
+    // 主视图 = #moon-objects（第一个板块）顶部仍在视口下半区；滑到第一个板块即展开页头
+    const moonObjects = document.getElementById('moon-objects')
+    const objectsTop = moonObjects?.getBoundingClientRect().top ?? window.innerHeight
     const nextMoonPageActive = objectsTop > window.innerHeight / 2
     if (nextMoonPageActive === moonPageActive.value) {
       if (moonPageActive.value && headerExpanded.value) scheduleHeaderCollapse()
