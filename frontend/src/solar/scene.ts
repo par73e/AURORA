@@ -1165,7 +1165,9 @@ export class SolarSystemScene {
       this.flyState = undefined
       this.entryFlyEased = null
       this.controls.enabled = true
-      this.callbacks.onFlyComplete?.()
+      // 仅点击行星的运镜（flyToEarth/flyToMoon）完成时触发进入回调；
+      // 入场推镜（entry，封面→太阳系）完成时不得触发——否则会自动进入地球
+      if (!fly.entry) this.callbacks.onFlyComplete?.()
     }
   }
 
