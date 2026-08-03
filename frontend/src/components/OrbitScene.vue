@@ -54,7 +54,9 @@ watch(
   () => props.revealTick,
   (tick) => {
     if (tick) sceneRevealed.value = true
-    if (tick && !revealScheduled) {
+    // axisGuide 等场景对象在 onMounted 构建——watch 可能早于构建触发（首次进入路径），
+    // 提前调用 scheduleRevealLayers 会 ReferenceError 并损坏渲染器（信息栏不弹的根因）
+    if (tick && !revealScheduled && axisGuide) {
       revealScheduled = true
       scheduleRevealLayers()
     }
@@ -571,6 +573,11 @@ function setupScene() {
     if (controls) controls.enabled = false
   }
   animate()
+  // 构建完成后的兜底排程：若 watch 早于构建触发（跳过），在此补上分阶段揭示
+  if (props.revealTick && !revealScheduled && axisGuide) {
+    revealScheduled = true
+    scheduleRevealLayers()
+  }
 }
 
 function beginFocus() {
