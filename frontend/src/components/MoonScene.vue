@@ -36,7 +36,7 @@
           :data-icon="siteById(label.id)?.icon ?? 'lander'"
           :style="siteLabelStyle(label)"
           :aria-label="`${siteById(label.id)?.siteName}（${siteById(label.id)?.missionName}）`"
-          @click="selectedSite = selectedSite === label.id ? null : label.id"
+          @click="selectSite(label.id)"
         >
           <span class="site-glyph" v-html="siteGlyph(siteById(label.id)?.icon ?? 'lander')" />
           <strong>{{ siteById(label.id)?.siteName }}</strong>
@@ -219,8 +219,15 @@ function focusCraft(id: string) {
 
 /** 板块点击着陆点：返回月球场景 + 选中 + 镜头放大居中该点 */
 function focusSite(id: string) {
-  selectedSite.value = id
+  selectSite(id)
   document.getElementById('moon-scene')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+/** 场景标签点击：切换选中（再次点击关闭），选中时镜头聚焦该点 */
+function selectSite(id: string) {
+  const next = selectedSite.value === id ? null : id
+  selectedSite.value = next
+  if (next) startSiteFocus(next)
 }
 
 /** 着陆点聚焦动画：相机移到该点外侧（月球在正后方作背景，居中且放大） */
@@ -259,10 +266,7 @@ watch(selectedCraft, (id) => {
   if (id) startCraftFocus(id)
 })
 
-// 着陆点选中（场景标签点击或板块点击）→ 镜头飞向该点居中放大
-watch(selectedSite, (id) => {
-  if (id) startSiteFocus(id)
-})
+// 着陆点聚焦改由 selectSite/focusSite 显式触发（watch 有 flush 时序与同 id 不触发的问题）
 
 let renderer: THREE.WebGLRenderer | undefined
 let scene: THREE.Scene | undefined
@@ -934,6 +938,8 @@ onBeforeUnmount(() => {
   top: 18px;
   right: 32px;
   width: clamp(300px, 22vw, 380px);
+  max-height: calc(100% - 36px - var(--header-overlay-offset));
+  overflow-y: auto;
   padding: 22px 24px;
   border: 1px solid var(--moon-line);
   border-radius: 10px;
@@ -942,7 +948,9 @@ onBeforeUnmount(() => {
   backdrop-filter: blur(18px);
   color: var(--moon-text);
   font-size: 12px;
-  transition: transform .3s cubic-bezier(.22, 1, .36, 1);
+  /* 顶部菜单栏展开时整体下移（与地球页信息卡同机制） */
+  transform: translateY(var(--header-overlay-offset, 0px));
+  transition: transform .38s cubic-bezier(.22, 1, .36, 1);
 }
 .site-panel .site-panel-close {
   position: absolute;
