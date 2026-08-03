@@ -424,8 +424,14 @@ function enterSolarSystem() {
 
 /** ORBIT → 太阳系：滚回主地球视图 → 信息淡出只留地球 → 变暗 → 切页，
  *  太阳系场景从地球近景开始拉回（地球缩回轨道位置，遮罩淡出时可见） */
-function enterSolarSystemFromOrbit() {
-  window.history.pushState(null, '', '#solar-system')
+function returnToSolarSystem(skipPush = false) {
+  if (surface.value === 'orbit') enterSolarSystemFromOrbit(skipPush)
+  else if (surface.value === 'moon') enterSolarSystemFromMoon(skipPush)
+}
+
+/** ORBIT → 太阳系（skipPush = 浏览器返回路径，hash 已是目标不重复入栈） */
+function enterSolarSystemFromOrbit(skipPush = false) {
+  if (!skipPush) window.history.pushState(null, '', '#solar-system')
   preloadSolarTextures()
   cancelPendingTransition()
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -464,8 +470,8 @@ function enterOrbit() {
   transitionTo('orbit', 1.12, '55% 38%')
 }
 
-function returnToCover() {
-  window.history.pushState(null, '', '#home')
+function returnToCover(skipPush = false) {
+  if (!skipPush) window.history.pushState(null, '', '#home')
   transitionTo('cover', 0.96)
 }
 
@@ -573,8 +579,9 @@ function onMoonSceneReady() {
 }
 
 /** 月球 → 太阳系：渐暗 → 切页（太阳系从月球近景拉回）→ 渐亮 */
-function enterSolarSystemFromMoon() {
-  window.history.pushState(null, '', '#solar-system')
+/** 月球 → 太阳系（skipPush = 浏览器返回路径） */
+function enterSolarSystemFromMoon(skipPush = false) {
+  if (!skipPush) window.history.pushState(null, '', '#solar-system')
   preloadSolarTextures()
   cancelPendingTransition()
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -726,7 +733,38 @@ async function load() {
   }
 }
 
+/** 浏览器前进/后退：hash 变化 → 走与按钮一致的动画（不重复 pushState） */
+function onPopState() {
+  const target = surfaceFromHash()
+  if (target === surface.value) return
+  if (target === 'solar-system') {
+    if (surface.value === 'orbit') enterSolarSystemFromOrbit(true)
+    else if (surface.value === 'moon') enterSolarSystemFromMoon(true)
+  } else if (target === 'cover') {
+    returnToCover(true)
+  } else if (target === 'orbit') {
+    cancelPendingTransition()
+    void setSurface('orbit')
+  } else if (target === 'moon') {
+    cancelPendingTransition()
+    void setSurface('moon')
+  }
+}
+
+/** ESC 键：返回上一级（太阳系）——与点击"太阳系"按钮完全一致 */
+function onGlobalKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Escape') return
+  const target = event.target as HTMLElement | null
+  if (target && ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName)) return
+  if (surface.value === 'orbit' || surface.value === 'moon') {
+    event.preventDefault()
+    returnToSolarSystem()
+  }
+}
+
 onMounted(() => {
+  window.addEventListener('popstate', onPopState)
+  window.addEventListener('keydown', onGlobalKeydown)
   preloadSolarTextures() // 预热太阳系纹理，让首次进入不出现加载卡顿
   document.title = surface.value === 'cover'
     ? 'AURORA'
