@@ -297,21 +297,21 @@ function planFocusMotion(targetPos: THREE.Vector3, targetDistance: number) {
   controls.enabled = false
 }
 
-/** 飞行器聚焦：方向对准飞行器，保持当前观察距离（不强制放大——卫星无需大特写，
- *  只做平滑转动；轨道高度夸张已保证飞行器与月面分离可见） */
+/** 飞行器聚焦：方向对准飞行器，观察距离取"当前距离与 8 的较小值"——稍作放大
+ *  （初始 13.5 → 8，不至于太小；已放大时保持用户距离） */
 function startCraftFocus(id: string) {
   const runtime = craftRuntimes.find((r) => r.spec.id === id)
   if (!runtime || !camera) return
   const world = runtime.dot.getWorldPosition(focusTmp).clone()
-  planFocusMotion(world, camera.position.length())
+  planFocusMotion(world, Math.min(camera.position.length(), 8))
 }
 
-/** 着陆点聚焦：方向对准着陆点（观察距离 3.4） */
+/** 着陆点聚焦：方向对准着陆点（观察距离 4.2——不贴脸，月面区域整体可见） */
 function startSiteFocus(id: string) {
   const marker = siteMarkers.get(id)
   if (!marker || !camera) return
   const world = marker.getWorldPosition(focusTmp).clone()
-  planFocusMotion(world, 3.4)
+  planFocusMotion(world, 4.2)
 }
 
 watch(selectedCraft, (id) => {
