@@ -757,13 +757,15 @@ export class SolarSystemScene {
     if (!this.flyState) {
       const dist = this.camera.position.distanceTo(this.controls.target)
       const t = THREE.MathUtils.clamp(dist / this.fitDistance, 0, 1)
-      // 近端灵敏度补偿：boost 按"相机到注视点距离"计算——小目标（外行星/柯伊伯带）放大时
-      // 相机贴得更近（dist 小 → boost≈1），原上限 11.5× 导致边缘放大后拖动过于灵敏；
-      // 大目标（太阳/木星）放大时 dist 较大 → boost 小 → 又偏钝。降低上限并放缓曲线，
-      // 让边缘/中心放大后的拖动手感接近
+      // 近端 boost（rotate/zoom）：小目标放大时相机更近 → boost≈1，限制上限避免过灵
       const boost = 1 - t * t
       this.controls.rotateSpeed = 1.5 + boost * 4
       this.controls.zoomSpeed = 1.2 + boost * 1.6
+      // pan 灵敏度补偿（左键拖动）：OrbitControls 的 pan 位移 ∝ 相机到注视点距离——
+      // 内圈行星（相机近，dist 小）pan 慢、边缘（dist 大）pan 快，正是"放大内行星
+      // 灵敏度低、边缘过高"的来源。panSpeed ∝ 1/dist 抵消 → 全距离屏幕手感一致
+      // （构图处为原手感；贴脸时 dist 下限 4 防极端）
+      this.controls.panSpeed = THREE.MathUtils.clamp(this.fitDistance / Math.max(dist, 4), 0.4, 6)
     }
     this.controls.update()
     // 同步注视点：平移会移动 controls.target，标签与 resize 逻辑依赖 lookAt

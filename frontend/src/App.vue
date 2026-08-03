@@ -452,14 +452,14 @@ function enterSolarSystem() {
   // 封面进入太阳系：星野页面（星空插图）渐入 → 停留（对应原黑屏时间）→ 渐亮揭示推镜
   cancelPendingTransition()
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  const exitMs = reduced ? 40 : 200 // 星野渐入 200ms
-  const dwellMs = reduced ? 0 : 500 // 星野停留 500ms（用户要求增长；太阳系仍在黑幕中提前渲染，
-  // 纹理解码就绪后 reveal 才触发，提前渲染不受影响）
+  const exitMs = reduced ? 40 : 20 // 星野渐入 20ms（近乎瞬切——用户指定）
+  const dwellMs = reduced ? 0 : 880 // 星野停留 880ms（渐入缩到 20ms 后补回时长：总黑幕保持 900ms 与原来一致，
+  // 停留时间未被砍短；太阳系仍在黑幕中提前渲染，纹理解码就绪后 reveal 才触发）
   solarEntryFly.value = true // 封面路径：播放入场推镜（启动由 SolarSystem 侧等纹理就绪）
   shellOrigin.value = '50% 42%'
   shellZoom.value = 1.05
   shellTransitioning.value = true
-  veilDuration.value = reduced ? '0.01s' : '0.2s' // 星野渐入
+  veilDuration.value = reduced ? '0.01s' : '0.01s' // 星野瞬切：点击后星点页面直接完整呈现（略过"先黑后星点"的渐入）
   veilActive.value = true
   coverLingering.value = true
   void setSurface('solar-system')
@@ -549,16 +549,50 @@ function enterOrbit() {
 }
 
 function returnToCover(skipPush = false) {
-  if (!skipPush) {
-    // 原生 fragment 导航（<a href="#home"> 未 prevent）已处理地址栏；此处 JS 导航仅作兜底
-    try {
-      window.location.href = '#home'
-      return // 若整页导航生效，页面重载，不再执行过渡
-    } catch {
-      /* 该环境禁止 JS 导航——忽略，原生 fragment 导航已生效 */
-    }
+  if (surface.value === 'orbit' || surface.value === 'moon') {
+    exitPlanetToCover(skipPush) // 行星界面：完整退出动画（栏目淡出 → 裸星球 → 渐暗 → 封面）
+    return
   }
-  transitionTo('cover', 0.96)
+  transitionTo('cover', 0.96) // 太阳系/封面：原有过渡
+}
+
+/** 行星界面 → 首页：完全复刻"返回太阳系"的退出动画——
+ *  页头/栏目/元素先上滑淡出，只留裸星球，再渐暗切到封面 */
+function exitPlanetToCover(skipPush = false) {
+  if (!skipPush && window.location.hash !== '#home') window.history.pushState(null, '', '#home')
+  cancelPendingTransition()
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const fromMoon = surface.value === 'moon'
+  // 阶段 1：滚回主视图 + 信息/栏目淡出（页头随之上滑），只留裸星球
+  window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' })
+  if (fromMoon) moonLeaving.value = true
+  else orbitSectionLeaving.value = true
+  headerExpanded.value = false
+  suppressHeaderReveal = true
+  // 阶段 2：元素淡出完成后 veil 渐暗
+  transitionTimer = window.setTimeout(() => {
+    if (surfaceFromHash() !== 'cover') {
+      cancelPendingTransition()
+      return
+    }
+    veilDuration.value = reduced ? '0.01s' : '0.3s'
+    veilActive.value = true
+    // 阶段 3：等 veil 真正全黑再切页（与返回太阳系同款，避免新旧画面叠影）
+    waitUntilFullBlack(() => {
+      if (surfaceFromHash() !== 'cover') {
+        cancelPendingTransition()
+        return
+      }
+      if (fromMoon) moonLeaving.value = false
+      else orbitSectionLeaving.value = false
+      void setSurface('cover')
+      requestAnimationFrame(() => {
+        veilDuration.value = reduced ? '0.01s' : '0.3s'
+        veilActive.value = false
+      })
+      transitionTimer = undefined
+    })
+  }, reduced ? 20 : (fromMoon ? 450 : 420))
 }
 
 // ---- 太阳系 → 地球：镜头在太阳系内放大地球 → 变暗 → 切页 ----
