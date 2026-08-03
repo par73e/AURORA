@@ -496,7 +496,7 @@ function onEarthFlyStart() {
 
 /** 地球放大到一定程度：遮罩快速变暗（尽量缩短黑屏时间） */
 function onEarthFlyZoom() {
-  if (surface.value === 'orbit' || surfaceFromHash() !== 'orbit') return
+  if (surface.value === 'orbit') return // 已切页（幂等保护）；不再依赖 hash——该环境 pushState 不生效
   veilDuration.value = '0.22s'
   veilActive.value = true
   // 遮罩完全变黑后（+800ms，黑屏留足余量）才开始 8k 解码——主线程解码/GPU 上传都发生在黑屏中；
@@ -509,7 +509,7 @@ function onEarthFlyZoom() {
 
 /** 地球放大完成（遮罩已黑）：换页，等首帧贴图 GPU 上传完成再渐亮 */
 function onEarthSelect() {
-  if (surface.value === 'orbit' || surfaceFromHash() !== 'orbit') return
+  if (surface.value === 'orbit') return // 已切页（幂等保护）；不再依赖 hash——该环境 pushState 不生效
   veilActive.value = true
   void setSurface('orbit')
   let revealDone = false
@@ -548,7 +548,7 @@ function onMoonFlyStart() {
 
 /** 月球放大到一定程度：遮罩快速变暗 */
 function onMoonFlyZoom() {
-  if (surface.value === 'moon' || surfaceFromHash() !== 'moon') return
+  if (surface.value === 'moon') return // 已切页（幂等保护）；不再依赖 hash——该环境 pushState 不生效
   veilDuration.value = '0.22s'
   veilActive.value = true
   // 遮罩完全变黑后（+800ms，黑屏留足余量）才开始 16k 解码——主线程解码/GPU 上传都发生在黑屏中
@@ -560,7 +560,7 @@ function onMoonFlyZoom() {
 
 /** 月球放大完成（遮罩已黑）：换页，等首帧贴图 GPU 上传完成再渐亮 */
 function onMoonSelect() {
-  if (surface.value === 'moon' || surfaceFromHash() !== 'moon') return
+  if (surface.value === 'moon') return // 已切页（幂等保护）；不再依赖 hash——该环境 pushState 不生效
   veilActive.value = true
   solarEnterFromMoon.value = false
   void setSurface('moon')
