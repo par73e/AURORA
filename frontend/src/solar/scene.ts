@@ -1077,15 +1077,15 @@ export class SolarSystemScene {
     const earthRuntime = this.planetRuntimes.get('earth')
     if (!earthRuntime) return
     const earthPosition = earthRuntime.axial.getWorldPosition(this.tempWorldB)
-    // 终点：正对地球（返回主视角对准地球，而非构图中心——构图中心附近有月球，
-    // 拉远后月球会出现在画面中央）。镜头距离沿用当前构图距离，画面完整（太阳右上/海王星左下）
+    // 终点：默认构图（与封面入场推镜一致——还原到"原来的镜头"）。
+    // 此前"正对月球"是 0×0 容器导致 aspect=NaN 的渲染异常假象，非构图问题。
     // 宽高兜底：挂载瞬间容器可能 0×0，NaN 会传播进相机位置导致渲染崩溃
     const host = this.host
     const aspect =
       host.clientWidth > 0 && host.clientHeight > 0 ? host.clientWidth / host.clientHeight : window.innerWidth / window.innerHeight
-    const { distance } = this.computeModeComposition(aspect)
+    const { target, distance } = this.computeModeComposition(aspect)
     this.fitDistance = distance
-    this.lookAt.copy(earthPosition)
+    this.lookAt.copy(target)
     this.camera.position.copy(this.lookAt).addScaledVector(this.dir, distance)
     this.camera.lookAt(this.lookAt)
     this.camera.updateMatrixWorld(true)
