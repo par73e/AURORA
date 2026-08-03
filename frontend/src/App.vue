@@ -64,6 +64,8 @@ const solarEnterFromOrbit = ref(false)
 const solarEnterFromMoon = ref(false)
 /** 月球页面"进入边界"信号：遮罩开始淡出时递增，MoonScene 据此渐亮 */
 const moonRevealTick = ref(0)
+/** 从太阳系进入月球：true 时月球页从"纯月球"开始分阶段揭示 */
+const moonEnterFromSolar = ref(false)
 const siteHeader = ref<HTMLElement | null>(null)
 const orbitSection = ref<HTMLElement | null>(null)
 const orbitSceneFrame = ref<HTMLElement | null>(null)
@@ -524,6 +526,7 @@ function onMoonFlyStart() {
   window.history.pushState(null, '', '#moon')
   cancelPendingTransition()
   preloadMoonHdTexture() // 预热 8k 月球贴图（本地资源，提前解码避免切换后卡顿）
+  moonEnterFromSolar.value = true // 入场路径：月球页分阶段揭示（每次进入都从纯月球开始）
 }
 
 /** 月球放大到一定程度：遮罩快速变暗 */
@@ -814,7 +817,7 @@ onBeforeUnmount(() => {
         </div>
       </header>
 
-      <MoonScene v-if="surface === 'moon'" :reveal-tick="moonRevealTick" @blank-click="collapseHeaderFromScene" @textures-ready="onMoonSceneReady" />
+      <MoonScene v-if="surface === 'moon'" :reveal-tick="moonRevealTick" :enter-from-solar="moonEnterFromSolar" @blank-click="collapseHeaderFromScene" @textures-ready="onMoonSceneReady" />
 
       <SolarSystem
         ref="solarSystemRef"

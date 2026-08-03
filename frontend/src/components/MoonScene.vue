@@ -168,7 +168,7 @@ import { MOON_HD } from '../solar/data'
 import { solarTexture } from '../solar/textures'
 import type { MoonLandingSite, MoonSpacecraft } from '../types'
 
-const props = defineProps<{ revealTick?: number }>()
+const props = defineProps<{ revealTick?: number; enterFromSolar?: boolean }>()
 const emit = defineEmits<{
   'blank-click': []
   /** 场景首帧贴图渲染完成（16k 解码 + GPU 上传后）——过渡遮罩等待此信号再揭示 */
@@ -201,10 +201,11 @@ const landingSites = ref<MoonLandingSite[]>([])
 const selectedSite = ref<string | null>(null)
 const siteMarkers = new Map<string, THREE.Object3D>()
 
-/** 入场渐亮：进入边界（revealTick 递增）时置 true，0.5s 过渡；直接加载默认已亮 */
-const sceneRevealed = ref(!props.revealTick)
+/** 入场渐亮：从太阳系进入（enterFromSolar）时等待 revealTick 递增；直接加载默认已亮。
+ *  不能用 revealTick 判初始态——它只增不减，第二次进入时非 0 会误判为"直接加载" */
+const sceneRevealed = ref(!props.enterFromSolar)
 /** 分阶段揭示：0 = 纯月球 → 1 = 着陆点标记/轨迹 → 2 = 飞行器/轨道 → 3 = 标签（直接加载默认全开） */
-const revealStage = ref(props.revealTick ? 0 : 3)
+const revealStage = ref(props.enterFromSolar ? 0 : 3)
 const stageTimestamps: Record<number, number> = {}
 /** 阶段淡入因子（0→1，350ms） */
 function stageFade(stage: number, duration = 350): number {
