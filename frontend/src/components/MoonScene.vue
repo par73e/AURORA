@@ -373,7 +373,9 @@ onMounted(() => {
 
   scene = new THREE.Scene()
   camera = new THREE.PerspectiveCamera(MOON_FOV, initialWidth / initialHeight, 0.1, 2000)
-  camera.position.set(0, 1.6, 9)
+  // 初始视角：距月球中心 13.5（视半径 ~10.9°）——比地球页初始（15.8°）小约 1/3，
+  // 体现"月球比地球小"的比例感
+  camera.position.set(0, 1.6, 13.5)
 
   resizeObserver = new ResizeObserver(() => {
     const width = host.clientWidth
