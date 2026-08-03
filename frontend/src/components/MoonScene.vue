@@ -972,44 +972,59 @@ onBeforeUnmount(() => {
     radial-gradient(1.2px 1.2px at 66% 4%, rgba(212, 218, 224, .3), transparent 100%),
     radial-gradient(ellipse at 50% 50%, #060b13 0%, #010307 100%);
 }
-/* 航天器板块 UI 全银灰（覆盖全局浅蓝） */
-.moon-objects-section .moon-sites-section catalog-workspace { background: #0d1217; }
-.moon-objects-section .moon-sites-section section-kicker { color: #b6bfc8; }
-.moon-objects-section .moon-sites-section sec-num { color: #aab4be; }
-.moon-objects-section .moon-sites-section catalog-controls label > span { color: #9aa4ae; }
-.moon-objects-section .moon-sites-section catalog-controls input {
+/* 航天器/着陆点板块 UI 全银灰（覆盖全局浅蓝主题色） */
+.moon-objects-section .catalog-workspace,
+.moon-sites-section .catalog-workspace { background: #0d1217; }
+.moon-objects-section .section-kicker,
+.moon-sites-section .section-kicker { color: #b6bfc8; }
+.moon-objects-section .sec-num,
+.moon-sites-section .sec-num { color: #aab4be; }
+.moon-objects-section .catalog-controls label > span,
+.moon-sites-section .catalog-controls label > span { color: #9aa4ae; }
+.moon-objects-section .catalog-controls input,
+.moon-sites-section .catalog-controls input {
   border-color: rgba(200, 208, 216, .25);
   background: #0a0f14;
   color: #e2e7ec;
 }
-.moon-objects-section .moon-sites-section catalog-controls input:focus {
+.moon-objects-section .catalog-controls input:focus,
+.moon-sites-section .catalog-controls input:focus {
   border-color: rgba(200, 208, 216, .6);
   box-shadow: 0 0 0 3px rgba(200, 208, 216, .08);
 }
-.moon-objects-section .moon-sites-section catalog-meta {
+.moon-objects-section .catalog-meta,
+.moon-sites-section .catalog-meta {
   border-top-color: rgba(200, 208, 216, .15);
   color: #8b959f;
 }
-.moon-objects-section .moon-sites-section object-table-head,
-.moon-objects-section .moon-sites-section object-row {
+.moon-objects-section .object-table-head,
+.moon-objects-section .object-row,
+.moon-sites-section .object-table-head,
+.moon-sites-section .object-row {
   grid-template-columns: 150px minmax(260px, 1.6fr) minmax(180px, 1fr);
 }
-.moon-objects-section .moon-sites-section object-table-head {
+.moon-objects-section .object-table-head,
+.moon-sites-section .object-table-head {
   border-top-color: rgba(200, 208, 216, .15);
   border-bottom-color: rgba(200, 208, 216, .15);
   color: #8b959f;
 }
-.moon-objects-section .moon-sites-section object-row {
+.moon-objects-section .object-row,
+.moon-sites-section .object-row {
   border-bottom-color: rgba(200, 208, 216, .12);
   color: #aab4be;
 }
-.moon-objects-section .moon-sites-section object-row:hover,
-.moon-objects-section .moon-sites-section object-row:focus-visible {
+.moon-objects-section .object-row:hover,
+.moon-objects-section .object-row:focus-visible,
+.moon-sites-section .object-row:hover,
+.moon-sites-section .object-row:focus-visible {
   background: rgba(200, 208, 216, .06);
   color: #e6ebf0;
 }
-.moon-objects-section .moon-sites-section object-row small { color: #7c8791; }
-.moon-objects-section .moon-sites-section catalog-empty { color: #8b959f; }
+.moon-objects-section .object-row small,
+.moon-sites-section .object-row small { color: #7c8791; }
+.moon-objects-section .catalog-empty,
+.moon-sites-section .catalog-empty { color: #8b959f; }
 
 /* 粘性场景区：首屏 100dvh，下滑进入航天器板块 */
 .moon-scene-frame {
