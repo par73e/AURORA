@@ -358,9 +358,10 @@ onMounted(() => {
   // 月球本体：8k 贴图 + PBR 材质（保留质感，同地球模式）
   const texture = solarTexture(MOON_HD.textureUrl)
   texture.colorSpace = THREE.SRGBColorSpace
-  texture.anisotropy = 8
+  texture.anisotropy = 16
   moonMaterial = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.92, metalness: 0.02 })
-  moonMesh = new THREE.Mesh(new THREE.SphereGeometry(2.6, 96, 96), moonMaterial)
+  // 细分 256 段：8k 贴图在 96 段球体上贴面时三角形过粗导致模糊，256 段显著提升贴面清晰度
+  moonMesh = new THREE.Mesh(new THREE.SphereGeometry(2.6, 256, 256), moonMaterial)
   // 潮汐锁定：月球近地面（lon 0°，即 sitePosition(0,0) 的 +X 方向）默认对准相机，
   // 进入页面即可看到熟悉的正面（大片月海）；着陆点/轨迹作为子节点随球面一起转
   moonMesh.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), camera.position.clone().normalize())
@@ -465,6 +466,8 @@ onMounted(() => {
       }
     }
 
+    // 距离自适应灵敏度：旋转速度 ∝ 相机距离——放大后不会"跟飞"（9 处保持原手感 0.48）
+    if (controls) controls.rotateSpeed = 0.48 * (camera.position.length() / 9)
     controls?.update()
     updateLabels()
     updateSiteMarkerProximity()
@@ -569,7 +572,7 @@ function buildSiteMarkers() {
     // 图标类型着色：astronaut 金 / rover 橙 / sample 青 / lander 银
     const color = site.icon === 'astronaut' ? 0xffcf8f : site.icon === 'rover' ? 0xffb27d : site.icon === 'sample' ? 0x8fd6c2 : 0xcfd8e2
     const marker = new THREE.Mesh(
-      new THREE.SphereGeometry(0.035, 12, 12),
+      new THREE.SphereGeometry(0.02, 12, 12),
       new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1 }),
     )
     marker.position.copy(sitePosition(site.latitude, site.longitude, 2.6 * 1.004))
