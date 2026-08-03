@@ -985,9 +985,9 @@ export class SolarSystemScene {
     if (!moonPosition) return
     const p0 = this.camera.position.clone()
     const moonDir = moonPosition.clone().normalize()
-    // 终点：太阳→月球连线上、距月球中心 3.6（月球视半径约 10.8°，占画面 ~26%——
-    // 更接近月球页初始大小，变黑衔接更顺；带 1 单位仰角）
-    const p3 = moonPosition.clone().addScaledVector(moonDir, -4.2)
+    // 终点：太阳→月球连线上、距月球中心 5.2（视半径约 7.3°，占画面 ~35%——
+    // 比月球页初始（~51%）小，变黑衔接自然；带 1 单位仰角）
+    const p3 = moonPosition.clone().addScaledVector(moonDir, -5.2)
     p3.y += 1
     const delta = p3.clone().sub(p0)
     const p1 = p0.clone().addScaledVector(delta, 0.3)
@@ -1087,8 +1087,8 @@ export class SolarSystemScene {
     const earthRuntime = this.planetRuntimes.get('earth')
     if (!earthRuntime) return
     const earthPosition = earthRuntime.axial.getWorldPosition(this.tempWorldB)
-    // 终点：默认构图（与封面入场推镜一致——还原到"最初始的视角"）
-    // 宽高兜底：挂载瞬间容器可能 0×0，NaN 会传播进相机位置导致渲染崩溃
+    // 终点：默认初始构图（computeModeComposition——与封面入场推镜一致的视角）；
+    // 运镜过程中注视点从地球（起点近景）缓动转回构图中心（reverse t³：前期紧盯地球、后期转回）
     const host = this.host
     const aspect =
       host.clientWidth > 0 && host.clientHeight > 0 ? host.clientWidth / host.clientHeight : window.innerWidth / window.innerHeight

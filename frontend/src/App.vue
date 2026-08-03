@@ -446,6 +446,7 @@ function enterSolarSystem() {
     return
   }
   solarEnterFromOrbit.value = false
+  solarEnterFromMoon.value = false // 封面进入：两个来源标志都清空
   window.history.pushState(null, '', '#solar-system')
   preloadOrbitTextures() // 提前预热地球纹理，为下一步进入 ORBIT 做准备
   // 封面进入太阳系：星野页面（星空插图）渐入 → 停留（对应原黑屏时间）→ 渐亮揭示推镜
@@ -513,6 +514,7 @@ function enterSolarSystemFromOrbit(skipPush = false) {
   headerExpanded.value = false
   suppressHeaderReveal = true
   solarEnterFromOrbit.value = true
+  solarEnterFromMoon.value = false // 关键：清空月球来源遗留——否则 SolarSystem 误执行 flyFromMoon（起点=放大月球）
   // 阶段 2：变暗，盖住地球界面
   transitionTimer = window.setTimeout(() => {
     if (surfaceFromHash() !== 'solar-system') {
@@ -671,6 +673,7 @@ function enterSolarSystemFromMoon(skipPush = false) {
   cancelPendingTransition()
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   solarEnterFromMoon.value = true
+  solarEnterFromOrbit.value = false // 清空地球来源遗留
   // 阶段 1：滚回月球主视图 + 清空月球以外的所有元素（标记/飞行器/标签），只留月球球体；
   // 页头若展开则随之上滑消失（与地球返回一致），过渡期间 hover 不唤回
   window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' })
