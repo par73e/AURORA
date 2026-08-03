@@ -131,6 +131,9 @@ let controls: OrbitControls | undefined
 let frameId = 0
 let resizeObserver: ResizeObserver | undefined
 let earthSystemGroup: THREE.Group | undefined
+let axisGuide: THREE.Line | undefined
+let poleTips: THREE.Mesh[] = []
+let eclipticGuide: THREE.LineLoop | undefined
 let spacecraftGroup: THREE.Group | undefined
 let orbitGroup: THREE.Group | undefined
 let siteGroup: THREE.Group | undefined
@@ -559,7 +562,7 @@ function setupScene() {
   )
   earthSystemGroup.add(atmosphere)
 
-  const axisGuide = new THREE.Line(
+  axisGuide = new THREE.Line(
     new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(0, -EARTH_RADIUS * 1.38, 0),
       new THREE.Vector3(0, EARTH_RADIUS * 1.38, 0),
@@ -568,7 +571,7 @@ function setupScene() {
   )
   axisGuide.name = 'earth-rotation-axis'
   earthSystemGroup.add(axisGuide)
-  const poleTips: THREE.Mesh[] = []
+  poleTips = []
   for (const pole of [-1, 1]) {
     const poleTip = new THREE.Mesh(
       new THREE.SphereGeometry(0.027, 12, 12),
@@ -585,7 +588,7 @@ function setupScene() {
     const angle = (index / 180) * Math.PI * 2
     eclipticPoints.push(new THREE.Vector3(Math.cos(angle) * eclipticRadius, 0, Math.sin(angle) * eclipticRadius))
   }
-  const eclipticGuide = new THREE.LineLoop(
+  eclipticGuide = new THREE.LineLoop(
     new THREE.BufferGeometry().setFromPoints(eclipticPoints),
     new THREE.LineDashedMaterial({ color: 0xffb866, transparent: true, opacity: 0.16, dashSize: 0.11, gapSize: 0.09 }),
   )
