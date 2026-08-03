@@ -559,7 +559,8 @@ function buildCraft(spec: MoonSpacecraft) {
   plane.add(dot)
   const dotMesh = new THREE.Mesh(
     new THREE.SphereGeometry(spec.kind === 'stationary' ? 0.045 : 0.04, 16, 16),
-    new THREE.MeshBasicMaterial({ color: spec.kind === 'stationary' ? 0xf0f4f8 : 0xe6edf4 }),
+    // transparent 必须为 true：否则分阶段揭示的 opacity=0 被忽略，圆点提前出现
+    new THREE.MeshBasicMaterial({ color: spec.kind === 'stationary' ? 0xf0f4f8 : 0xe6edf4, transparent: true }),
   )
   dot.add(dotMesh)
   const hitSphere = new THREE.Mesh(
@@ -624,14 +625,15 @@ function buildSiteMarkers() {
       new THREE.SphereGeometry(0.02, 12, 12),
       new THREE.MeshBasicMaterial({ color, transparent: true, opacity: revealStage.value >= 1 ? 1 : 0 }),
     )
-    marker.position.copy(sitePosition(site.latitude, site.longitude, 2.6 * 1.004))
+    // 距表面 0.078 单位：足够避开深度缓冲精度（1.004 倍在贴面时 z-fighting → 圆点乱跳）
+    marker.position.copy(sitePosition(site.latitude, site.longitude, 2.6 * 1.03))
     marker.userData = { kind: 'landing-site', siteId: site.id }
     moonMesh.add(marker)
     siteMarkers.set(site.id, marker)
 
     // 月球车行驶轨迹：虚线折线（示意图，数据存库可替换真实遥测）
     if (site.track && site.track.length >= 2) {
-      const points = site.track.map(([lat, lon]) => sitePosition(lat, lon, 2.6 * 1.006))
+      const points = site.track.map(([lat, lon]) => sitePosition(lat, lon, 2.6 * 1.02))
       const trackLine = new THREE.Line(
         new THREE.BufferGeometry().setFromPoints(points),
         new THREE.LineDashedMaterial({ color, dashSize: 0.055, gapSize: 0.05, transparent: true, opacity: revealStage.value >= 1 ? 0.85 : 0 }),
