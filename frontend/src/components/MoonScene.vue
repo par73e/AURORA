@@ -1160,15 +1160,14 @@ onBeforeUnmount(() => {
   background: rgba(200, 208, 216, .035);
 }
 .site-panel-head h3 { text-shadow: 0 1px 8px rgba(0, 0, 0, .6); }
-/* 飞行器信息面板（月球页同样覆盖为深灰渐变质感） */
-.site-panel ~ .context-panel,
+/* 飞行器信息面板（月球页覆盖为深灰渐变质感）。
+ *  注意：scoped 下避免使用 `~` 兄弟选择器（编译时会被丢弃导致整条规则失效）；
+ *  独立规则 + !important 确保压过全局 .context-panel */
 .moon-scene-host .context-panel {
-  border-color: rgba(200, 208, 216, .14);
-  border-top-color: rgba(215, 224, 232, .3);
-  background: linear-gradient(168deg, rgba(46, 56, 66, .96) 0%, rgba(20, 27, 34, .96) 45%, rgba(7, 10, 14, .97) 100%);
-  box-shadow:
-    inset 0 1px 0 rgba(220, 230, 238, .1),
-    0 24px 70px rgba(0, 0, 0, .55);
+  border: 1px solid rgba(200, 208, 216, .14) !important;
+  border-top-color: rgba(226, 235, 243, .42) !important;
+  background: linear-gradient(168deg, rgba(46, 56, 66, .96) 0%, rgba(20, 27, 34, .96) 45%, rgba(7, 10, 14, .97) 100%) !important;
+  box-shadow: inset 0 1px 0 rgba(225, 235, 243, .18), 0 24px 70px rgba(0, 0, 0, .55) !important;
 }
 .site-panel .site-panel-close {
   position: absolute;
