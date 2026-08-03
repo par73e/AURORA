@@ -866,8 +866,8 @@ export class SolarSystemScene {
       toTarget: target.clone(),
       // startedAt 带延迟：全黑期间镜头停在起点，延迟结束才开始推进
       startedAt: performance.now() + delayMs,
-      // 1.3s 推镜
-      duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 250 : 1300,
+      // 1.6s 推镜（用户感知速度：由远及近缓推）
+      duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 250 : 1600,
       zoomed: true,
       reverse: true,
       entry: true,
@@ -1056,8 +1056,8 @@ export class SolarSystemScene {
     this.flyState = {
       ...path,
       startedAt: performance.now(),
-      // 1.3s 推镜
-      duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 250 : 1300,
+      // 1.6s 推镜（用户感知速度：由远及近缓推）
+      duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 250 : 1600,
       zoomed: false,
     }
     this.controls.enabled = false
@@ -1112,8 +1112,8 @@ export class SolarSystemScene {
       fromTarget: earthPosition.clone(),
       toTarget,
       startedAt: performance.now(),
-      // 1.3s 推镜
-      duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 250 : 1300,
+      // 1.6s 推镜（用户感知速度：由远及近缓推）
+      duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 250 : 1600,
       zoomed: true, // 反向飞行不再触发变暗事件（遮罩由 ORBIT 侧控制）
       reverse: true, // 注视点缓动取 t³：前期紧盯地球、后期转回默认构图
     }
