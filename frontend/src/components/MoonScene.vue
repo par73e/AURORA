@@ -1138,12 +1138,12 @@ onBeforeUnmount(() => {
   overflow-y: auto;
   padding: 22px 24px;
   border: 1px solid rgba(200, 208, 216, .14);
-  border-top-color: rgba(215, 224, 232, .3); /* 顶部受光 */
+  border-top-color: rgba(226, 235, 243, .42); /* 顶部受光 */
   border-radius: 10px;
   /* 深浅渐变：顶部略亮（受光）→ 底部沉底 */
-  background: linear-gradient(168deg, rgba(32, 40, 48, .95) 0%, rgba(16, 22, 28, .95) 42%, rgba(9, 13, 17, .96) 100%);
+  background: linear-gradient(168deg, rgba(46, 56, 66, .96) 0%, rgba(20, 27, 34, .96) 45%, rgba(7, 10, 14, .97) 100%);
   box-shadow:
-    inset 0 1px 0 rgba(220, 230, 238, .1), /* 内顶部高光 */
+    inset 0 1px 0 rgba(225, 235, 243, .18), /* 内顶部高光 */
     0 24px 70px rgba(0, 0, 0, .55);
   backdrop-filter: blur(18px);
   color: var(--moon-text);
@@ -1165,7 +1165,7 @@ onBeforeUnmount(() => {
 .moon-scene-host .context-panel {
   border-color: rgba(200, 208, 216, .14);
   border-top-color: rgba(215, 224, 232, .3);
-  background: linear-gradient(168deg, rgba(32, 40, 48, .95) 0%, rgba(16, 22, 28, .95) 42%, rgba(9, 13, 17, .96) 100%);
+  background: linear-gradient(168deg, rgba(46, 56, 66, .96) 0%, rgba(20, 27, 34, .96) 45%, rgba(7, 10, 14, .97) 100%);
   box-shadow:
     inset 0 1px 0 rgba(220, 230, 238, .1),
     0 24px 70px rgba(0, 0, 0, .55);
