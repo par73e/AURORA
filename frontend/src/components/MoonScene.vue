@@ -352,7 +352,7 @@ onMounted(() => {
   controls.addEventListener('start', () => {
     dragResetTarget = true
   })
-  controls.minDistance = 3.5
+  controls.minDistance = 2.85 // 拉近极限：距月面（半径 2.6）仅 0.25，可贴面观察纹理
   controls.maxDistance = 60
 
   // 月球本体：8k 贴图 + PBR 材质（保留质感，同地球模式）
@@ -467,6 +467,7 @@ onMounted(() => {
 
     controls?.update()
     updateLabels()
+    updateSiteMarkerProximity()
     renderer.render(scene, camera)
   }
   animate()
@@ -569,7 +570,7 @@ function buildSiteMarkers() {
     const color = site.icon === 'astronaut' ? 0xffcf8f : site.icon === 'rover' ? 0xffb27d : site.icon === 'sample' ? 0x8fd6c2 : 0xcfd8e2
     const marker = new THREE.Mesh(
       new THREE.SphereGeometry(0.035, 12, 12),
-      new THREE.MeshBasicMaterial({ color }),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1 }),
     )
     marker.position.copy(sitePosition(site.latitude, site.longitude, 2.6 * 1.004))
     marker.userData = { kind: 'landing-site', siteId: site.id }
@@ -610,6 +611,22 @@ const filteredSites = computed(() => {
 /** 着陆点标签样式：右侧偏移，垂直对齐圆点 */
 function siteLabelStyle(label: { id: string; x: number; y: number }) {
   return { transform: `translate(calc(${label.x}px + 10px), ${label.y - 14}px)` }
+}
+
+/** 着陆点圆点随镜头距离淡出：远视正常 → 凑近半透明并缩小 → 贴面消失（不遮挡月面观察）
+ *  距离 > 4.5 完全显示；4.5 → 3.2 线性淡出 + 缩至 45%；< 3.2 完全消失 */
+function updateSiteMarkerProximity() {
+  if (!camera || !sitesEnabled.value) return
+  for (const site of landingSites.value) {
+    const marker = siteMarkers.get(site.id)
+    if (!marker) continue
+    const world = marker.getWorldPosition(focusTmp)
+    const d = world.distanceTo(camera.position)
+    const fade = Math.min(1, Math.max(0, (d - 3.2) / (4.5 - 3.2)))
+    const material = marker.material as THREE.MeshBasicMaterial
+    material.opacity = fade
+    marker.scale.setScalar(0.45 + 0.55 * fade)
+  }
 }
 
 /** 站点图标（内联 SVG）：宇航员 / 着陆器 / 月球车 / 样本返回舱 */
