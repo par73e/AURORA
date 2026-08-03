@@ -31,6 +31,9 @@
           <strong>月球</strong>
         </div>
 
+        <!-- 右下角：纹理署名（SSS CC BY 4.0，与太阳系页同位置） -->
+        <div class="moon-credits" aria-hidden="true">Solar System Scope · CC BY 4.0</div>
+
         <!-- 右侧信息面板：与地球 context-panel 同结构，内容详尽 -->
         <aside v-if="selectedCraft" class="context-panel" aria-label="所选飞行器详情">
           <button class="panel-close" aria-label="关闭详情" @click="selectedCraft = null">关闭</button>
@@ -640,6 +643,19 @@ onBeforeUnmount(() => {
 .craft-label.selected {
   border-color: rgba(200, 208, 216, .65);
   background: rgba(16, 22, 28, .85);
+}
+
+/* 右下角署名（银灰，与太阳系页同位置同风格） */
+.moon-credits {
+  position: absolute;
+  z-index: 3;
+  right: 34px;
+  bottom: 30px;
+  color: var(--moon-quiet);
+  font: 400 7px var(--font-mono);
+  letter-spacing: .08em;
+  text-align: right;
+  pointer-events: none;
 }
 
 /* 读数区（银灰） */

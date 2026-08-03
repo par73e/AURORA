@@ -349,9 +349,16 @@ export class SolarSystemScene {
       this.disposables.push(material, mesh.geometry)
 
       const axial = new THREE.Object3D()
-      // ZYX：先自转（local Y）再倾斜（Z），保证自转轴是倾斜后的极轴
+      // ZYX：先自转（local Y）再倾斜，保证自转轴是倾斜后的极轴
       axial.rotation.order = 'ZYX'
-      axial.rotation.z = spec.axialTiltDeg * DEG
+      if (spec.id === 'earth') {
+        // 地球：轴倾方向指向 +Z（六月夏至方向）——自转轴在空间中固定，
+        // 配合真实公转位置即可呈现正确季节（8 月北半球夏至后、太阳直射点在北纬 ~17°）
+        axial.rotation.x = spec.axialTiltDeg * DEG
+      } else {
+        // 其余行星：示意排布，绕 Z 倾斜保持观感
+        axial.rotation.z = spec.axialTiltDeg * DEG
+      }
       axial.add(mesh)
       if (spec.ring) {
         const ring = this.buildRing(spec)

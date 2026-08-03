@@ -816,6 +816,7 @@ onBeforeUnmount(() => {
               <span>EARTH ORBIT</span>
               <strong>地球</strong>
             </div>
+            <div class="scene-credits" aria-hidden="true">NASA Blue Marble / Earth at Night</div>
 
             <aside v-if="selection" class="context-panel" aria-label="所选对象详情">
               <button class="panel-close" aria-label="关闭详情" @click="selection = null">关闭</button>

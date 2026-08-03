@@ -229,11 +229,11 @@ defineExpose({ resetView })
 
     <button class="position-toggle" type="button" @click="togglePositions">
       <i :class="{ real: !alignedPositions }" aria-hidden="true" />
-      显示当前位置
+      显示行星当前位置
     </button>
 
     <div class="solar-credits" aria-hidden="true">
-      <span>行星纹理 Solar System Scope · CC BY 4.0</span>
+      <span>Solar System Scope · CC BY 4.0</span>
     </div>
 
     <footer class="solar-readout" aria-live="polite">
