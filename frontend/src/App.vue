@@ -103,6 +103,31 @@ const DISPLAY_TIME_ZONE = 'Asia/Shanghai'
 
 // ---- 页面切换过渡（变暗 + 缩放推近/拉远 + 遮罩后换页） ----
 const veilActive = ref(false)
+/** veil 渐暗/渐亮：rAF 逐帧插值 opacity（系统"减弱动态效果"会禁用 CSS transition——工具栏同款经验） */
+const surfaceVeilRef = ref<HTMLElement | null>(null)
+let veilOpacity = 0
+let veilAnim: number | undefined
+function animateVeilOpacity(active: boolean, durationMs: number) {
+  if (veilAnim !== undefined) cancelAnimationFrame(veilAnim)
+  const target = active ? 1 : 0
+  const from = veilOpacity
+  const start = performance.now()
+  const tick = (now: number) => {
+    const t = Math.min(1, (now - start) / Math.max(1, durationMs))
+    veilOpacity = from + (target - from) * t
+    if (surfaceVeilRef.value) surfaceVeilRef.value.style.opacity = String(veilOpacity)
+    veilAnim = t < 1 ? requestAnimationFrame(tick) : undefined
+  }
+  veilAnim = requestAnimationFrame(tick)
+}
+/** 根据 veilDuration（'0.4s'）解析毫秒 */
+function veilDurationMs(): number {
+  const seconds = parseFloat(veilDuration.value)
+  return Number.isFinite(seconds) ? seconds * 1000 : 400
+}
+watch(veilActive, (active) => {
+  animateVeilOpacity(active, veilDurationMs())
+})
 /** 封面→太阳系：换页提前到点击瞬间，封面继续覆盖（lingering），黑幕结束才撤下 */
 const coverLingering = ref(false)
 /** 太阳系入场推镜延迟：封面路径 = 变暗时长（全黑开始时起飞）；直接加载 = 0 */
@@ -815,7 +840,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="surface-veil" :class="{ active: veilActive }" :style="{ '--veil-duration': veilDuration }" aria-hidden="true" />
+  <div ref="surfaceVeilRef" class="surface-veil" :class="{ active: veilActive }" :style="{ '--veil-duration': veilDuration }" aria-hidden="true" />
   <main class="aurora-shell" :style="shellStyle">
     <div class="desktop-only">
       <span>AURORA / ORBIT</span>
