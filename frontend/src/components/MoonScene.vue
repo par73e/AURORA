@@ -32,7 +32,7 @@
           v-show="label.visible && sitesEnabled"
           :key="label.id"
           class="craft-label site-label"
-          :class="{ selected: selectedSite === label.id, 'stage-late': revealStage < 3 }"
+          :class="{ selected: selectedSite === label.id, 'stage-late': revealStage < 1 }"
           :data-icon="siteById(label.id)?.icon ?? 'lander'"
           :style="siteLabelStyle(label)"
           :aria-label="`${siteById(label.id)?.siteName}（${siteById(label.id)?.missionName}）`"
