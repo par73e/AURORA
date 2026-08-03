@@ -205,16 +205,9 @@ defineExpose({ resetView })
         <i class="earth-entry">ENTER SUN ↗</i>
       </div>
 
-      <div
-        v-for="belt in beltLabels"
-        v-show="belt.visible"
-        :key="belt.id"
-        class="belt-label"
-        :style="beltLabelStyle(belt)"
-        aria-hidden="true"
-      >
-        {{ belt.id === 'asteroid-belt' ? '小行星带' : '柯伊伯带' }}
-        <small>{{ belt.id === 'asteroid-belt' ? 'ASTEROID BELT' : 'KUIPER BELT' }}</small>
+      <div class="belt-label" aria-hidden="true">
+        <div class="belt-label-item"><span>小行星带</span><small>ASTEROID BELT</small></div>
+        <div class="belt-label-item"><span>柯伊伯带</span><small>KUIPER BELT</small></div>
       </div>
 
       <div
@@ -357,17 +350,20 @@ defineExpose({ resetView })
 
 .belt-label {
   position: absolute;
-  left: 0;
-  top: 0;
+  left: 22px;
+  top: 84px; /* 页头之下，屏幕偏左上 */
   z-index: 3;
+  display: grid;
+  gap: 12px;
   color: rgba(143, 163, 170, .64);
   font-size: 8px;
   letter-spacing: .08em;
-  text-align: center;
+  text-align: left;
   pointer-events: none;
   text-shadow: 0 1px 6px rgba(0, 0, 0, .8);
 }
-.belt-label small { display: block; margin-top: 4px; color: rgba(76, 109, 123, .65); font: 400 6px var(--font-mono); letter-spacing: .1em; }
+.belt-label-item > span { display: block; }
+.belt-label-item small { display: block; margin-top: 4px; color: rgba(76, 109, 123, .65); font: 400 6px var(--font-mono); letter-spacing: .1em; }
 
 .position-toggle {
   position: absolute;
