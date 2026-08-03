@@ -322,7 +322,10 @@ defineExpose({ resetView })
 }
 .planet-label:hover .earth-entry,
 .planet-label:focus-visible .earth-entry,
-.planet-label.active .earth-entry { opacity: 1; transform: translateY(0); }
+.planet-label.active .earth-entry,
+.sun-label:hover .earth-entry,
+.sun-label.active .earth-entry { opacity: 1; transform: translateY(0); }
+.sun-label .earth-entry { color: rgba(255, 205, 130, .95); }
 
 .you-marker {
   position: absolute;
