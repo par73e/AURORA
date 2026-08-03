@@ -203,12 +203,33 @@ const siteMarkers = new Map<string, THREE.Object3D>()
 
 /** 入场渐亮：进入边界（revealTick 递增）时置 true，0.5s 过渡；直接加载默认已亮 */
 const sceneRevealed = ref(!props.revealTick)
+/** 分阶段揭示：0 = 纯月球 → 1 = 着陆点标记/轨迹 → 2 = 飞行器/轨道 → 3 = 标签（直接加载默认全开） */
+const revealStage = ref(props.revealTick ? 0 : 3)
+const stageTimestamps: Record<number, number> = {}
+/** 阶段淡入因子（0→1，350ms） */
+function stageFade(stage: number, duration = 350): number {
+  const t = stageTimestamps[stage]
+  if (t === undefined) return 0
+  return Math.min(1, (performance.now() - t) / duration)
+}
 watch(
   () => props.revealTick,
   (tick) => {
     if (tick) sceneRevealed.value = true
   },
 )
+// 进入时启动分阶段揭示时间轴：球体渐亮(0.5s) → 着陆点 → 飞行器 → 标签
+watch(sceneRevealed, (revealed) => {
+  if (!revealed || revealStage.value >= 3) return
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const delays = reduced ? [0, 0, 0] : [550, 1250, 1850]
+  ;[1, 2, 3].forEach((stage, index) => {
+    window.setTimeout(() => {
+      stageTimestamps[stage] = performance.now()
+      revealStage.value = stage
+    }, delays[index])
+  })
+})
 
 /** 月球飞行器列表（API 数据驱动，镜像地球 fetch overview 模式） */
 const crafts = ref<MoonSpacecraft[]>([])
@@ -486,6 +507,13 @@ onMounted(() => {
 
     // 距离自适应灵敏度：旋转速度 ∝ 相机距离——放大后不会"跟飞"（9 处保持原手感 0.48）
     if (controls) controls.rotateSpeed = 0.48 * (camera.position.length() / 9)
+    // 分阶段揭示：飞行器/轨道在阶段 2 淡入（材质透明度），可见性由开关/遮挡各自控制
+    const craftStageOpacity = revealStage.value >= 2 ? stageFade(2) : 0
+    for (const runtime of craftRuntimes) {
+      const dotMat = runtime.dot.children[0]?.material as THREE.MeshBasicMaterial | undefined
+      if (dotMat) dotMat.opacity = craftStageOpacity
+      if (runtime.line) (runtime.line.material as THREE.LineBasicMaterial).opacity = 0.5 * craftStageOpacity
+    }
     // 近距锐化：贴面（<4.5）时禁用 mipmap——8k 纹理 2:1 缩小用线性采样，比 mipmap 预模糊锐利
     const nearMode = camera.position.length() < 4.5
     if (nearMode !== textureNearMode && moonMaterial?.map) {
@@ -598,7 +626,7 @@ function buildSiteMarkers() {
     const color = site.icon === 'astronaut' ? 0xffcf8f : site.icon === 'rover' ? 0xffb27d : site.icon === 'sample' ? 0x8fd6c2 : 0xcfd8e2
     const marker = new THREE.Mesh(
       new THREE.SphereGeometry(0.02, 12, 12),
-      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1 }),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: revealStage.value >= 1 ? 1 : 0 }),
     )
     marker.position.copy(sitePosition(site.latitude, site.longitude, 2.6 * 1.004))
     marker.userData = { kind: 'landing-site', siteId: site.id }
@@ -610,7 +638,7 @@ function buildSiteMarkers() {
       const points = site.track.map(([lat, lon]) => sitePosition(lat, lon, 2.6 * 1.006))
       const trackLine = new THREE.Line(
         new THREE.BufferGeometry().setFromPoints(points),
-        new THREE.LineDashedMaterial({ color, dashSize: 0.055, gapSize: 0.05, transparent: true, opacity: 0.85 }),
+        new THREE.LineDashedMaterial({ color, dashSize: 0.055, gapSize: 0.05, transparent: true, opacity: revealStage.value >= 1 ? 0.85 : 0 }),
       )
       trackLine.computeLineDistances()
       trackLine.name = `track:${site.id}`
@@ -652,7 +680,8 @@ function updateSiteMarkerProximity() {
     const d = world.distanceTo(camera.position)
     const fade = Math.min(1, Math.max(0, (d - 3.2) / (4.5 - 3.2)))
     const material = marker.material as THREE.MeshBasicMaterial
-    material.opacity = fade
+    // 距离淡出 × 阶段揭示淡入
+    material.opacity = fade * (revealStage.value >= 1 ? stageFade(1) : 0)
     marker.scale.setScalar(0.45 + 0.55 * fade)
   }
 }
