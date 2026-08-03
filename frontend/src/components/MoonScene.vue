@@ -303,15 +303,19 @@ function startCraftFocus(id: string) {
   const runtime = craftRuntimes.find((r) => r.spec.id === id)
   if (!runtime || !camera || !controls) return
   const world = runtime.dot.getWorldPosition(focusTmp).clone()
-  const radial = world.clone().normalize()
+  // 等距球面弧线：保持当前相机距月心的距离，只沿球面滑到飞行器方向——平稳旋转、无放大缩小
+  const fromDir = camera.position.clone().normalize()
+  const toDir = world.clone().normalize()
+  const radius = camera.position.length()
   focusAnimation = {
     fromPos: camera.position.clone(),
-    toPos: world.clone().addScaledVector(radial, 4.6),
+    toPos: toDir.clone().multiplyScalar(radius),
     fromTarget: controls.target.clone(),
     toTarget: world.clone(),
     startedAt: performance.now(),
     duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 150 : 900,
     kind: 'craft',
+    spherical: { fromDir, toDir, radius },
   }
 }
 
@@ -344,8 +348,13 @@ let focusAnimation: {
   duration: number
   /** 目标类型：craft = 注视点实时跟踪移动中的飞行器；site = 固定注视着陆点 */
   kind: 'craft' | 'site'
+  /** 球面弧线模式（飞行器聚焦）：相机沿"以月心为球心的等距球面"滑到目标方向——
+   *  距离不变、只有旋转，无放大缩小感 */
+  spherical?: { fromDir: THREE.Vector3; toDir: THREE.Vector3; radius: number }
 } | null = null
 const focusTmp = new THREE.Vector3()
+const focusTmp2 = new THREE.Vector3()
+const focusQuat = new THREE.Quaternion()
 const raycaster = new THREE.Raycaster()
 const pointerNDC = new THREE.Vector2()
 /** 飞行器拾取球（不可见，挂在圆点上，扩大点击命中区域） */
@@ -507,7 +516,16 @@ onMounted(() => {
       if (focusAnimation) {
         const t = Math.min(1, (now - focusAnimation.startedAt) / focusAnimation.duration)
         const eased = 1 - Math.pow(1 - t, 3)
-        camera.position.lerpVectors(focusAnimation.fromPos, focusAnimation.toPos, eased)
+        if (focusAnimation.spherical) {
+          // 球面弧线：方向绕旋转轴插值，距离恒定（无放大缩小）
+          const { fromDir, toDir, radius } = focusAnimation.spherical
+          const axis = focusTmp2.crossVectors(fromDir, toDir).normalize()
+          const angle = fromDir.angleTo(toDir)
+          const q = focusQuat.setFromAxisAngle(axis, angle * eased)
+          camera.position.copy(fromDir.clone().applyQuaternion(q).multiplyScalar(radius))
+        } else {
+          camera.position.lerpVectors(focusAnimation.fromPos, focusAnimation.toPos, eased)
+        }
         // 目标点：仅飞行器聚焦（kind='craft'）实时跟踪移动中的飞行器；
         // 着陆点聚焦（kind='site'）用固定终点——否则注视点会追着飞行器转出诡异旋转
         const liveTarget =
