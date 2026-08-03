@@ -591,21 +591,24 @@ function enterSolarSystemFromMoon(skipPush = false) {
   // 阶段 1：滚回月球主视图 + 清空月球以外的所有元素（标记/飞行器/标签），只留月球球体
   window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' })
   moonLeaving.value = true
-  // 阶段 2：变暗，盖住月球界面
-  veilDuration.value = reduced ? '0.01s' : '0.4s' // 渐暗 400ms
-  veilActive.value = true
+  // 阶段 2（清空效果可见后才变暗——与地球返回"信息淡出只留地球"同节奏）：变暗 400ms
   transitionTimer = window.setTimeout(() => {
-    if (surfaceFromHash() !== 'solar-system') {
-      cancelPendingTransition()
-      return
-    }
-    void setSurface('solar-system')
-    requestAnimationFrame(() => {
-      veilDuration.value = reduced ? '0.01s' : '0.5s' // 渐亮 500ms
-      veilActive.value = false
-    })
-    transitionTimer = undefined
-  }, reduced ? 30 : 460) // 等遮罩全黑（400ms）再切页
+    veilDuration.value = reduced ? '0.01s' : '0.4s'
+    veilActive.value = true
+    // 阶段 3：等遮罩全黑再切页
+    transitionTimer = window.setTimeout(() => {
+      if (surfaceFromHash() !== 'solar-system') {
+        cancelPendingTransition()
+        return
+      }
+      void setSurface('solar-system')
+      requestAnimationFrame(() => {
+        veilDuration.value = reduced ? '0.01s' : '0.5s' // 渐亮 500ms
+        veilActive.value = false
+      })
+      transitionTimer = undefined
+    }, reduced ? 30 : 460)
+  }, reduced ? 20 : 450)
 }
 
 // （已移除）syncSurfaceFromHash：hashchange 会在浏览器返回时与 popstate 竞争——
