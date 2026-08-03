@@ -278,6 +278,8 @@ let camera: THREE.PerspectiveCamera | undefined
 let controls: OrbitControls | undefined
 let moonMesh: THREE.Mesh | undefined
 let moonMaterial: THREE.MeshStandardMaterial | undefined
+/** 近距采样模式：贴面时禁用 mipmap（线性采样比 mipmap 预模糊锐利） */
+let textureNearMode = false
 let ambientLight: THREE.AmbientLight | undefined
 let sunLight: THREE.DirectionalLight | undefined
 let observationLight: THREE.DirectionalLight | undefined
@@ -468,6 +470,13 @@ onMounted(() => {
 
     // 距离自适应灵敏度：旋转速度 ∝ 相机距离——放大后不会"跟飞"（9 处保持原手感 0.48）
     if (controls) controls.rotateSpeed = 0.48 * (camera.position.length() / 9)
+    // 近距锐化：贴面（<4.5）时禁用 mipmap——8k 纹理 2:1 缩小用线性采样，比 mipmap 预模糊锐利
+    const nearMode = camera.position.length() < 4.5
+    if (nearMode !== textureNearMode && moonMaterial?.map) {
+      textureNearMode = nearMode
+      moonMaterial.map.minFilter = nearMode ? THREE.LinearFilter : THREE.LinearMipmapLinearFilter
+      moonMaterial.map.needsUpdate = true
+    }
     controls?.update()
     updateLabels()
     updateSiteMarkerProximity()
