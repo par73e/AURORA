@@ -671,9 +671,12 @@ function enterSolarSystemFromMoon(skipPush = false) {
   cancelPendingTransition()
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   solarEnterFromMoon.value = true
-  // 阶段 1：滚回月球主视图 + 清空月球以外的所有元素（标记/飞行器/标签），只留月球球体
+  // 阶段 1：滚回月球主视图 + 清空月球以外的所有元素（标记/飞行器/标签），只留月球球体；
+  // 页头若展开则随之上滑消失（与地球返回一致），过渡期间 hover 不唤回
   window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' })
   moonLeaving.value = true
+  headerExpanded.value = false
+  suppressHeaderReveal = true
   // 阶段 2（清空效果可见后才变暗——与地球返回"信息淡出只留地球"同节奏）：变暗 300ms（原 400ms——加速，卡顿窗口缩短）
   transitionTimer = window.setTimeout(() => {
     veilDuration.value = reduced ? '0.01s' : '0.3s'

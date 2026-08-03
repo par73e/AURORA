@@ -3,7 +3,7 @@
     <div id="moon-scene" class="moon-scene-frame">
       <div ref="canvasHost" class="moon-scene-host" :class="{ revealed: sceneRevealed }" role="group" aria-label="月球三维视图，左上角可返回太阳系">
         <!-- 工具栏：与地球页同一套 scene-toolbar 结构（仅颜色走银灰覆盖） -->
-        <div ref="sceneToolbarRef" class="scene-toolbar" aria-label="场景图层">
+        <div ref="sceneToolbarRef" class="scene-toolbar" :class="{ 'leaving-fade': leaving }" aria-label="场景图层">
           <span>图层</span>
           <label><input v-model="spacecraftEnabled" type="checkbox"><i />航天器</label>
           <label><input v-model="orbitsEnabled" type="checkbox"><i />轨道</label>
@@ -67,14 +67,14 @@
           </div>
         </aside>
 
-        <!-- 左下角读数：常驻月球 -->
-        <div class="moon-readout" aria-live="polite">
+        <!-- 左下角读数：常驻月球（返回时随元素一起淡出） -->
+        <div class="moon-readout" :class="{ 'leaving-fade': leaving }" aria-live="polite">
           <span>LUNAR ORBIT</span>
           <strong>月球</strong>
         </div>
 
-        <!-- 右下角：纹理署名（SSS CC BY 4.0，与太阳系页同位置） -->
-        <div class="moon-credits" aria-hidden="true">Solar System Scope · CC BY 4.0</div>
+        <!-- 右下角：纹理署名（SSS CC BY 4.0，与太阳系页同位置；返回时随元素一起淡出） -->
+        <div class="moon-credits" :class="{ 'leaving-fade': leaving }" aria-hidden="true">Solar System Scope · CC BY 4.0</div>
 
         <!-- 右侧信息面板：与地球 context-panel 同结构，内容详尽 -->
         <aside v-if="selectedCraft" class="context-panel" aria-label="所选飞行器详情">
@@ -241,6 +241,25 @@ const elementsVisible = ref(!props.enterFromSolar)
  *  直接加载/刷新默认全亮（无时间轴）。 */
 let elementsFade = props.enterFromSolar ? 0 : 1
 let elementsAnim: { from: number; to: number; startedAt: number; duration: number } | null = null
+/** 月球入场慢转（自西向东 = 月球真实自转方向，慢转）：
+ *  转速 9.4°/s（地球的 2/3，比例 1.5:1 参照真实方向），渐入开始时从 -15° 偏角匀速转，
+ *  角度剩减速位移时线性匀减速，终点 0° = 潮汐锁定位（近地面朝相机），全程线性无突快突慢 */
+const MOON_SPIN_SPEED = THREE.MathUtils.degToRad(9.4) // ≈9.4°/s，自西向东
+const MOON_SPIN_DECEL_MS = 400 // 匀减速段
+const MOON_SPIN_DECEL_SWEEP = (MOON_SPIN_SPEED * MOON_SPIN_DECEL_MS) / 2000 // ≈1.88°（匀减速位移）
+const MOON_SPIN_OFFSET = -THREE.MathUtils.degToRad(15) // 预设偏角（渐入前偏 15°，转正）
+let moonSpinPhase: 'spin' | 'stop' | 'done' = 'done'
+let moonSpinStartAt = 0
+let moonSpinStopAt = 0
+let moonSpinStopFrom = 0
+/** 元素弹出延迟 = 旋转停稳（≈1.80s）+ 50ms 缓冲 */
+const MOON_ELEMENTS_DELAY_MS = 1850
+/** 标记点距离补偿基准（默认相机距离 ≈ 13.6）：部分透视补偿（远小近大不过度） */
+const MOON_MARKER_REF_DISTANCE = 13.6
+/** 距离透明度（与地球统一）：远处（默认视角及更远）70% 半透明，放大到极限后渐变为实色 */
+function distOpacity(d: number): number {
+  return 0.7 + 0.3 * THREE.MathUtils.clamp((MOON_MARKER_REF_DISTANCE - d) / (MOON_MARKER_REF_DISTANCE - 2.85), 0, 1)
+}
 function animateElements(to: number, duration: number) {
   elementsAnim = { from: elementsFade, to, startedAt: performance.now(), duration }
 }
@@ -259,17 +278,43 @@ watch(
     if (tick) sceneRevealed.value = true
   },
 )
-// 进入：裸月球先 0.3s 渐入（scene-host），停顿一拍（共 0.8s）后
+function startMoonSpin() {
+  if (!swingPivot || moonSpinPhase !== 'done') return
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  moonSpinPhase = reduced ? 'done' : 'spin'
+  moonSpinStartAt = performance.now()
+  swingPivot.rotation.y = MOON_SPIN_OFFSET
+}
+/** 入场慢转推进：匀速（自西向东）→ 角度剩减速位移时线性匀减速 → 终点 0°（潮汐锁定位） */
+function updateMoonSpin(now: number) {
+  if (!swingPivot || moonSpinPhase === 'done') return
+  if (moonSpinPhase === 'spin') {
+    const t = Math.max(0, (now - moonSpinStartAt) / 1000)
+    swingPivot.rotation.y = MOON_SPIN_OFFSET + MOON_SPIN_SPEED * t
+    if (swingPivot.rotation.y >= -MOON_SPIN_DECEL_SWEEP) {
+      moonSpinPhase = 'stop'
+      moonSpinStopAt = now
+      // 对齐精确阈值：终点精确落在 0°（潮汐锁定位），不受帧偏差/后台标签页帧迟到影响
+      moonSpinStopFrom = -MOON_SPIN_DECEL_SWEEP
+    }
+  } else {
+    const t = Math.min(1, (now - moonSpinStopAt) / MOON_SPIN_DECEL_MS)
+    swingPivot.rotation.y = moonSpinStopFrom + MOON_SPIN_SPEED * (MOON_SPIN_DECEL_MS / 1000) * (t - (t * t) / 2)
+    if (t >= 1) moonSpinPhase = 'done'
+  }
+}
+// 进入：裸月球先 0.3s 渐入（scene-host）并自西向东慢转，旋转完全停住（≈2.075s）后再缓冲 125ms，
 // 所有元素（着陆点+飞行器+轨道+标签）一次性淡入
 let elementsRevealTimer: number | undefined
 watch(sceneRevealed, (revealed) => {
   if (!revealed || elementsVisible.value) return
+  startMoonSpin()
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   elementsRevealTimer = window.setTimeout(() => {
     elementsRevealTimer = undefined
     elementsVisible.value = true
     animateElements(1, reduced ? 1 : 300)
-  }, reduced ? 0 : 800)
+  }, reduced ? 0 : MOON_ELEMENTS_DELAY_MS)
 })
 
 /** 月球飞行器列表（API 数据驱动，镜像地球 fetch overview 模式） */
@@ -360,6 +405,8 @@ let scene: THREE.Scene | undefined
 let camera: THREE.PerspectiveCamera | undefined
 let controls: OrbitControls | undefined
 let moonMesh: THREE.Mesh | undefined
+/** 入场慢转轴：moonMesh 挂其下，rotation.y 从 -15° 转正到 0（潮汐锁定位）；着陆点/轨迹随球面转 */
+let swingPivot: THREE.Object3D | undefined
 let moonMaterial: THREE.MeshStandardMaterial | undefined
 let ambientLight: THREE.AmbientLight | undefined
 let sunLight: THREE.DirectionalLight | undefined
@@ -451,7 +498,11 @@ onMounted(() => {
   // 潮汐锁定：月球近地面（lon 0°，即 sitePosition(0,0) 的 +X 方向）默认对准相机，
   // 进入页面即可看到熟悉的正面（大片月海）；着陆点/轨迹作为子节点随球面一起转
   moonMesh.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), camera.position.clone().normalize())
-  scene.add(moonMesh)
+  // 入场慢转轴：自西向东转回潮汐锁定位（不直接动 quaternion，避免覆盖潮汐锁定朝向）
+  swingPivot = new THREE.Object3D()
+  swingPivot.name = 'moon-swing-pivot'
+  swingPivot.add(moonMesh)
+  scene.add(swingPivot)
 
   // 光照（镜像地球）：固定环境光 + 太阳方向光 + 跟随相机的观测光
   //  - 晨昏线关闭（默认）：观测光照亮相机侧 → 360° 全亮（明暗边界落在球体轮廓之外）
@@ -559,20 +610,32 @@ onMounted(() => {
       }
     }
 
-    // 距离自适应灵敏度：旋转速度 ∝ 相机距离——放大后不会"跟飞"（9 处保持原手感 0.48）
-    if (controls) controls.rotateSpeed = 0.48 * (camera.position.length() / 9)
+    // 动态拖动灵敏度（与地球一致）：近处降敏、远处提速；默认视角 13.6 处 ≈ 0.41（与地球默认手感一致）
+    if (controls && camera) {
+      const t = THREE.MathUtils.clamp((camera.position.length() - controls.minDistance) / 25, 0, 1)
+      controls.rotateSpeed = 0.2 + t * 0.5
+    }
     // 统一元素淡入淡出：进入时星球渐入完成后一次性浮现；退出时全部一起消失（只留裸月球）
     const elementsFadeNow = updateElementsFade()
+    updateMoonSpin(now)
     for (const runtime of craftRuntimes) {
       const dotMat = runtime.dot.children[0]?.material as THREE.MeshBasicMaterial | undefined
       if (dotMat) dotMat.opacity = elementsFadeNow
       if (runtime.line) (runtime.line.material as THREE.LineBasicMaterial).opacity = 0.5 * elementsFadeNow
+      // 部分透视补偿（远小近大、不过度）：scale = (d/基准)^0.6；
+      // 距离透明度：远处 70% 半透明、放大后实色（与地球统一）；隐藏期不渲染（visible 兜底）
+      const d = runtime.dot.getWorldPosition(focusTmp).distanceTo(camera.position)
+      runtime.dot.scale.setScalar(Math.pow(d / MOON_MARKER_REF_DISTANCE, 0.6))
+      if (dotMat) dotMat.opacity = distOpacity(d) * elementsFadeNow
+      runtime.dot.visible = spacecraftEnabled.value && elementsFadeNow > 0.001
+      if (runtime.line) runtime.line.visible = orbitsEnabled.value && elementsFadeNow > 0.001
     }
     // 着陆点虚线轨迹随元素整体淡入淡出
     for (const child of moonMesh?.children ?? []) {
       if (child.name && child.name.startsWith('track:')) {
         const trackMat = (child as THREE.Line).material as THREE.LineDashedMaterial | undefined
         if (trackMat) trackMat.opacity = 0.85 * elementsFadeNow
+        child.visible = sitesEnabled.value && elementsFadeNow > 0.001
       }
     }
     // （已移除）近距锐化切换：minFilter + needsUpdate 会触发 16k 纹理整体重传，
@@ -689,7 +752,7 @@ function buildSiteMarkers() {
     // 图标类型着色：astronaut 金 / rover 橙 / sample 青 / lander 银
     const color = site.icon === 'astronaut' ? 0xffcf8f : site.icon === 'rover' ? 0xffb27d : site.icon === 'sample' ? 0x8fd6c2 : 0xcfd8e2
     const marker = new THREE.Mesh(
-      new THREE.SphereGeometry(0.02, 12, 12),
+      new THREE.SphereGeometry(0.03, 12, 12),
       new THREE.MeshBasicMaterial({ color, transparent: true, opacity: elementsFade }),
     )
     // 球心落在月面半径上（2.6）：球体一半嵌进表面（被月球深度遮挡）、一半露出——
@@ -751,12 +814,12 @@ function updateSiteMarkerProximity() {
     if (!marker) continue
     const world = marker.getWorldPosition(focusTmp)
     const d = world.distanceTo(camera.position)
-    // 距离衰减：远视 1.0 → 贴面最低 0.8（轻微半透明，保持清晰可见）
-    const fade = Math.min(1, Math.max(0.8, (d - 3.2) / (4.5 - 3.2)))
     const material = marker.material as THREE.MeshBasicMaterial
-    // 距离透明度 × 统一元素淡入淡出（进入一次性浮现 / 退出一次性消失）
-    material.opacity = fade * elementsFade
-    marker.scale.setScalar(0.55 + 0.45 * fade)
+    // 距离透明度（远处 70% 半透明、放大后实色）× 统一元素淡入淡出（进入一次性浮现 / 退出一次性消失）
+    material.opacity = distOpacity(d) * elementsFade
+    // 部分透视补偿（远小近大、不过度）：k=0.6；去掉原"贴面微缩"（近处缩小的观感反物理）
+    marker.scale.setScalar(Math.pow(d / MOON_MARKER_REF_DISTANCE, 0.6))
+    marker.visible = sitesEnabled.value && elementsFade > 0.001
   }
 }
 
@@ -928,8 +991,9 @@ function updateLabels() {
     // 先算遮挡（世界坐标），再投影（project 会原地改写向量）
     const occluded = isCraftOccluded(world)
     const p = world.project(camera)
-    // 标签与圆点一体：同一遮挡判定，背面一起隐藏、正面一起出现
-    runtime.dot.visible = spacecraftEnabled.value && !occluded
+    // 标签与圆点一体：同一遮挡判定，背面一起隐藏、正面一起出现；
+    // 隐藏期（元素未揭示）同样不渲染（visible 兜底，与 craft 循环一致）
+    runtime.dot.visible = spacecraftEnabled.value && !occluded && elementsFade > 0.001
     next.push({
       id: runtime.spec.id,
       x: (p.x * 0.5 + 0.5) * width,
@@ -1162,6 +1226,12 @@ onBeforeUnmount(() => {
 .craft-label { transition: opacity .45s ease; }
 /* 返回渐隐：标签 300ms 淡出 */
 .craft-label.leaving-fade { opacity: 0 !important; pointer-events: none; }
+
+/* 返回渐隐：工具栏与标签同节奏淡出（只留裸月球，随后由遮罩完成球体渐暗） */
+.scene-toolbar.leaving-fade { opacity: 0; pointer-events: none; transition: opacity .3s ease; }
+/* 返回渐隐：左下角读数/右下角署名随元素一起淡出 */
+.moon-readout.leaving-fade,
+.moon-credits.leaving-fade { opacity: 0; transition: opacity .3s ease; }
 
 /* 着陆点标签：图标着色 + 银灰主题 */
 .site-label { gap: 5px !important; }

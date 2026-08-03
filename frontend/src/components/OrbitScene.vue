@@ -10,7 +10,7 @@ const EARTH_AXIAL_TILT_DEGREES = 23.44
  *  挂载即开始绕自转轴匀速转（黑幕期间用户看不到起点，渐亮时已在转），
  *  渐亮结束 + 停前等待后快速停下（400ms 线性匀减速，干脆不拖沓）。
  *  自东向西（从北极俯视顺时针，rotation.y 递减）；真实地球自西向东，方向不符可翻转符号 */
-const SPIN_ANGULAR_SPEED = -(Math.PI * 2) / 30 // 30s/圈 ≈ 12°/s，自东向西（快速）
+const SPIN_ANGULAR_SPEED = -THREE.MathUtils.degToRad(14.1) // ≈14.1°/s，自东向西（比月球快 1.5 倍，参照真实转速方向）
 const SPIN_DECEL_DURATION_MS = 400 // 匀减速段：速度从 ω 线性降到 0（全程线性，无突快突慢）
 /** 匀减速段的总位移 = |ω|·T/2；角度到达该值时开始减速 → 终点精确落在 0°（南海正中） */
 const SPIN_DECEL_SWEEP = (Math.abs(SPIN_ANGULAR_SPEED) * SPIN_DECEL_DURATION_MS) / 2000
@@ -174,8 +174,8 @@ let spinPhase: 'spin' | 'stop' | 'done' = spinReduced ? 'done' : 'spin'
 let spinStartAt = 0
 let spinStopAt = 0 // 匀减速开始时刻（角度到达 SPIN_DECEL_SWEEP 时触发）
 let spinStopFrom = 0 // 匀减速起点角度
-/** 元素入场揭示延迟（旋转 1.45s 停住 + ~50ms 缓冲） */
-const ELEMENTS_REVEAL_DELAY_MS = 1500
+/** 元素入场揭示延迟（旋转 1.27s 停住 + ~50ms 缓冲） */
+const ELEMENTS_REVEAL_DELAY_MS = 1320
 /** 元素揭示是否已完成（进入时 false，全部淡入任务完成后 true；直接加载默认 true） */
 let elementsShown = true
 /** 退出淡出开始时刻（leaving 置 true 时记录，用于每帧元素可见度计算） */
@@ -314,7 +314,7 @@ function scheduleRestoreAll(duration: number) {
  *  元素弹出严格发生在旋转静止之后。与月球页基准一致：从"遮罩渐亮开始"计时 */
 function scheduleRevealLayers() {
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  const delay = reduced ? 0 : ELEMENTS_REVEAL_DELAY_MS // 旋转 1.45s 停住 + ~50ms 静止缓冲（展示节奏稍快，仍保证停稳后弹出）
+  const delay = reduced ? 0 : ELEMENTS_REVEAL_DELAY_MS // 旋转 1.27s 停住 + ~50ms 缓冲，停稳后立刻弹出
   const duration = reduced ? 1 : 300
   elementsShown = false // 进入揭示期：标签隐藏，3D 元素归零待淡入
   // 标签与 3D 淡入同刻出现：在淡入开始（delay）时置 true，而非淡入完成（delay+duration）后——
@@ -322,13 +322,12 @@ function scheduleRevealLayers() {
   window.setTimeout(() => {
     elementsShown = true
   }, delay)
+  // 航天器/发射场/观测标记的隐藏与淡入由每帧 elementsFadeNow 统一驱动（含距离透明度），
+  // 不再进 revealTasks——避免两套写入互相覆盖
   scheduleReveal(axisGuide, delay, duration)
   for (const tip of poleTips) scheduleReveal(tip, delay, duration)
   scheduleReveal(eclipticGuide, delay, duration)
   if (orbitGroup) scheduleReveal(orbitGroup, delay, duration)
-  if (spacecraftGroup) scheduleReveal(spacecraftGroup, delay, duration)
-  if (siteGroup) scheduleReveal(siteGroup, delay, duration)
-  if (observerMarker) scheduleReveal(observerMarker, delay, duration)
 }
 
 function updateReveals() {
@@ -912,7 +911,8 @@ function animate(time = 0) {
       if (spinGroup.rotation.y <= SPIN_DECEL_SWEEP) {
         spinPhase = 'stop'
         spinStopAt = time
-        spinStopFrom = spinGroup.rotation.y
+        // 对齐精确阈值：终点精确 0°（南海正中），不受帧偏差/后台标签页帧迟到影响
+        spinStopFrom = SPIN_DECEL_SWEEP
       }
     } else {
       const t = Math.min(1, (time - spinStopAt) / SPIN_DECEL_DURATION_MS)
@@ -960,37 +960,37 @@ function animate(time = 0) {
     updateSun(new Date())
     lastSunUpdate = time
   }
-  // 标记点（航天器/发射场/坐标点）固定屏幕大小：世界尺寸 ∝ 到相机距离，
-  // 补偿透视——不随地球/相机距离放大，始终像贴在地表上的固定大小物体
+  // 标记点（航天器/发射场/坐标点）：部分透视补偿 scale=(d/基准)^0.6（远小近大不过度）
+  // ＋ 距离透明度：远处 70% 半透明、放大后渐变为实色（地球/月球统一视觉）
+  // ＋ 揭示淡入（elementsFadeNow：隐藏期 0 → 淡入 → 1），退出淡出同源
   if (camera) {
     const refDistance = 7.6 // 默认视角相机距离（scale = 1 的基准）
-    for (const marker of markerObjects.values()) {
+    const minDistance = 3.0 // 最近（放大极限）——此处距离透明度为 1（实色）
+    const fade = elementsFadeNow(time)
+    const distOpacity = (d: number) => 0.7 + 0.3 * THREE.MathUtils.clamp((refDistance - d) / (refDistance - minDistance), 0, 1)
+    for (const [key, marker] of markerObjects) {
       const d = marker.getWorldPosition(markerScaleTmp).distanceTo(camera.position)
-      marker.scale.setScalar(d / refDistance)
+      marker.scale.setScalar(Math.pow(d / refDistance, 0.6))
+      const material = (marker as THREE.Mesh).material as THREE.MeshBasicMaterial | undefined
+      if (material) material.opacity = (selectionKey.value === key ? 1 : distOpacity(d)) * fade
     }
     if (observerMarker) {
       const d = observerMarker.getWorldPosition(markerScaleTmp).distanceTo(camera.position)
-      observerMarker.scale.setScalar(d / refDistance)
+      observerMarker.scale.setScalar(Math.pow(d / refDistance, 0.6))
+      const mats: THREE.MeshBasicMaterial[] = []
+      observerMarker.traverse((item) => {
+        const m = (item as THREE.Mesh).material as THREE.MeshBasicMaterial | undefined
+        if (m) mats.push(m)
+      })
+      for (const m of mats) m.opacity = distOpacity(d) * fade
     }
   }
   observerMarker?.traverse((item) => {
     if (item instanceof THREE.Mesh && item.geometry.type === 'RingGeometry' && camera) item.lookAt(camera.position)
   })
-  // observerMarker 每帧强制随元素整体可见度：进入隐藏期/淡入/稳态/退出淡出全部覆盖，
-  // 任何时刻重建（定位回调/active 切换）的新材质都无法绕过隐藏。
-  // visible 兜底：隐藏期直接不渲染该对象树（比 opacity 更彻底，任何材质写入都无法绕过）
+  // observerMarker 每帧强制随元素整体可见度：进入隐藏期不渲染（visible 兜底，任何材质写入无法绕过）
   if (observerMarker) {
-    const fade = elementsFadeNow(time)
-    observerMarker.visible = fade > 0.001
-    observerMarker.traverse((item) => {
-      const material = (item as THREE.Mesh).material
-      if (!material) return
-      const list = Array.isArray(material) ? material : [material]
-      for (const entry of list) {
-        const base = (entry.userData.baseOpacity as number | undefined) ?? entry.opacity
-        entry.opacity = base * fade
-      }
-    })
+    observerMarker.visible = elementsFadeNow(time) > 0.001
   }
   if (observationLight && camera && props.dayNightEnabled === false) {
     observationLight.position.copy(camera.position).normalize().multiplyScalar(12)

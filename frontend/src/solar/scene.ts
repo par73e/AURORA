@@ -757,10 +757,13 @@ export class SolarSystemScene {
     if (!this.flyState) {
       const dist = this.camera.position.distanceTo(this.controls.target)
       const t = THREE.MathUtils.clamp(dist / this.fitDistance, 0, 1)
-      // 平方曲线：近端灵敏度急剧提升（近距离最高旋转 11.5×、滚轮 5.2×）
+      // 近端灵敏度补偿：boost 按"相机到注视点距离"计算——小目标（外行星/柯伊伯带）放大时
+      // 相机贴得更近（dist 小 → boost≈1），原上限 11.5× 导致边缘放大后拖动过于灵敏；
+      // 大目标（太阳/木星）放大时 dist 较大 → boost 小 → 又偏钝。降低上限并放缓曲线，
+      // 让边缘/中心放大后的拖动手感接近
       const boost = 1 - t * t
-      this.controls.rotateSpeed = 1.5 + boost * 10
-      this.controls.zoomSpeed = 1.2 + boost * 4
+      this.controls.rotateSpeed = 1.5 + boost * 4
+      this.controls.zoomSpeed = 1.2 + boost * 1.6
     }
     this.controls.update()
     // 同步注视点：平移会移动 controls.target，标签与 resize 逻辑依赖 lookAt
