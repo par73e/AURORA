@@ -568,8 +568,11 @@ onMounted(() => {
     // 航天器公转（仅绕月轨道；定点不动）
     for (const runtime of craftRuntimes) {
       if (runtime.spec.kind !== 'orbital') continue
-      runtime.nu += (Math.PI * 2 / runtime.spec.periodSeconds) * delta
       const sn = runtime.spec.snapshot ?? null
+      // 快照存在时用真实公转周期（JPL 日同步，如 LRO 约 113 分钟）——之前误用静态视觉周期 300s
+      // 导致转速比真实快 22 倍；无快照时回退视觉周期
+      const periodSec = sn ? sn.periodSeconds : runtime.spec.periodSeconds
+      runtime.nu += (Math.PI * 2 / periodSec) * delta
       const a = exaggeratedA(sn ? sn.aKm * MOON_SCENE_SCALE : runtime.spec.orbitA)
       const e = sn ? sn.eccentricity : runtime.spec.orbitE
       const r = (a * (1 - e * e)) / (1 + e * Math.cos(runtime.nu))
@@ -1245,8 +1248,9 @@ onBeforeUnmount(() => {
 .site-label[data-icon='rover'] .site-glyph { color: #ffb27d; }
 .site-label[data-icon='sample'] .site-glyph { color: #8fd6c2; }
 
-/* 选中着陆点信息卡（深灰渐变质感：顶部受光 → 底部沉底，无浅蓝） */
-.site-panel {
+/* ===== 月球右侧信息面板（重构：统一低对比深色底，无黑边/白边，去掉嵌套底块） ===== */
+.site-panel,
+.moon-scene-host .context-panel {
   position: absolute;
   z-index: 8;
   top: 18px;
@@ -1255,15 +1259,12 @@ onBeforeUnmount(() => {
   max-height: calc(100% - 36px - var(--header-overlay-offset));
   overflow-y: auto;
   padding: 22px 24px;
-  border: 1px solid rgba(200, 208, 216, .14);
-  border-top-color: rgba(200, 208, 216, .14); /* 顶部沉底侧 */
-  border-bottom-color: rgba(226, 235, 243, .42); /* 右下受光 */
+  border: 1px solid rgba(200, 208, 216, .1); /* 四边统一弱描边 */
   border-radius: 10px;
-  /* 深浅渐变（对调）：左上深灰沉底 → 右下银色受光 */
-  background: linear-gradient(168deg, rgba(7, 10, 14, .97) 0%, rgba(20, 27, 34, .96) 45%, rgba(46, 56, 66, .96) 100%);
-  box-shadow:
-    inset 0 -1px 0 rgba(225, 235, 243, .18), /* 内底部高光（受光侧） */
-    0 24px 70px rgba(0, 0, 0, .55);
+  /* 低对比深色底：右上略深 → 左下微亮，幅度极小，面板边缘与背景无色差 */
+  background: linear-gradient(200deg, rgba(9, 13, 18, .97) 0%, rgba(20, 27, 34, .95) 100%);
+  /* 外投影浮起 + 顶部极微弱光（无底部高光/黑线） */
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .5), inset 0 1px 0 rgba(255, 255, 255, .04);
   backdrop-filter: blur(18px);
   color: var(--moon-text);
   font-size: 12px;
@@ -1271,25 +1272,15 @@ onBeforeUnmount(() => {
   transform: translateY(var(--header-overlay-offset, 0px));
   transition: transform .38s cubic-bezier(.22, 1, .36, 1);
 }
-/* 信息卡内部层次：头部区与设施区用浅灰底块区分 */
+/* 设施区：只用分隔线区分，去掉嵌套底块（原浅灰底块 + 圆角 + 边框） */
 .site-panel .site-hardware {
-  padding: 14px 14px 12px;
-  border: 1px solid rgba(200, 208, 216, .08);
-  border-radius: 6px;
-  background: rgba(200, 208, 216, .035);
+  padding: 12px 0 0;
+  border: 0;
+  border-top: 1px solid var(--moon-line);
+  border-radius: 0;
+  background: none;
 }
 .site-panel-head h3 { text-shadow: 0 1px 8px rgba(0, 0, 0, .6); }
-/* 飞行器信息面板（月球页覆盖为深灰渐变质感）。
- *  注意：scoped 下避免使用 `~` 兄弟选择器（编译时会被丢弃导致整条规则失效）；
- *  独立规则 + !important 确保压过全局 .context-panel */
-/* 渐变对调：左上深灰 → 右下银色（与 site-panel 一致） */
-.moon-scene-host .context-panel {
-  border: 1px solid rgba(200, 208, 216, .14) !important;
-  border-top-color: rgba(200, 208, 216, .14) !important;
-  border-bottom-color: rgba(226, 235, 243, .42) !important;
-  background: linear-gradient(168deg, rgba(7, 10, 14, .97) 0%, rgba(20, 27, 34, .96) 45%, rgba(46, 56, 66, .96) 100%) !important;
-  box-shadow: inset 0 -1px 0 rgba(225, 235, 243, .18), 0 24px 70px rgba(0, 0, 0, .55) !important;
-}
 .site-panel .site-panel-close {
   position: absolute;
   top: 10px;
@@ -1310,7 +1301,6 @@ onBeforeUnmount(() => {
 .site-panel dl > div { display: grid; grid-template-columns: 64px 1fr; gap: 10px; }
 .site-panel dt { color: var(--moon-quiet); font-size: 11px; }
 .site-panel dd { margin: 0; color: var(--moon-text); font-size: 11px; line-height: 1.5; }
-.site-hardware { padding-top: 12px; border-top: 1px solid var(--moon-line); }
 .site-hardware h4 { margin: 0 0 8px; color: var(--moon-quiet); font: 500 9px var(--font-mono); letter-spacing: .12em; }
 .site-hardware ul { margin: 0; padding-left: 16px; display: grid; gap: 5px; }
 .site-hardware li { color: var(--moon-text); font-size: 11px; line-height: 1.5; }

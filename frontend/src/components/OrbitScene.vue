@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import type { LaunchSite, SceneLayers, Selection, Spacecraft } from '../types'
+import type { LaunchEvent, LaunchSite, SceneLayers, Selection, Spacecraft } from '../types'
 import { EARTH_DAY_TEXTURE_URL, EARTH_NIGHT_TEXTURE_URL, EARTH_RADIUS, latLonToVector, sampleOrbit, spacecraftPoint } from '../orbit/coordinates'
 
 const EARTH_AXIAL_TILT_DEGREES = 23.44
@@ -25,6 +25,7 @@ const EARTH_TILT = new THREE.Quaternion().setFromAxisAngle(
 const props = defineProps<{
   spacecraft: Spacecraft[]
   sites: LaunchSite[]
+  events: LaunchEvent[] // 面板迁移时漏声明：selectedEvent 依赖它，缺失导致面板内容空白
   layers: SceneLayers
   selection: Selection | null
   headerExpanded?: boolean
@@ -381,7 +382,10 @@ function rebuildDataLayers() {
   spacecraftGroup = new THREE.Group()
   orbitGroup = new THREE.Group()
   siteGroup = new THREE.Group()
-  spinGroup.add(spacecraftGroup, orbitGroup, siteGroup)
+  // 物理正确分层：航天器/轨道线挂在惯性参考系（不随地表视觉自转——真实中卫星轨道
+  // 惯性固定、地球在下面转，飞行器按真实速度缓慢漂移）；发射场随地表转（经纬度地表固定）
+  earthSystemGroup.add(spacecraftGroup, orbitGroup)
+  spinGroup.add(siteGroup)
 
   const now = new Date()
   for (const craft of props.spacecraft) {

@@ -454,6 +454,7 @@ button { cursor: pointer; }
 .orbit-section.leaving .scene-toolbar,
 .orbit-section.leaving .scene-location,
 .orbit-section.leaving .scene-readout,
+.orbit-section.leaving .context-panel, /* 右侧信息面板：随其他元素一起淡出（此前残留到遮罩渐暗） */
 .orbit-section.leaving .page-frame > *:not(.scene-frame) {
   animation: none !important; /* 解除入场动画的 fill 压制 */
   opacity: 0;
@@ -465,5 +466,6 @@ button { cursor: pointer; }
   .orbit-section.leaving .scene-toolbar,
   .orbit-section.leaving .scene-location,
   .orbit-section.leaving .scene-readout,
+  .orbit-section.leaving .context-panel,
   .orbit-section.leaving .page-frame > *:not(.scene-frame) { transition: none; }
 }
