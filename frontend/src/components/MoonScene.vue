@@ -17,7 +17,7 @@
           v-show="label.visible && spacecraftEnabled"
           :key="label.id"
           class="craft-label"
-          :class="{ selected: selectedCraft === label.id }"
+          :class="{ selected: selectedCraft === label.id, 'stage-late': revealStage < 3 }"
           :style="craftLabelStyle(label)"
           :aria-label="`${craftById(label.id)?.nameZh}（${craftById(label.id)?.nameEn}）`"
           @click="selectedCraft = label.id"
@@ -32,7 +32,7 @@
           v-show="label.visible && sitesEnabled"
           :key="label.id"
           class="craft-label site-label"
-          :class="{ selected: selectedSite === label.id }"
+          :class="{ selected: selectedSite === label.id, 'stage-late': revealStage < 3 }"
           :data-icon="siteById(label.id)?.icon ?? 'lander'"
           :style="siteLabelStyle(label)"
           :aria-label="`${siteById(label.id)?.siteName}（${siteById(label.id)?.missionName}）`"
@@ -997,6 +997,10 @@ onBeforeUnmount(() => {
 .site-row[data-icon='rover'] .site-glyph { color: #ffb27d; }
 .site-row[data-icon='sample'] .site-glyph { color: #8fd6c2; }
 .site-row-name { display: flex; align-items: center; gap: 10px; }
+
+/* 分阶段揭示：阶段 3 前的标签淡入（透明度过渡，不抢占点击） */
+.craft-label.stage-late { opacity: 0 !important; pointer-events: none; }
+.craft-label { transition: opacity .45s ease; }
 
 /* 着陆点标签：图标着色 + 银灰主题 */
 .site-label { gap: 5px !important; }
