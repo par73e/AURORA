@@ -17,6 +17,27 @@
   font-family: var(--font-sans);
   font-synthesis: none;
   background: var(--bg);
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 72px; }
+html, body, #app { width: 100%; min-height: 100%; margin: 0; }
+body { overflow-x: hidden; background: var(--bg); }
+button, input, select { font: inherit; }
+button, a { color: inherit; }
+button { cursor: pointer; }
+.aurora-shell, .desktop-app, .desktop-cover { width: 100%; min-height: 100%; }
+
+/* 页面切换过渡：整页缩放推近/拉远（不能用 will-change: transform——
+   它会让 shell 成为 fixed 后代（页头）的包含块，滚动后页头会跑出视口） */
+.aurora-shell { transition: transform .58s cubic-bezier(.16, 1, .3, 1); }
+.surface-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  /* 星点过渡背景：黑幕期间显示深空星点（与太阳系背景同风格），
+     由多层径向渐变点 + 中央微亮椭圆 + 底色组成，随遮罩一起淡入淡出 */
+  background:
     radial-gradient(1.3px 1.3px at 33.1% 16.5%, rgba(198, 225, 255, 0.37), transparent 100%),
     radial-gradient(0.8px 0.8px at 53.4% 37.1%, rgba(198, 225, 255, 0.5), transparent 100%),
     radial-gradient(0.8px 0.8px at 5.6% 43.6%, rgba(198, 225, 255, 0.38), transparent 100%),
