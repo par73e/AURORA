@@ -714,8 +714,8 @@ function updateSiteMarkerProximity() {
     if (!marker) continue
     const world = marker.getWorldPosition(focusTmp)
     const d = world.distanceTo(camera.position)
-    // 距离衰减：远视 1.0 → 贴面最低 0.6（半透明可见，不再消失）
-    const fade = Math.min(1, Math.max(0.6, (d - 3.2) / (4.5 - 3.2)))
+    // 距离衰减：远视 1.0 → 贴面最低 0.8（轻微半透明，保持清晰可见）
+    const fade = Math.min(1, Math.max(0.8, (d - 3.2) / (4.5 - 3.2)))
     const material = marker.material as THREE.MeshBasicMaterial
     // 距离透明度 × 阶段揭示淡入 × 返回渐隐
     let leavingFade = 1
