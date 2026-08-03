@@ -18,11 +18,11 @@
           class="craft-label"
           :class="{ selected: selectedCraft === label.id }"
           :style="craftLabelStyle(label)"
-          :aria-label="`${craftName(label.id)}（${craftNameEn(label.id)}）`"
+          :aria-label="`${craftById(label.id)?.nameZh}（${craftById(label.id)?.nameEn}）`"
           @click="selectedCraft = label.id"
         >
-          <strong>{{ craftName(label.id) }}</strong>
-          <small>{{ craftNameEn(label.id) }}</small>
+          <strong>{{ craftById(label.id)?.nameZh }}</strong>
+          <small>{{ craftById(label.id)?.nameEn }}</small>
         </button>
 
         <!-- 左下角读数：常驻月球 -->
@@ -34,18 +34,18 @@
         <!-- 右侧信息面板：与地球 context-panel 同结构，内容详尽 -->
         <aside v-if="selectedCraft" class="context-panel" aria-label="所选飞行器详情">
           <button class="panel-close" aria-label="关闭详情" @click="selectedCraft = null">关闭</button>
-          <p class="context-type">{{ craftField(selectedCraft, 'type') }}</p>
-          <h2>{{ craftName(selectedCraft) }}</h2>
-          <p class="context-subtitle">{{ craftNameEn(selectedCraft) }}</p>
-          <p class="context-description">{{ craftField(selectedCraft, 'mission') }}</p>
+          <p class="context-type">{{ craftById(selectedCraft)?.type }}</p>
+          <h2>{{ craftById(selectedCraft)?.nameZh }}</h2>
+          <p class="context-subtitle">{{ craftById(selectedCraft)?.nameEn }}</p>
+          <p class="context-description">{{ craftById(selectedCraft)?.description }}</p>
           <dl>
-            <div><dt>运营方</dt><dd>{{ craftField(selectedCraft, 'operator') }}</dd></div>
-            <div><dt>发射</dt><dd>{{ craftField(selectedCraft, 'launch') }}</dd></div>
-            <div><dt>轨道倾角</dt><dd>{{ craftField(selectedCraft, 'inclination') }}°</dd></div>
-            <div><dt>偏心率</dt><dd>{{ craftField(selectedCraft, 'eccentricity') }}</dd></div>
-            <div><dt>轨道周期</dt><dd>{{ craftField(selectedCraft, 'period') }}</dd></div>
+            <div><dt>运营方</dt><dd>{{ craftById(selectedCraft)?.operatorName }}</dd></div>
+            <div><dt>发射</dt><dd>{{ craftById(selectedCraft)?.launchDate }} · {{ craftById(selectedCraft)?.launchSite }} · {{ craftById(selectedCraft)?.launchVehicle }}</dd></div>
+            <div><dt>轨道倾角</dt><dd>{{ craftById(selectedCraft)?.displayInclination }}°</dd></div>
+            <div><dt>偏心率</dt><dd>{{ craftById(selectedCraft)?.displayEccentricity }}</dd></div>
+            <div><dt>轨道周期</dt><dd>{{ craftById(selectedCraft)?.displayPeriod }}</dd></div>
           </dl>
-          <p class="source-caption">数据来源：{{ craftSource(selectedCraft) }}</p>
+          <p class="source-caption">数据来源：{{ craftById(selectedCraft)?.sourceName }}</p>
         </aside>
       </div>
     </div>
@@ -71,9 +71,9 @@
         <div class="object-table" role="table" aria-label="月球航天器列表">
           <div class="object-table-head" role="row"><span>对象</span><span>轨道</span><span>数据来源</span></div>
           <button v-for="craft in filteredCrafts" :key="craft.id" class="object-row" role="row" @click="focusCraft(craft.id)">
-            <span><strong>{{ craft.name }}</strong><small>{{ craft.nameEn }}</small></span>
-            <span>{{ craft.note }}</span>
-            <span>{{ craft.source }}</span>
+            <span><strong>{{ craft.nameZh }}</strong><small>{{ craft.nameEn }}</small></span>
+            <span>{{ craft.description }}</span>
+            <span>{{ craft.sourceName }}</span>
           </button>
           <div v-if="!filteredCrafts.length" class="catalog-empty">没有符合条件的航天器。请修改搜索词。</div>
         </div>
@@ -88,7 +88,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { MOON_HD } from '../solar/data'
 import { solarTexture } from '../solar/textures'
-import { MOON_CRAFTS, type MoonCraftSpec } from '../moon/data'
+import type { MoonSpacecraft } from '../types'
 
 const props = defineProps<{ revealTick?: number }>()
 const emit = defineEmits<{ 'blank-click': [] }>()
@@ -110,19 +110,22 @@ watch(
   },
 )
 
+/** 月球飞行器列表（API 数据驱动，镜像地球 fetch overview 模式） */
+const crafts = ref<MoonSpacecraft[]>([])
+const craftById = (id: string) => crafts.value.find((c) => c.id === id)
+
 const filteredCrafts = computed(() => {
   const q = craftQuery.value.trim().toLowerCase()
-  if (!q) return MOON_CRAFTS
-  return MOON_CRAFTS.filter(
-    (c) => c.name.toLowerCase().includes(q) || c.nameEn.toLowerCase().includes(q) || c.source.toLowerCase().includes(q),
+  if (!q) return crafts.value
+  return crafts.value.filter(
+    (c) =>
+      c.nameZh.toLowerCase().includes(q) ||
+      c.nameEn.toLowerCase().includes(q) ||
+      c.sourceName.toLowerCase().includes(q),
   )
 })
 
-const craftName = (id: string) => MOON_CRAFTS.find((c) => c.id === id)?.name ?? ''
-const craftNameEn = (id: string) => MOON_CRAFTS.find((c) => c.id === id)?.nameEn ?? ''
-const craftSource = (id: string) => MOON_CRAFTS.find((c) => c.id === id)?.source ?? ''
-const craftField = (id: string, field: 'type' | 'operator' | 'launch' | 'status' | 'mission' | 'orbit' | 'inclination' | 'eccentricity' | 'period') =>
-  String(MOON_CRAFTS.find((c) => c.id === id)?.[field] ?? '')
+// 占位（craftById 已覆盖原 helper）
 
 /** 点击搜索结果/场景标签：选中并聚焦（滚回主视图 → 飞行器居中 → 右侧面板） */
 function focusCraft(id: string) {
@@ -179,7 +182,7 @@ const pointerNDC = new THREE.Vector2()
 const craftHitMeshes: THREE.Mesh[] = []
 
 interface CraftRuntime {
-  spec: MoonCraftSpec
+  spec: MoonSpacecraft
   plane: THREE.Object3D
   dot: THREE.Object3D
   line: THREE.Line | null
@@ -254,56 +257,18 @@ onMounted(() => {
   sunLight.position.set(-6, 4, 8)
   scene.add(sunLight)
 
-  // 轨道飞行器：绕月轨道（轨道平面 + 轨道线 + 运动点）或定点（拉格朗日示意）
-  for (const spec of MOON_CRAFTS) {
-    const plane = new THREE.Object3D()
-    if (spec.kind === 'orbital') {
-      // 轨道平面：仅绕月轨道需要倾角/升交点旋转
-      plane.rotation.order = 'YXZ'
-      plane.rotation.y = spec.raanDeg * DEG
-      plane.rotation.x = spec.inclinationDeg * DEG
-    }
-
-    const dot = new THREE.Object3D()
-    if (spec.kind === 'orbital') dot.rotation.z = spec.argPeriapsisDeg * DEG
-    plane.add(dot)
-    const dotMesh = new THREE.Mesh(
-      new THREE.SphereGeometry(spec.kind === 'stationary' ? 0.045 : 0.04, 16, 16),
-      new THREE.MeshBasicMaterial({ color: spec.kind === 'stationary' ? 0xf0f4f8 : 0xe6edf4 }),
-    )
-    dot.add(dotMesh)
-    // 拾取球：半径 0.22 不可见，扩大点击命中区域
-    const hitSphere = new THREE.Mesh(
-      new THREE.SphereGeometry(0.22, 8, 8),
-      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
-    )
-    hitSphere.userData.craftId = spec.id
-    dot.add(hitSphere)
-    craftHitMeshes.push(hitSphere)
-
-    let line: THREE.Line | null = null
-    if (spec.kind === 'orbital') {
-      const linePoints: THREE.Vector3[] = []
-      for (let i = 0; i <= 180; i += 1) {
-        const nu = (i / 180) * Math.PI * 2
-        const r = (spec.a * (1 - spec.e * spec.e)) / (1 + spec.e * Math.cos(nu))
-        linePoints.push(new THREE.Vector3(r * Math.cos(nu), r * Math.sin(nu), 0))
-      }
-      line = new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints(linePoints),
-        new THREE.LineBasicMaterial({ color: 0xb9c4cf, transparent: true, opacity: 0.5 }),
-      )
-      line.rotation.z = spec.argPeriapsisDeg * DEG
-      plane.add(line)
-      dot.position.set(spec.a * (1 - spec.e), 0, 0)
-    } else if (spec.stationaryOffset) {
-      // 定点：固定在月球外侧（不参与公转）
-      dot.position.set(spec.stationaryOffset[0], spec.stationaryOffset[1], spec.stationaryOffset[2])
-    }
-
-    scene.add(plane)
-    craftRuntimes.push({ spec, plane, dot, line, nu: 0 })
-  }
+  // 轨道飞行器数据来自 /api/v1/moon/spacecraft（数据库 → Go → API → 前端），
+  // 挂载后异步拉取并按数据构建轨道/圆点（镜像地球的数据链路）
+  fetch('/api/v1/moon/spacecraft')
+    .then((res) => res.json())
+    .then((data: { spacecraft: MoonSpacecraft[] }) => {
+      crafts.value = data.spacecraft ?? []
+      if (!scene) return
+      for (const spec of crafts.value) buildCraft(spec)
+    })
+    .catch((error) => {
+      console.error('加载月球飞行器数据失败:', error)
+    })
 
   renderer.render(scene, camera)
 
@@ -319,7 +284,7 @@ onMounted(() => {
     for (const runtime of craftRuntimes) {
       if (runtime.spec.kind !== 'orbital') continue
       runtime.nu += (Math.PI * 2 / runtime.spec.periodSeconds) * delta
-      const r = (runtime.spec.a * (1 - runtime.spec.e * runtime.spec.e)) / (1 + runtime.spec.e * Math.cos(runtime.nu))
+      const r = (runtime.spec.orbitA * (1 - runtime.spec.orbitE * runtime.spec.orbitE)) / (1 + runtime.spec.orbitE * Math.cos(runtime.nu))
       runtime.dot.position.set(r * Math.cos(runtime.nu), r * Math.sin(runtime.nu), 0)
     }
     // 观测光跟随相机：明暗边界始终落在球体轮廓之外（关闭晨昏线时 360° 全亮）
@@ -359,6 +324,56 @@ onMounted(() => {
   }
   animate()
 })
+
+/** 按 API 数据构建单个飞行器（轨道平面/轨道线/运动点/拾取球） */
+function buildCraft(spec: MoonSpacecraft) {
+  if (!scene) return
+  const plane = new THREE.Object3D()
+  if (spec.kind === 'orbital') {
+    plane.rotation.order = 'YXZ'
+    plane.rotation.y = spec.raanDeg * DEG
+    plane.rotation.x = spec.inclinationDeg * DEG
+  }
+
+  const dot = new THREE.Object3D()
+  if (spec.kind === 'orbital') dot.rotation.z = spec.argPeriapsisDeg * DEG
+  plane.add(dot)
+  const dotMesh = new THREE.Mesh(
+    new THREE.SphereGeometry(spec.kind === 'stationary' ? 0.045 : 0.04, 16, 16),
+    new THREE.MeshBasicMaterial({ color: spec.kind === 'stationary' ? 0xf0f4f8 : 0xe6edf4 }),
+  )
+  dot.add(dotMesh)
+  const hitSphere = new THREE.Mesh(
+    new THREE.SphereGeometry(0.22, 8, 8),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
+  )
+  hitSphere.userData.craftId = spec.id
+  dot.add(hitSphere)
+  craftHitMeshes.push(hitSphere)
+
+  let line: THREE.Line | null = null
+  if (spec.kind === 'orbital') {
+    const linePoints: THREE.Vector3[] = []
+    for (let i = 0; i <= 180; i += 1) {
+      const nu = (i / 180) * Math.PI * 2
+      const r = (spec.orbitA * (1 - spec.orbitE * spec.orbitE)) / (1 + spec.orbitE * Math.cos(nu))
+      linePoints.push(new THREE.Vector3(r * Math.cos(nu), r * Math.sin(nu), 0))
+    }
+    line = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(linePoints),
+      new THREE.LineBasicMaterial({ color: 0xb9c4cf, transparent: true, opacity: 0.5 }),
+    )
+    line.rotation.z = spec.argPeriapsisDeg * DEG
+    plane.add(line)
+    dot.position.set(spec.orbitA * (1 - spec.orbitE), 0, 0)
+  } else {
+    // 定点：固定在月球外侧（不参与公转）
+    dot.position.set(spec.stationaryOffset[0], spec.stationaryOffset[1], spec.stationaryOffset[2])
+  }
+
+  scene.add(plane)
+  craftRuntimes.push({ spec, plane, dot, line, nu: 0 })
+}
 
 // 晨昏线开关（镜像地球 applyDayNightMode）：
 // 关闭 = 观测光(相机方向) 3.1 + 太阳光 0 → 360° 全亮；

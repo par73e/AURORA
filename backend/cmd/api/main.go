@@ -12,6 +12,7 @@ import (
 	"aurora/backend/internal/config"
 	"aurora/backend/internal/database"
 	"aurora/backend/internal/httpapi"
+	"aurora/backend/internal/moon"
 	"aurora/backend/internal/orbit"
 	"aurora/backend/internal/syncer"
 )
@@ -33,6 +34,7 @@ func main() {
 	}
 
 	repository := orbit.NewRepository(pool)
+	moonRepository := moon.NewRepository(pool)
 	dataSyncer := syncer.New(repository)
 	initialSyncContext, cancelInitialSync := context.WithTimeout(ctx, 45*time.Second)
 	if err := dataSyncer.SyncCelesTrak(initialSyncContext); err != nil {
@@ -46,7 +48,7 @@ func main() {
 	go schedule(ctx, 2*time.Hour, dataSyncer.SyncCelesTrak)
 	go schedule(ctx, 30*time.Minute, dataSyncer.SyncLaunches)
 
-	server := &http.Server{Addr: ":" + cfg.Port, Handler: httpapi.Router(repository), ReadHeaderTimeout: 5 * time.Second}
+	server := &http.Server{Addr: ":" + cfg.Port, Handler: httpapi.Router(repository, moonRepository), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		slog.Info("AURORA API started", "address", "http://localhost:"+cfg.Port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {

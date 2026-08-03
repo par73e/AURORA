@@ -5,12 +5,13 @@ import (
 	"log/slog"
 	"net/http"
 
+	"aurora/backend/internal/moon"
 	"aurora/backend/internal/orbit"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-func Router(repository *orbit.Repository) http.Handler {
+func Router(repository *orbit.Repository, moonRepository *moon.Repository) http.Handler {
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer)
 	router.Get("/api/health", func(w http.ResponseWriter, _ *http.Request) {
@@ -24,6 +25,15 @@ func Router(repository *orbit.Repository) http.Handler {
 			return
 		}
 		writeJSON(w, http.StatusOK, overview)
+	})
+	router.Get("/api/v1/moon/spacecraft", func(w http.ResponseWriter, r *http.Request) {
+		items, err := moonRepository.ListSpacecraft(r.Context())
+		if err != nil {
+			slog.Error("load moon spacecraft", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "暂时无法读取月球飞行器数据"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"spacecraft": items})
 	})
 	return router
 }

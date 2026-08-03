@@ -68,6 +68,32 @@ export interface OrbitOverview {
   freshness: Freshness[]
 }
 
+/** 月球飞行器（来自 /api/v1/moon/spacecraft，镜像地球 Spacecraft 类型） */
+export interface MoonSpacecraft {
+  id: string
+  nameZh: string
+  nameEn: string
+  type: string
+  operatorName: string
+  description: string
+  launchDate: string
+  launchSite: string
+  launchVehicle: string
+  sourceName: string
+  displayInclination: string
+  displayEccentricity: string
+  displayPeriod: string
+  kind: 'orbital' | 'stationary'
+  orbitA: number
+  orbitE: number
+  inclinationDeg: number
+  raanDeg: number
+  argPeriapsisDeg: number
+  periodSeconds: number
+  stationaryOffset: [number, number, number]
+  sortOrder: number
+}
+
 export type Selection =
   | { kind: 'spacecraft'; id: string }
   | { kind: 'site'; id: string }
