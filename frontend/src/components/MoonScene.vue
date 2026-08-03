@@ -1163,12 +1163,13 @@ onBeforeUnmount(() => {
   overflow-y: auto;
   padding: 22px 24px;
   border: 1px solid rgba(200, 208, 216, .14);
-  border-top-color: rgba(226, 235, 243, .42); /* 顶部受光 */
+  border-top-color: rgba(200, 208, 216, .14); /* 顶部沉底侧 */
+  border-bottom-color: rgba(226, 235, 243, .42); /* 右下受光 */
   border-radius: 10px;
-  /* 深浅渐变：顶部略亮（受光）→ 底部沉底 */
-  background: linear-gradient(168deg, rgba(46, 56, 66, .96) 0%, rgba(20, 27, 34, .96) 45%, rgba(7, 10, 14, .97) 100%);
+  /* 深浅渐变（对调）：左上深灰沉底 → 右下银色受光 */
+  background: linear-gradient(168deg, rgba(7, 10, 14, .97) 0%, rgba(20, 27, 34, .96) 45%, rgba(46, 56, 66, .96) 100%);
   box-shadow:
-    inset 0 1px 0 rgba(225, 235, 243, .18), /* 内顶部高光 */
+    inset 0 -1px 0 rgba(225, 235, 243, .18), /* 内底部高光（受光侧） */
     0 24px 70px rgba(0, 0, 0, .55);
   backdrop-filter: blur(18px);
   color: var(--moon-text);
@@ -1188,11 +1189,13 @@ onBeforeUnmount(() => {
 /* 飞行器信息面板（月球页覆盖为深灰渐变质感）。
  *  注意：scoped 下避免使用 `~` 兄弟选择器（编译时会被丢弃导致整条规则失效）；
  *  独立规则 + !important 确保压过全局 .context-panel */
+/* 渐变对调：左上深灰 → 右下银色（与 site-panel 一致） */
 .moon-scene-host .context-panel {
   border: 1px solid rgba(200, 208, 216, .14) !important;
-  border-top-color: rgba(226, 235, 243, .42) !important;
-  background: linear-gradient(168deg, rgba(46, 56, 66, .96) 0%, rgba(20, 27, 34, .96) 45%, rgba(7, 10, 14, .97) 100%) !important;
-  box-shadow: inset 0 1px 0 rgba(225, 235, 243, .18), 0 24px 70px rgba(0, 0, 0, .55) !important;
+  border-top-color: rgba(200, 208, 216, .14) !important;
+  border-bottom-color: rgba(226, 235, 243, .42) !important;
+  background: linear-gradient(168deg, rgba(7, 10, 14, .97) 0%, rgba(20, 27, 34, .96) 45%, rgba(46, 56, 66, .96) 100%) !important;
+  box-shadow: inset 0 -1px 0 rgba(225, 235, 243, .18), 0 24px 70px rgba(0, 0, 0, .55) !important;
 }
 .site-panel .site-panel-close {
   position: absolute;
