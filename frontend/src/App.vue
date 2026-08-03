@@ -172,7 +172,7 @@ function transitionTo(nextSurface: AppSurface, zoom = 1, origin = '50% 50%', tim
 
 function surfaceFromHash(): AppSurface {
   if (window.location.hash === '#solar-system') return 'solar-system'
-  if (['#moon', '#moon-scene', '#moon-objects'].includes(window.location.hash)) return 'moon'
+  if (['#moon', '#moon-scene', '#moon-objects', '#moon-sites'].includes(window.location.hash)) return 'moon'
   if (['#orbit', '#objects', '#sites', '#launches'].includes(window.location.hash)) return 'orbit'
   return 'cover'
 }
