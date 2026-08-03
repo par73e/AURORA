@@ -37,7 +37,9 @@ func (r *Repository) Overview(ctx context.Context) (Overview, error) {
 func (r *Repository) listSpacecraft(ctx context.Context) ([]Spacecraft, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT s.id, s.name_zh, s.name_en, s.norad_catalog_id, s.category,
-		       s.operator_name, s.description, ds.name, ds.base_url,
+		       s.operator_name, s.description,
+		       COALESCE(s.launch_date,''), COALESCE(s.launch_site,''), COALESCE(s.launch_vehicle,''),
+		       ds.name, ds.base_url,
 		       o.epoch, o.synced_at, o.raw_omm
 		FROM spacecraft s
 		JOIN data_sources ds ON ds.code = s.source_code
@@ -58,7 +60,7 @@ func (r *Repository) listSpacecraft(ctx context.Context) ([]Spacecraft, error) {
 		var item Spacecraft
 		var epoch, syncedAt *time.Time
 		var raw []byte
-		if err := rows.Scan(&item.ID, &item.NameZH, &item.NameEN, &item.NORADCatalogID, &item.Category, &item.OperatorName, &item.Description, &item.SourceName, &item.SourceURL, &epoch, &syncedAt, &raw); err != nil {
+		if err := rows.Scan(&item.ID, &item.NameZH, &item.NameEN, &item.NORADCatalogID, &item.Category, &item.OperatorName, &item.Description, &item.LaunchDate, &item.LaunchSite, &item.LaunchVehicle, &item.SourceName, &item.SourceURL, &epoch, &syncedAt, &raw); err != nil {
 			return nil, fmt.Errorf("scan spacecraft: %w", err)
 		}
 		item.OrbitEpoch = epoch

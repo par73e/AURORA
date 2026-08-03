@@ -13,6 +13,7 @@ import saturnRingUrl from '../assets/solar/2k_saturn_ring_alpha.png'
 import uranusUrl from '../assets/solar/2k_uranus.jpg'
 import neptuneUrl from '../assets/solar/2k_neptune.jpg'
 import moonUrl from '../assets/solar/2k_moon.jpg'
+import moon8kUrl from '../assets/solar/8k_moon.jpg'
 import sunUrl from '../assets/solar/2k_sun.jpg'
 
 export interface RingSpec {
@@ -59,6 +60,9 @@ export const MOON = {
   orbitSeconds: 50,
   textureUrl: moonUrl,
 }
+
+/** 月球高清贴图（8k，月球独立页面使用） */
+export const MOON_HD = { textureUrl: moon8kUrl }
 
 export const SUN_RADIUS = 5.5
 export const SUN_ROTATION_SECONDS = 240

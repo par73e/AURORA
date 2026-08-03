@@ -11,9 +11,10 @@ import AuroraCover from './components/AuroraCover.vue'
 import OrbitScene from './components/OrbitScene.vue'
 import SolarSystem from './components/SolarSystem.vue'
 import SolarSystemItem from './components/SolarSystemItem.vue'
+import MoonScene from './components/MoonScene.vue'
 import { fetchOrbitOverview } from './api'
 import { spacecraftPoint } from './orbit/coordinates'
-import { preloadOrbitTextures, preloadSolarTextures } from './preload'
+import { preloadMoonHdTexture, preloadOrbitTextures, preloadSolarTextures } from './preload'
 import type { LaunchEvent, LaunchSite, OrbitOverview, SceneLayers, Selection } from './types'
 
 type ObserverLocationStatus = 'locating' | 'located' | 'fallback'
@@ -40,7 +41,7 @@ const observerFocusRevision = ref(0)
 const observerViewActive = ref(false)
 const dayNightEnabled = ref(false)
 const showEventOriginal = ref(false)
-type AppSurface = 'cover' | 'solar-system' | 'orbit'
+type AppSurface = 'cover' | 'solar-system' | 'orbit' | 'moon'
 
 const surface = ref<AppSurface>(surfaceFromHash())
 const solarSystemRef = ref<InstanceType<typeof SolarSystem> | null>(null)
@@ -48,9 +49,20 @@ const solarSystemRef = ref<InstanceType<typeof SolarSystem> | null>(null)
 const orbitRevealTick = ref(0)
 const headerExpanded = ref(true)
 const orbitPageActive = ref(true)
+const moonPageActive = ref(true)
+
+/** 页头可收起逻辑当前是否生效（地球主视图 / 月球页） */
+function collapsibleHeaderActive() {
+  if (surface.value === 'orbit') return orbitPageActive.value
+  if (surface.value === 'moon') return moonPageActive.value
+  return false
+}
 const orbitSectionLeaving = ref(false)
 /** 是否从 ORBIT 返回太阳系（太阳系场景挂载后从地球近景拉回默认构图） */
 const solarEnterFromOrbit = ref(false)
+const solarEnterFromMoon = ref(false)
+/** 月球页面"进入边界"信号：遮罩开始淡出时递增，MoonScene 据此渐亮 */
+const moonRevealTick = ref(0)
 const siteHeader = ref<HTMLElement | null>(null)
 const orbitSection = ref<HTMLElement | null>(null)
 const orbitSceneFrame = ref<HTMLElement | null>(null)
@@ -149,6 +161,7 @@ function transitionTo(nextSurface: AppSurface, zoom = 1, origin = '50% 50%', tim
 
 function surfaceFromHash(): AppSurface {
   if (window.location.hash === '#solar-system') return 'solar-system'
+  if (['#moon', '#moon-scene', '#moon-objects'].includes(window.location.hash)) return 'moon'
   if (['#orbit', '#objects', '#sites', '#launches'].includes(window.location.hash)) return 'orbit'
   return 'cover'
 }
@@ -327,23 +340,31 @@ async function setSurface(nextSurface: AppSurface) {
   surface.value = nextSurface
   document.title = nextSurface === 'cover'
     ? 'AURORA'
-    : nextSurface === 'solar-system' ? 'AURORA · 太阳系' : 'AURORA · ORBIT'
+    : nextSurface === 'solar-system' ? 'AURORA · 太阳系'
+    : nextSurface === 'moon' ? 'AURORA · 月球' : 'AURORA · ORBIT'
   if (nextSurface === 'orbit') {
     orbitPageActive.value = true
     headerExpanded.value = false // 进入 ORBIT 默认收起页头（悬停屏幕顶部可展开）
+  } else if (nextSurface === 'moon') {
+    moonPageActive.value = true
+    headerExpanded.value = false // 月球页同样默认收起页头
   } else {
     headerExpanded.value = true
   }
   await nextTick()
   window.scrollTo({ top: 0, behavior: 'instant' })
   updateActivePage()
-  if (nextSurface === 'orbit') scheduleHeaderCollapse()
+  if (nextSurface === 'orbit' || nextSurface === 'moon') scheduleHeaderCollapse()
   else clearHeaderIdleTimer()
 }
 
 function enterSolarSystem() {
   if (surface.value === 'orbit') {
     enterSolarSystemFromOrbit()
+    return
+  }
+  if (surface.value === 'moon') {
+    enterSolarSystemFromMoon()
     return
   }
   solarEnterFromOrbit.value = false
@@ -462,6 +483,57 @@ function onEarthSelect() {
   })
 }
 
+/** 点击月球瞬间：URL 切到 #moon，预热 8k 月球纹理 */
+function onMoonFlyStart() {
+  window.history.pushState(null, '', '#moon')
+  cancelPendingTransition()
+  preloadMoonHdTexture() // 预热 8k 月球贴图（本地资源，提前解码避免切换后卡顿）
+}
+
+/** 月球放大到一定程度：遮罩快速变暗 */
+function onMoonFlyZoom() {
+  if (surface.value === 'moon' || surfaceFromHash() !== 'moon') return
+  veilDuration.value = '0.22s'
+  veilActive.value = true
+}
+
+/** 月球放大完成（遮罩已黑）：换页，月球页面渐亮旋转入场 */
+function onMoonSelect() {
+  if (surface.value === 'moon' || surfaceFromHash() !== 'moon') return
+  veilActive.value = true
+  solarEnterFromMoon.value = false
+  void setSurface('moon')
+  requestAnimationFrame(() => {
+    veilDuration.value = '0.3s'
+    veilActive.value = false
+    // 进入边界：遮罩开始淡出的同一帧递增信号，月球场景据此 0.5s 渐亮
+    moonRevealTick.value += 1
+  })
+}
+
+/** 月球 → 太阳系：渐暗 → 切页（太阳系从月球近景拉回）→ 渐亮 */
+function enterSolarSystemFromMoon() {
+  window.history.pushState(null, '', '#solar-system')
+  preloadSolarTextures()
+  cancelPendingTransition()
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  solarEnterFromMoon.value = true
+  veilDuration.value = reduced ? '0.01s' : '0.4s' // 渐暗 400ms
+  veilActive.value = true
+  transitionTimer = window.setTimeout(() => {
+    if (surfaceFromHash() !== 'solar-system') {
+      cancelPendingTransition()
+      return
+    }
+    void setSurface('solar-system')
+    requestAnimationFrame(() => {
+      veilDuration.value = reduced ? '0.01s' : '0.5s' // 渐亮 500ms
+      veilActive.value = false
+    })
+    transitionTimer = undefined
+  }, reduced ? 30 : 460) // 等遮罩全黑（400ms）再切页
+}
+
 function syncSurfaceFromHash() {
   // 浏览器后退/前进等 hash 变化优先：先取消进行中的过渡，避免遮罩滞留或页面失步
   cancelPendingTransition()
@@ -477,12 +549,12 @@ function clearHeaderIdleTimer() {
 
 function scheduleHeaderCollapse() {
   clearHeaderIdleTimer()
-  if (surface.value !== 'orbit' || !orbitPageActive.value) {
+  if (!collapsibleHeaderActive()) {
     headerExpanded.value = true
     return
   }
   headerIdleTimer = window.setTimeout(() => {
-    if (!orbitPageActive.value) {
+    if (!collapsibleHeaderActive()) {
       headerExpanded.value = true
       headerIdleTimer = undefined
       return
@@ -498,12 +570,12 @@ function scheduleHeaderCollapse() {
 
 function revealHeader() {
   headerExpanded.value = true
-  if (orbitPageActive.value) scheduleHeaderCollapse()
+  if (collapsibleHeaderActive()) scheduleHeaderCollapse()
   else clearHeaderIdleTimer()
 }
 
 function registerHeaderActivity() {
-  if (!orbitPageActive.value || !headerExpanded.value) return
+  if (!collapsibleHeaderActive() || !headerExpanded.value) return
   const activityAt = performance.now()
   if (activityAt - lastHeaderActivityAt < 400) return
   lastHeaderActivityAt = activityAt
@@ -511,7 +583,7 @@ function registerHeaderActivity() {
 }
 
 function handleWindowPointerMove(event: PointerEvent) {
-  if (!headerExpanded.value && orbitPageActive.value && event.clientY <= 16) {
+  if (!headerExpanded.value && collapsibleHeaderActive() && event.clientY <= 16) {
     revealHeader()
     return
   }
@@ -519,13 +591,28 @@ function handleWindowPointerMove(event: PointerEvent) {
 }
 
 function collapseHeaderFromScene() {
-  if (!orbitPageActive.value) return
+  if (!collapsibleHeaderActive()) return
   clearHeaderIdleTimer()
   headerExpanded.value = false
 }
 
 function updateActivePage() {
   pageSurfaceFrame = 0
+  if (surface.value === 'moon') {
+    // 主视图 = #moon-objects 顶部仍在视口下半区；进入上半区（滚动超过场景区一半）即进入航天器板块
+    const moonObjects = document.getElementById('moon-objects')
+    const objectsTop = moonObjects?.getBoundingClientRect().top ?? window.innerHeight
+    const nextMoonPageActive = objectsTop > window.innerHeight / 2
+    if (nextMoonPageActive === moonPageActive.value) {
+      if (moonPageActive.value && headerExpanded.value) scheduleHeaderCollapse()
+      return
+    }
+    moonPageActive.value = nextMoonPageActive
+    clearHeaderIdleTimer()
+    headerExpanded.value = !nextMoonPageActive
+    if (moonPageActive.value && headerExpanded.value) scheduleHeaderCollapse()
+    return
+  }
   if (surface.value !== 'orbit') {
     orbitPageActive.value = false
     headerExpanded.value = true
@@ -553,6 +640,13 @@ function updateActivePage() {
 function handlePageScroll() {
   if (pageSurfaceFrame) return
   pageSurfaceFrame = window.requestAnimationFrame(updateActivePage)
+}
+
+/** 每日圈数 → 轨道周期（分钟） */
+function orbitPeriodText(meanMotion: string) {
+  const mm = Number(meanMotion)
+  if (!Number.isFinite(mm) || mm <= 0) return '—'
+  return `${(1440 / mm).toFixed(1)} 分钟`
 }
 
 function formatCoordinate(value: number, positive: string, negative: string) {
@@ -618,7 +712,7 @@ onBeforeUnmount(() => {
       @explore="enterSolarSystem"
     />
 
-    <div v-show="surface !== 'cover' || coverLingering" class="desktop-app" :class="{ 'header-collapsed': !headerExpanded }">
+    <div v-show="surface !== 'cover' || coverLingering" class="desktop-app" :class="{ 'header-collapsed': !headerExpanded, moon: surface === 'moon' }">
       <header
         ref="siteHeader"
         class="site-header"
@@ -634,7 +728,7 @@ onBeforeUnmount(() => {
               <span class="brand-mark"><i /><i /><i /></span>
               <span><strong>AURORA</strong><small>ORBITAL OBSERVATORY</small></span>
             </a>
-            <SolarSystemItem v-if="surface === 'orbit'" title="太阳系" :icon-size="30" :animated="true" @click="enterSolarSystem" />
+            <SolarSystemItem v-if="surface === 'orbit' || surface === 'moon'" title="太阳系" :icon-size="30" :animated="true" @click="enterSolarSystem" />
           </div>
           <nav v-if="surface === 'orbit'" aria-label="页面导航">
             <a href="#orbit"><i class="nav-num">Ⅰ</i>地球</a>
@@ -642,32 +736,43 @@ onBeforeUnmount(() => {
             <a href="#sites"><i class="nav-num">Ⅲ</i>发射场</a>
             <a href="#launches"><i class="nav-num">Ⅳ</i>发射日程</a>
           </nav>
-          <nav v-else aria-label="当前位置">
+          <nav v-else-if="surface === 'moon'" aria-label="页面导航">
+            <a href="#moon-scene"><i class="nav-num">Ⅰ</i>月球观测</a>
+            <a href="#moon-objects"><i class="nav-num">Ⅱ</i>航天器</a>
+          </nav>
+          <nav v-else-if="surface === 'solar-system'" aria-label="当前位置">
             <SolarSystemItem title="太阳系" :icon-size="30" :active="true" :animated="true" @click="solarSystemRef?.resetView?.()" />
           </nav>
+          <!-- 月球页无中心导航，返回入口在页头左侧（与地球页一致） -->
           <div v-if="surface === 'orbit'" class="live-status">
             <span class="status-dot" :class="{ healthy: dataHealthy }" />
             <span>{{ dataHealthy ? '数据正常' : '检查数据' }}</span>
             <strong>{{ timeOnly(now) }} UTC+8</strong>
           </div>
           <div v-else class="live-status solar-clock">
-            <span>SOLAR SYSTEM</span>
+            <span>{{ surface === 'moon' ? '月球 · MOON' : 'SOLAR SYSTEM' }}</span>
           </div>
         </div>
       </header>
+
+      <MoonScene v-if="surface === 'moon'" :reveal-tick="moonRevealTick" @blank-click="collapseHeaderFromScene" />
 
       <SolarSystem
         ref="solarSystemRef"
         v-if="surface === 'solar-system'"
         :enter-from-orbit="solarEnterFromOrbit"
+        :enter-from-moon="solarEnterFromMoon"
         :fly-delay="solarFlyDelay"
         :play-entry-fly="solarEntryFly"
         @select-earth="onEarthSelect"
         @earth-fly-start="onEarthFlyStart"
         @earth-fly-zoom="onEarthFlyZoom"
+        @moon-fly-start="onMoonFlyStart"
+        @moon-fly-zoom="onMoonFlyZoom"
+        @select-moon="onMoonSelect"
       />
 
-      <template v-else>
+      <template v-else-if="surface === 'orbit'">
       <section id="orbit" ref="orbitSection" class="orbit-section" :class="{ leaving: orbitSectionLeaving }">
         <div class="page-frame">
           <div ref="orbitSceneFrame" class="scene-frame">
@@ -707,10 +812,9 @@ onBeforeUnmount(() => {
               <span><small>{{ observerViewActive ? '当前中心' : '返回当前位置' }}</small><strong>{{ observerLocation.label }}</strong></span>
             </button>
 
-            <div v-if="overview" class="scene-counts" aria-label="当前载入数据">
-              <span><strong>{{ overview.spacecraft.length }}</strong> 航天器</span>
-              <span><strong>{{ overview.launchSites.length }}</strong> 发射场</span>
-              <span><strong>{{ upcomingEvents.length }}</strong> 近期任务</span>
+            <div class="scene-readout" aria-label="当前视角">
+              <span>EARTH ORBIT</span>
+              <strong>地球</strong>
             </div>
 
             <aside v-if="selection" class="context-panel" aria-label="所选对象详情">
@@ -723,9 +827,10 @@ onBeforeUnmount(() => {
                 <p class="context-description">{{ selectedSpacecraft.description }}</p>
                 <dl>
                   <div><dt>运营方</dt><dd>{{ selectedSpacecraft.operatorName }}</dd></div>
+                  <div v-if="selectedSpacecraft.launchDate"><dt>发射</dt><dd>{{ selectedSpacecraft.launchDate }} · {{ selectedSpacecraft.launchSite }} · {{ selectedSpacecraft.launchVehicle }}</dd></div>
                   <div><dt>轨道倾角</dt><dd>{{ Number(selectedSpacecraft.omm.INCLINATION).toFixed(2) }}°</dd></div>
                   <div><dt>偏心率</dt><dd>{{ Number(selectedSpacecraft.omm.ECCENTRICITY).toFixed(6) }}</dd></div>
-                  <div><dt>每日圈数</dt><dd>{{ Number(selectedSpacecraft.omm.MEAN_MOTION).toFixed(3) }}</dd></div>
+                  <div><dt>轨道周期</dt><dd>{{ orbitPeriodText(selectedSpacecraft.omm.MEAN_MOTION) }}</dd></div>
                 </dl>
                 <p class="source-caption">轨道历元 {{ new Date(selectedSpacecraft.orbitEpoch).toLocaleString('zh-CN', { hour12: false }) }}<br>{{ selectedSpacecraft.sourceName }}</p>
               </template>

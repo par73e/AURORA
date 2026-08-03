@@ -2,7 +2,8 @@
 // 避免切换后出现"建模加载"式的卡顿（尤其远端的地球纹理）。
 
 import { EARTH_DAY_TEXTURE_URL, EARTH_NIGHT_TEXTURE_URL } from './orbit/coordinates'
-import { preloadSolarTextures as preloadSolarTextureObjects } from './solar/textures'
+import { MOON_HD } from './solar/data'
+import { preloadSolarTextures as preloadSolarTextureObjects, solarTexture } from './solar/textures'
 
 const preloaded = new Set<string>()
 
@@ -23,4 +24,9 @@ export function preloadSolarTextures() {
 export function preloadOrbitTextures() {
   warm(EARTH_DAY_TEXTURE_URL)
   warm(EARTH_NIGHT_TEXTURE_URL)
+}
+
+/** 预热月球高清贴图（8k 本地资源，进入月球页面时已解码就绪） */
+export function preloadMoonHdTexture() {
+  solarTexture(MOON_HD.textureUrl)
 }

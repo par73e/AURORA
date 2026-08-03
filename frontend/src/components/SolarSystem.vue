@@ -4,18 +4,23 @@ import { SolarSystemScene, type SolarLabel } from '../solar/scene'
 import { solarSession } from '../solar/session'
 import { MOON, planets, SUN, type PlanetSpec } from '../solar/data'
 
-const props = defineProps<{ enterFromOrbit?: boolean; flyDelay?: number; playEntryFly?: boolean }>()
+const props = defineProps<{ enterFromOrbit?: boolean; enterFromMoon?: boolean; flyDelay?: number; playEntryFly?: boolean }>()
 
 const emit = defineEmits<{
   'select-earth': []
   'earth-fly-start': []
   'earth-fly-zoom': []
+  'select-moon': []
+  'moon-fly-start': []
+  'moon-fly-zoom': []
 }>()
 
 const canvasHost = ref<HTMLDivElement | null>(null)
 const activeId = ref('earth')
 const labels = ref<SolarLabel[]>([])
 let scene: SolarSystemScene | undefined
+/** 当前飞行动画的目标：true = 月球（事件回调据此分发） */
+let moonFlight = false
 
 const activePlanet = computed<PlanetSpec>(() => planets.find((p) => p.id === activeId.value) ?? planets[2])
 const activeName = computed(() => {
@@ -43,8 +48,14 @@ function choosePlanet(id: string) {
   activeId.value = id
   if (id === 'earth') {
     // 地球：先在太阳系场景内放大地球，飞行到位后再由 App 切换页面
+    moonFlight = false
     scene?.flyToEarth()
     emit('earth-fly-start')
+  } else if (id === 'moon') {
+    // 月球：镜像地球流程——太阳系内推近月球 → 渐暗 → 切到月球页面
+    moonFlight = true
+    scene?.flyToMoon()
+    emit('moon-fly-start')
   }
 }
 
@@ -83,8 +94,8 @@ onMounted(() => {
         if (id) activeId.value = id
       },
       onSelect: choosePlanet,
-      onFlyZoom: () => emit('earth-fly-zoom'),
-      onFlyComplete: () => emit('select-earth'),
+      onFlyZoom: () => emit(moonFlight ? 'moon-fly-zoom' : 'earth-fly-zoom'),
+      onFlyComplete: () => emit(moonFlight ? 'select-moon' : 'select-earth'),
     },
     (next) => {
       labels.value = next
@@ -92,7 +103,10 @@ onMounted(() => {
   )
   // 会话记忆：上次是"真实公转位置"模式则直接恢复（无动画）；刷新/首次访问为默认排布
   if (!alignedPositions.value) scene.setRealPositions()
-  if (props.enterFromOrbit) {
+  if (props.enterFromMoon) {
+    // 从月球页面返回：镜头从月球近景拉回默认构图（月球缩回太阳系）
+    scene.flyFromMoon()
+  } else if (props.enterFromOrbit) {
     // 从 ORBIT 返回：镜头从地球近景拉回默认构图（地球缩回太阳系）
     scene.flyFromEarth()
   } else if (props.playEntryFly) {
@@ -138,6 +152,7 @@ function onKeydown(event: KeyboardEvent) {
     activeId.value = SELECTION_ORDER[(index - 1 + SELECTION_ORDER.length) % SELECTION_ORDER.length]
   } else if (event.key === 'Enter') {
     if (activeId.value === 'earth') choosePlanet('earth')
+    else if (activeId.value === 'moon') choosePlanet('moon')
   }
 }
 

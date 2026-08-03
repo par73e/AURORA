@@ -965,6 +965,80 @@ export class SolarSystemScene {
 
   /** 点击地球：镜头沿抬升的三次贝塞尔路径推近——避开与地球同在行星连线上的火星，
    *  末端俯冲进地球（随后由调用方切页） */
+  /** 点击月球：镜头沿抬升的三次贝塞尔路径推近月球（终点在月球近旁） */
+  flyToMoon() {
+    if (this.flyState) return
+    const moonPosition = this.moonAnchor?.getWorldPosition(this.tempWorldB)
+    if (!moonPosition) return
+    const p0 = this.camera.position.clone()
+    const moonDir = moonPosition.clone().normalize()
+    // 终点：太阳→月球连线上、距月球中心 5（月球视半径约 8°，带 1 单位仰角）
+    const p3 = moonPosition.clone().addScaledVector(moonDir, -5)
+    p3.y += 1
+    const delta = p3.clone().sub(p0)
+    const p1 = p0.clone().addScaledVector(delta, 0.3)
+    p1.y += 1.5
+    const p2 = p0.clone().addScaledVector(delta, 0.72)
+    p2.y += 0.5
+    this.controls.minDistance = 3
+    this.flyState = {
+      p0,
+      p1,
+      p2,
+      p3,
+      fromTarget: this.controls.target.clone(),
+      toTarget: moonPosition.clone(),
+      startedAt: performance.now(),
+      duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 250 : 1300,
+      zoomed: false,
+    }
+    this.controls.enabled = false
+  }
+
+  /** 反向飞行（月球 → 太阳系）：从月球近景拉回默认构图 */
+  flyFromMoon() {
+    if (this.flyState) return
+    const moonPosition = this.moonAnchor?.getWorldPosition(this.tempWorldB)
+    if (!moonPosition) return
+    // 终点：按当前模式构图（排布 = 小行星带锚定；真实位置 = 太阳居中）
+    const aspect = this.host.clientWidth / this.host.clientHeight
+    const { target, distance } = this.computeModeComposition(aspect)
+    this.fitDistance = distance
+    this.lookAt.copy(target)
+    this.camera.position.copy(this.lookAt).addScaledVector(this.dir, distance)
+    this.camera.lookAt(this.lookAt)
+    this.camera.updateMatrixWorld(true)
+    this.controls.target.copy(this.lookAt)
+    const p3 = this.camera.position.clone()
+    const toTarget = this.lookAt.clone()
+    // 起点：从月球沿"朝向默认视角"的水平方向外移 6 单位、带 1 单位仰角
+    const viewerDir = new THREE.Vector3(p3.x - moonPosition.x, 0, p3.z - moonPosition.z).normalize()
+    const p0 = moonPosition.clone().addScaledVector(viewerDir, 6)
+    p0.y += 1
+    this.camera.position.copy(p0)
+    this.camera.lookAt(moonPosition)
+    this.controls.target.copy(moonPosition)
+    this.controls.minDistance = 3
+    const delta = p3.clone().sub(p0)
+    const p1 = p0.clone().addScaledVector(delta, 0.3)
+    p1.y += 1.5
+    const p2 = p0.clone().addScaledVector(delta, 0.72)
+    p2.y += 0.5
+    this.flyState = {
+      p0,
+      p1,
+      p2,
+      p3,
+      fromTarget: moonPosition.clone(),
+      toTarget,
+      startedAt: performance.now(),
+      duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 250 : 1300,
+      zoomed: true,
+      reverse: true,
+    }
+    this.controls.enabled = false
+  }
+
   flyToEarth() {
     if (this.flyState) return
     const path = this.computeEarthFlyPath()

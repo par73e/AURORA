@@ -13,6 +13,9 @@ type Spacecraft struct {
 	Category       string          `json:"category"`
 	OperatorName   string          `json:"operatorName"`
 	Description    string          `json:"description"`
+	LaunchDate     string          `json:"launchDate,omitempty"`
+	LaunchSite     string          `json:"launchSite,omitempty"`
+	LaunchVehicle  string          `json:"launchVehicle,omitempty"`
 	SourceName     string          `json:"sourceName"`
 	SourceURL      string          `json:"sourceUrl"`
 	OrbitEpoch     *time.Time      `json:"orbitEpoch,omitempty"`

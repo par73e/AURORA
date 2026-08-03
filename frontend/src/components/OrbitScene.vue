@@ -722,7 +722,7 @@ onBeforeUnmount(() => {
       :key="`${label.kind}:${label.id}`"
       class="scene-label"
       :class="[label.kind, { selected: selectionKey === `${label.kind}:${label.id}` }]"
-      :style="{ transform: `translate(${label.x}px, ${label.y}px)` }"
+      :style="{ transform: `translate(${label.x + 14}px, ${label.y - 11}px)` }"
       @click="emit('select', { kind: label.kind, id: label.id })"
     >
       <i />{{ label.name }}

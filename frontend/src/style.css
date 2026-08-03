@@ -112,7 +112,7 @@ button { cursor: pointer; }
 .brand:focus-visible small { color: var(--blue); }
 .site-header nav { display: flex; align-items: center; gap: 30px; }
 .site-header nav a { color: #8da4b1; font-size: 12px; text-decoration: none; transition: color .2s; }
-.site-header nav a:hover, .site-header nav a:focus-visible { color: var(--ink); }
+.site-header nav a:hover, .site-header nav a:focus-visible { color: #8ed4f6; }
 .site-header nav .nav-num { margin-right: 7px; color: var(--quiet); font: 400 9px var(--font-mono); font-variant-numeric: tabular-nums; }
 .solar-clock { color: #647d8a; }
 .live-status { justify-self: end; display: flex; align-items: center; gap: 9px; color: var(--muted); font: 500 9px var(--font-mono); }
@@ -178,8 +178,9 @@ button { cursor: pointer; }
 .scene-location span, .scene-location small, .scene-location strong { display: block; }
 .scene-location small { color: var(--quiet); font: 400 8px var(--font-mono); }
 .scene-location strong { max-width: 170px; margin-top: 3px; overflow: hidden; font-size: 9px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
-.scene-counts { position: absolute; z-index: 6; left: 32px; bottom: 22px; display: flex; gap: 22px; color: var(--muted); font: 400 9px var(--font-mono); }
-.scene-counts strong { margin-right: 4px; color: var(--ink); font-size: 13px; font-weight: 500; }
+.scene-readout { position: absolute; z-index: 6; left: 32px; bottom: 22px; color: rgba(235, 242, 245, .92); }
+.scene-readout > span { color: rgba(114, 215, 255, .78); font: 500 8px var(--font-mono); letter-spacing: .15em; }
+.scene-readout strong { display: block; margin-top: 5px; font-size: 17px; font-weight: 500; }
 .context-panel { position: absolute; z-index: 8; top: 18px; right: 32px; width: clamp(368px, 25vw, 460px); max-height: calc(100% - 36px - var(--header-overlay-offset)); overflow-y: auto; padding: 28px; border-radius: 12px; background: rgba(5, 14, 22, .92); box-shadow: 0 24px 70px rgba(0, 8, 18, .45); transform: translateY(var(--header-overlay-offset)); transition: transform .38s cubic-bezier(.22, 1, .36, 1); backdrop-filter: blur(20px); scrollbar-width: thin; }
 .panel-close { position: absolute; top: 17px; right: 17px; padding: 5px 7px; border: 0; background: transparent; color: var(--muted); font-size: 10px; }
 .panel-close:hover, .panel-close:focus-visible { color: var(--ink); }
@@ -308,6 +309,98 @@ button { cursor: pointer; }
   .scene-location > i.locating { animation: none; }
 }
 
+/* 月球页：页头状态文字、导航数字与导航链接银灰主题 */
+.desktop-app.moon .live-status,
+.desktop-app.moon .solar-clock { color: #8b959f; }
+.desktop-app.moon .nav-num { color: #9aa4ae; }
+.desktop-app.moon .site-header nav a { color: #9aa4ae; }
+.desktop-app.moon .site-header nav a:hover,
+.desktop-app.moon .site-header nav a:focus-visible { color: #e6ebf0; }
+
+/* 月球页：信息面板（context-panel 同结构，银灰配色） */
+.desktop-app.moon .context-panel {
+  border: 1px solid rgba(200, 208, 216, .18);
+  background: rgba(10, 14, 18, .92);
+}
+.desktop-app.moon .context-panel .context-type { color: #aab4be; }
+.desktop-app.moon .context-panel .context-subtitle { color: #7c8791; }
+.desktop-app.moon .context-panel .context-description { color: #b6bfc8; }
+.desktop-app.moon .context-panel dt { color: #8b959f; }
+.desktop-app.moon .context-panel dd { color: #d5dce3; }
+.desktop-app.moon .context-panel dl div { border-top-color: rgba(200, 208, 216, .12); }
+.desktop-app.moon .source-caption { color: #7c8791; }
+
+/* 月球页：场景工具栏（与地球同结构，仅颜色银灰） */
+.desktop-app.moon .scene-toolbar {
+  border-color: rgba(200, 208, 216, .22);
+  background: rgba(6, 10, 14, .8);
+}
+.desktop-app.moon .scene-toolbar > span { color: #8b959f; }
+.desktop-app.moon .scene-toolbar label { color: #aab4be; }
+.desktop-app.moon .scene-toolbar i { background: #4a5560; }
+.desktop-app.moon .scene-toolbar input:checked + i {
+  background: #c8d0d8;
+  box-shadow: 0 0 6px rgba(200, 208, 216, .55);
+}
+.desktop-app.moon .scene-toolbar i.terminator { border-color: #5d6a75; background: #2a323a; }
+.desktop-app.moon .scene-toolbar input:checked + i.terminator {
+  border-color: rgba(200, 208, 216, .8);
+  background: linear-gradient(90deg, #d5dce3 0 50%, #141a20 50% 100%);
+}
+
+/* 月球页：太阳系图标（SolarSystemItem）蓝色元素 → 银灰 */
+.desktop-app.moon .solar-system-item {
+  --orbit-blue: rgba(200, 208, 216, .85);
+  --orbit-cyan: rgba(200, 208, 216, .5);
+  --orbit-gold: rgba(255, 189, 81, .42);
+}
+.desktop-app.moon .solar-system-item .planet-blue {
+  background: radial-gradient(circle at 32% 28%, #f2f6fa, #c8d0d8 45%, #8b959f 100%);
+  box-shadow: 0 0 3px rgba(200, 208, 216, .55), 0 0 5px rgba(200, 208, 216, .28);
+}
+.desktop-app.moon .solar-system-item .planet-cyan {
+  background: radial-gradient(circle at 32% 28%, #f2f6fa, #c8d0d8 48%, #7c8791 100%);
+  box-shadow: 0 0 4px rgba(200, 208, 216, .5), 0 0 8px rgba(200, 208, 216, .22);
+}
+.desktop-app.moon .solar-system-item .orbit-outer::after {
+  border-top-color: rgba(226, 232, 238, .8);
+  filter: drop-shadow(0 0 3px rgba(200, 208, 216, .2));
+}
+.desktop-app.moon .solar-system-item .star-dot {
+  background: #c8d0d8;
+  box-shadow: 0 0 5px rgba(200, 208, 216, .4);
+}
+
+/* 月球页：返回首页徽标（brand）全银灰，无蓝色元素 */
+.desktop-app.moon .brand small { color: #7c8791; }
+.desktop-app.moon .brand:hover small,
+.desktop-app.moon .brand:focus-visible small { color: #c8d0d8; }
+.desktop-app.moon .brand-mark {
+  border-color: rgba(200, 208, 216, .45);
+}
+.desktop-app.moon .brand-mark i:first-child { background: #c8d0d8; }
+.desktop-app.moon .brand-mark i:nth-child(2) { background: rgba(200, 208, 216, .4); }
+.desktop-app.moon .brand-mark i:nth-child(3) { border-color: rgba(200, 208, 216, .28); }
+.desktop-app.moon .brand:hover .brand-mark,
+.desktop-app.moon .brand:focus-visible .brand-mark {
+  border-color: rgba(210, 218, 226, .9);
+  box-shadow: 0 0 0 1px rgba(200, 208, 216, .22), 0 0 20px rgba(200, 208, 216, .35), inset 0 0 12px rgba(200, 208, 216, .18);
+  transform: translateY(-1px) scale(1.05);
+}
+.desktop-app.moon .brand:hover .brand-mark i:first-child,
+.desktop-app.moon .brand:focus-visible .brand-mark i:first-child { background: #e2e8ee; }
+/* 悬停时椭圆填充银灰（对应地球的浅蓝填充） */
+.desktop-app.moon .brand:hover .brand-mark i:nth-child(3),
+.desktop-app.moon .brand:focus-visible .brand-mark i:nth-child(3) { background: #c8d0d8; } /* 实色银灰填充 */
+.desktop-app.moon .brand:hover .brand-mark i:nth-child(2),
+.desktop-app.moon .brand:focus-visible .brand-mark i:nth-child(2) { background: rgba(226, 232, 238, .95); }
+.desktop-app.moon .brand:hover .brand-mark i:nth-child(3),
+.desktop-app.moon .brand:focus-visible .brand-mark i:nth-child(3) { border-color: rgba(226, 232, 238, .72); }
+.desktop-app.moon .brand:hover strong,
+.desktop-app.moon .brand:focus-visible strong { color: #f2f6f9; text-shadow: 0 0 14px rgba(200, 208, 216, .4); }
+.desktop-app.moon .brand:hover small,
+.desktop-app.moon .brand:focus-visible small { color: #c8d0d8; }
+
 /* ORBIT 页面信息延迟浮现：地球画布先出现（0.5s 渐亮），标签/工具栏/计数/内容区稍后淡入 */
 .scene-label,
 .scene-observer-label {
@@ -315,7 +408,7 @@ button { cursor: pointer; }
 }
 .scene-toolbar,
 .scene-location,
-.scene-counts {
+.scene-readout {
   animation: orbit-ui-arrive .55s cubic-bezier(.16, 1, .3, 1) .95s both;
 }
 .orbit-section .page-frame > *:not(.scene-frame) {
@@ -326,7 +419,7 @@ button { cursor: pointer; }
 @keyframes orbit-ui-arrive { from { opacity: 0; transform: translateY(10px); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .scene-label, .scene-observer-label, .scene-toolbar, .scene-location, .scene-counts,
+  .scene-label, .scene-observer-label, .scene-toolbar, .scene-location, .scene-readout,
   .orbit-section .page-frame > *:not(.scene-frame) { animation: none; }
 }
 
@@ -335,7 +428,7 @@ button { cursor: pointer; }
 .orbit-section.leaving .scene-observer-label,
 .orbit-section.leaving .scene-toolbar,
 .orbit-section.leaving .scene-location,
-.orbit-section.leaving .scene-counts,
+.orbit-section.leaving .scene-readout,
 .orbit-section.leaving .page-frame > *:not(.scene-frame) {
   animation: none !important; /* 解除入场动画的 fill 压制 */
   opacity: 0;
@@ -346,6 +439,6 @@ button { cursor: pointer; }
   .orbit-section.leaving .scene-observer-label,
   .orbit-section.leaving .scene-toolbar,
   .orbit-section.leaving .scene-location,
-  .orbit-section.leaving .scene-counts,
+  .orbit-section.leaving .scene-readout,
   .orbit-section.leaving .page-frame > *:not(.scene-frame) { transition: none; }
 }
