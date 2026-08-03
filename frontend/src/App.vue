@@ -83,6 +83,21 @@ function collapsibleHeaderActive() {
   return false
 }
 const orbitSectionLeaving = ref(false)
+/** 返回太阳系过渡期间抑制页头 hover 唤回（页头随元素一起上滑消失） */
+let suppressHeaderReveal = false
+/** 首屏 DOM 元素（工具栏/标签/读数）入场状态：由 revealTick 驱动（与 3D/旋转同一时钟）——
+ *  旋转完全停住（+900ms）后再缓冲 100ms 置 true，transition 淡入。
+ *  不能用 CSS animation-delay：动画从元素挂载起算，与 revealTick 错位（黑幕时长不定） */
+const orbitElementsRevealed = ref(!orbitRevealTick.value) // 直接加载（tick=0）默认全显
+let orbitElementsTimer: number | undefined
+watch(orbitRevealTick, (tick) => {
+  if (!tick) return
+  orbitElementsRevealed.value = false
+  if (orbitElementsTimer !== undefined) clearTimeout(orbitElementsTimer)
+  orbitElementsTimer = window.setTimeout(() => {
+    orbitElementsRevealed.value = true
+  }, 1500) // 与 OrbitScene scheduleRevealLayers 的 3D 弹出延迟一致（旋转 1.45s 停住 + ~50ms 缓冲）
+})
 /** 是否从 ORBIT 返回太阳系（太阳系场景挂载后从地球近景拉回默认构图） */
 const solarEnterFromOrbit = ref(false)
 const solarEnterFromMoon = ref(false)
@@ -128,6 +143,25 @@ function veilDurationMs(): number {
 watch(veilActive, (active) => {
   animateVeilOpacity(active, veilDurationMs())
 })
+/** 等待 veil 完全变黑（rAF 渐暗动画完成 + 60ms 全黑缓冲）再执行回调。
+ *  渐暗时长与 rAF 完成时刻存在竞态（主线程繁忙会推迟 rAF tick）：
+ *  若 veil 未到 opacity 1 就切页，新旧场景的首帧会透过遮罩叠影（残影）；
+ *  缓冲 60ms 让合成器呈现几帧纯黑，确保旧 canvas 最后一帧已被替换。 */
+function waitUntilFullBlack(cb: () => void) {
+  const poll = (triesLeft: number) => {
+    // 0.999 而非 1：rAF 收尾 `from + (1-from)*t` 浮点可能停在 0.9999...，视觉上已全黑
+    if (veilOpacity >= 0.999) {
+      transitionTimer = window.setTimeout(cb, 60)
+      return
+    }
+    if (triesLeft <= 0) {
+      cb() // 兜底：动画异常（如后台标签页 rAF 暂停）时最多等约 400ms
+      return
+    }
+    transitionTimer = window.setTimeout(() => poll(triesLeft - 1), 16)
+  }
+  poll(25)
+}
 /** 封面→太阳系：换页提前到点击瞬间，封面继续覆盖（lingering），黑幕结束才撤下 */
 const coverLingering = ref(false)
 /** 太阳系入场推镜延迟：封面路径 = 变暗时长（全黑开始时起飞）；直接加载 = 0 */
@@ -175,6 +209,10 @@ function cancelPendingTransition() {
   shellZoom.value = 1
   shellTransitioning.value = false
   coverLingering.value = false
+  // 离开标志复位：过渡中止时页面不切换，若 leaving 仍为 true 会触发场景元素永久隐藏
+  orbitSectionLeaving.value = false
+  moonLeaving.value = false
+  suppressHeaderReveal = false // 中止返回：页头恢复可 hover 唤回（保持收起态，与正常 orbit 行为一致）
 }
 
 /** 过渡切换：当前页变暗并缩放 → 在遮罩后换页（新页利用这段时间加载）→ 新页回弹、遮罩淡出 */
@@ -381,11 +419,15 @@ async function setSurface(nextSurface: AppSurface) {
   if (nextSurface === 'orbit') {
     orbitPageActive.value = true
     headerExpanded.value = false // 进入 ORBIT 默认收起页头（悬停屏幕顶部可展开）
+    // 挂载即隐藏首屏 DOM 元素（黑幕中完成淡出）——若等到 revealTick 才置 false，
+    // 元素会经历"从可见淡出 300ms"，在渐亮时呈半透明（"我的位置"等元素残留可见）
+    orbitElementsRevealed.value = false
   } else if (nextSurface === 'moon') {
     moonPageActive.value = true
     headerExpanded.value = false // 月球页同样默认收起页头
   } else {
     headerExpanded.value = true
+    suppressHeaderReveal = false // 切到太阳系/封面：页头恢复正常唤回
   }
   await nextTick()
   window.scrollTo({ top: 0, behavior: 'instant' })
@@ -410,7 +452,8 @@ function enterSolarSystem() {
   cancelPendingTransition()
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   const exitMs = reduced ? 40 : 200 // 星野渐入 200ms
-  const dwellMs = reduced ? 0 : 400 // 星野停留 400ms（对应之前的黑屏时间）
+  const dwellMs = reduced ? 0 : 500 // 星野停留 500ms（用户要求增长；太阳系仍在黑幕中提前渲染，
+  // 纹理解码就绪后 reveal 才触发，提前渲染不受影响）
   solarEntryFly.value = true // 封面路径：播放入场推镜（启动由 SolarSystem 侧等纹理就绪）
   shellOrigin.value = '50% 42%'
   shellZoom.value = 1.05
@@ -434,13 +477,14 @@ function enterSolarSystem() {
     transitionFrame = requestAnimationFrame(() => {
       transitionFrame = undefined
       shellZoom.value = 1
-      veilDuration.value = reduced ? '0.01s' : '0.6s' // 渐亮时长
+      veilDuration.value = reduced ? '0.01s' : '0.4s' // 渐亮时长：短促地从黑变亮（不拖灰），
+      // 全亮时刻 ≈ 推镜路程 70%（剩 1/3 距离）；其后推镜最后 1/3 全是清晰画面
       veilActive.value = false
     })
     transitionTimer = window.setTimeout(() => {
       shellTransitioning.value = false
       transitionTimer = undefined
-    }, 620 + 60)
+    }, 400 + 60)
   }
   transitionTimer = window.setTimeout(() => {
     solarTexturesReady().then(reveal)
@@ -462,9 +506,12 @@ function enterSolarSystemFromOrbit(skipPush = false) {
   preloadSolarTextures()
   cancelPendingTransition()
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  // 阶段 1：滚回主地球视图，页面信息（标签/工具条/内容区）淡出，只留地球
+  // 阶段 1：滚回主地球视图，页面信息（标签/工具条/内容区）淡出，只留地球；
+  // 页头若展开则随之一同上滑消失（.collapsed 的 translateY(-100%) 过渡），过渡期间 hover 不唤回
   window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' })
   orbitSectionLeaving.value = true
+  headerExpanded.value = false
+  suppressHeaderReveal = true
   solarEnterFromOrbit.value = true
   // 阶段 2：变暗，盖住地球界面
   transitionTimer = window.setTimeout(() => {
@@ -474,9 +521,10 @@ function enterSolarSystemFromOrbit(skipPush = false) {
     }
     veilDuration.value = reduced ? '0.01s' : '0.3s' // 渐暗 300ms（原 400ms——加速，卡顿窗口缩短）
     veilActive.value = true
-    // 阶段 3：切页推迟到渐暗完成后（300ms + 120ms 全黑缓冲）——切页是重操作，
-    // 若在渐暗进行中切页，其 JS 卡顿会被感知在渐暗过程；全黑中切页则不可见
-    transitionTimer = window.setTimeout(() => {
+    // 阶段 3：等 veil 真正全黑（rAF 完成 + 60ms 缓冲）再切页——切页是重操作，
+    // 若在渐暗进行中切页：a) 其 JS 卡顿会被感知在渐暗过程；b) veil 未到 opacity 1 时
+    // 新旧场景首帧会透过遮罩叠影（残影）；全黑缓冲后再切页则完全不可见
+    waitUntilFullBlack(() => {
       if (surfaceFromHash() !== 'solar-system') {
         cancelPendingTransition()
         return
@@ -488,7 +536,7 @@ function enterSolarSystemFromOrbit(skipPush = false) {
         veilActive.value = false
       })
       transitionTimer = undefined
-    }, reduced ? 30 : 300) // 全黑等待缩短：切页后更快渐亮（原 460ms）
+    })
   }, reduced ? 20 : 420)
 }
 
@@ -630,8 +678,8 @@ function enterSolarSystemFromMoon(skipPush = false) {
   transitionTimer = window.setTimeout(() => {
     veilDuration.value = reduced ? '0.01s' : '0.3s'
     veilActive.value = true
-    // 阶段 3：切页推迟到渐暗完成后（全黑中切页，切页重操作卡顿不可见）
-    transitionTimer = window.setTimeout(() => {
+    // 阶段 3：等 veil 真正全黑再切页（同地球返回——避免新旧场景首帧透过遮罩叠影）
+    waitUntilFullBlack(() => {
       if (surfaceFromHash() !== 'solar-system') {
         cancelPendingTransition()
         return
@@ -642,7 +690,7 @@ function enterSolarSystemFromMoon(skipPush = false) {
         veilActive.value = false
       })
       transitionTimer = undefined
-    }, reduced ? 30 : 420)
+    })
   }, reduced ? 20 : 450)
 }
 
@@ -677,6 +725,7 @@ function scheduleHeaderCollapse() {
 }
 
 function revealHeader() {
+  if (suppressHeaderReveal) return // 返回太阳系过渡期间：页头已上滑消失，hover 不唤回
   headerExpanded.value = true
   if (collapsibleHeaderActive()) scheduleHeaderCollapse()
   else clearHeaderIdleTimer()
@@ -920,7 +969,7 @@ onBeforeUnmount(() => {
       />
 
       <template v-else-if="surface === 'orbit'">
-      <section id="orbit" ref="orbitSection" class="orbit-section" :class="{ leaving: orbitSectionLeaving }">
+      <section id="orbit" ref="orbitSection" class="orbit-section" :class="{ leaving: orbitSectionLeaving, 'elements-revealed': orbitElementsRevealed }">
         <div class="page-frame">
           <div ref="orbitSceneFrame" class="scene-frame">
             <OrbitScene
@@ -936,6 +985,7 @@ onBeforeUnmount(() => {
               :observer-active="observerViewActive"
               :day-night-enabled="dayNightEnabled"
               :reveal-tick="orbitRevealTick"
+              :leaving="orbitSectionLeaving"
               @textures-ready="onOrbitSceneReady"
               @select="selectFromScene"
               @clear-selection="selection = null"
@@ -955,6 +1005,7 @@ onBeforeUnmount(() => {
               ref="sceneLocationRef"
               class="scene-location"
               :class="{ active: observerViewActive }"
+              v-show="orbitElementsRevealed"
               type="button"
               :aria-pressed="observerViewActive"
               :aria-label="observerViewActive ? `当前视角位于${observerLocation.label}` : `返回${observerLocation.label}`"

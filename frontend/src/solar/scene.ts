@@ -848,9 +848,12 @@ export class SolarSystemScene {
     const aspect = width / height
     const { target, distance } = this.computeModeComposition(aspect)
     this.fitDistance = distance
-    // 起点：20 倍构图距离（由远及近的纵深更明显）
+    // 起点：15 倍构图距离（原 20×——揭幕首帧太远；12× 后揭幕首帧约 6× 正合适，
+    // 但起点太近纵深不足，故取 15× 折中：起点仍有由远及近的纵深，
+    // 推镜 1.3s（原 1.6s——推进偏慢）下揭幕首帧（约 46% 进度）仍约 6×。
+    // 想更近/更快可调小（如 12 / 1200），想更远/更缓可调大）
     const destPosition = target.clone().addScaledVector(this.dir, distance)
-    const p0 = target.clone().addScaledVector(this.dir, distance * 20)
+    const p0 = target.clone().addScaledVector(this.dir, distance * 15)
     const delta = destPosition.clone().sub(p0)
     const p1 = p0.clone().addScaledVector(delta, 0.3)
     const p2 = p0.clone().addScaledVector(delta, 0.68)
@@ -865,7 +868,8 @@ export class SolarSystemScene {
       toTarget: target.clone(),
       // startedAt 带延迟：全黑期间镜头停在起点，延迟结束才开始推进
       startedAt: performance.now() + delayMs,
-      // 1.6s 推镜（用户感知速度：由远及近缓推）
+      // 1.6s 推镜：整体入场压缩到 1.6s——黑幕 600ms（挂载/编译/首帧都在其中，可见时不卡顿）
+      // + 渐亮 0.9s（600→1500ms），渐亮完全结束时推镜约 94%（放大到最大之前一点点）
       duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 250 : 1600,
       zoomed: true,
       reverse: true,

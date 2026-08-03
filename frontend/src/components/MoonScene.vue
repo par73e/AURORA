@@ -17,7 +17,7 @@
           v-show="label.visible && spacecraftEnabled"
           :key="label.id"
           class="craft-label"
-          :class="{ selected: selectedCraft === label.id, 'stage-late': revealStage < 1, 'leaving-fade': leaving }"
+          :class="{ selected: selectedCraft === label.id, 'stage-late': !elementsVisible, 'leaving-fade': leaving }"
           :style="craftLabelStyle(label)"
           :aria-label="`${craftById(label.id)?.nameZh}（${craftById(label.id)?.nameEn}）`"
           @click="selectedCraft = label.id"
@@ -234,15 +234,24 @@ watch(
 )
 
 const sceneRevealed = ref(!props.enterFromSolar)
-/** 分阶段揭示：0 = 纯月球 → 1 = 着陆点标记/轨迹 → 2 = 飞行器/轨道 → 3 = 标签（直接加载默认全开） */
-const revealStage = ref(props.enterFromSolar ? 0 : 3)
-const stageTimestamps: Record<number, number> = {}
-/** 阶段淡入因子（0→1，350ms）。阶段未到时 0；阶段已越过但无时间戳（直接加载/刷新，时间轴未跑）→ 全亮 */
-function stageFade(stage: number, duration = 350): number {
-  if (revealStage.value < stage) return 0
-  const t = stageTimestamps[stage]
-  if (t === undefined) return 1
-  return Math.min(1, (performance.now() - t) / duration)
+/** 元素整体可见标记（DOM 标签用）：星球渐入完成后置 true；退出时立即 false */
+const elementsVisible = ref(!props.enterFromSolar)
+/** 统一元素淡入淡出进度（0..1）：1 = 全部元素可见；0 = 只剩裸月球。
+ *  进入：星球渐入完成后 0→1（300ms）；退出：leaving 时 1→0（300ms）。
+ *  直接加载/刷新默认全亮（无时间轴）。 */
+let elementsFade = props.enterFromSolar ? 0 : 1
+let elementsAnim: { from: number; to: number; startedAt: number; duration: number } | null = null
+function animateElements(to: number, duration: number) {
+  elementsAnim = { from: elementsFade, to, startedAt: performance.now(), duration }
+}
+/** 每帧推进并返回当前元素淡入淡出值（无动画时直接返回当前值） */
+function updateElementsFade(): number {
+  if (!elementsAnim) return elementsFade
+  const t = Math.min(1, (performance.now() - elementsAnim.startedAt) / elementsAnim.duration)
+  const eased = 1 - Math.pow(1 - t, 3)
+  elementsFade = elementsAnim.from + (elementsAnim.to - elementsAnim.from) * eased
+  if (t >= 1) elementsAnim = null
+  return elementsFade
 }
 watch(
   () => props.revealTick,
@@ -250,15 +259,17 @@ watch(
     if (tick) sceneRevealed.value = true
   },
 )
-// 进入时启动揭示时间轴：纯月球(0.5s) → 所有元素（着陆点+飞行器+标签）一起淡入——
-// 与地球"标签/飞行器/发射场一起出现"同节奏，且更快
+// 进入：裸月球先 0.3s 渐入（scene-host），停顿一拍（共 0.8s）后
+// 所有元素（着陆点+飞行器+轨道+标签）一次性淡入
+let elementsRevealTimer: number | undefined
 watch(sceneRevealed, (revealed) => {
-  if (!revealed || revealStage.value >= 1) return
+  if (!revealed || elementsVisible.value) return
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  window.setTimeout(() => {
-    stageTimestamps[1] = performance.now()
-    revealStage.value = 1
-  }, reduced ? 0 : 400)
+  elementsRevealTimer = window.setTimeout(() => {
+    elementsRevealTimer = undefined
+    elementsVisible.value = true
+    animateElements(1, reduced ? 1 : 300)
+  }, reduced ? 0 : 800)
 })
 
 /** 月球飞行器列表（API 数据驱动，镜像地球 fetch overview 模式） */
@@ -550,17 +561,19 @@ onMounted(() => {
 
     // 距离自适应灵敏度：旋转速度 ∝ 相机距离——放大后不会"跟飞"（9 处保持原手感 0.48）
     if (controls) controls.rotateSpeed = 0.48 * (camera.position.length() / 9)
-    // 分阶段揭示：飞行器/轨道淡入（材质透明度），可见性由开关/遮挡各自控制
-    const craftStageOpacity = revealStage.value >= 1 ? stageFade(1) : 0
-    // 返回渐隐：leaving 时 300ms 内 opacity → 0（之后由各 visible 逻辑接管隐藏）
-    let leavingFade = 1
-    if (props.leaving) {
-      leavingFade = Math.max(0, 1 - (performance.now() - leavingStartedAt) / 300)
-    }
+    // 统一元素淡入淡出：进入时星球渐入完成后一次性浮现；退出时全部一起消失（只留裸月球）
+    const elementsFadeNow = updateElementsFade()
     for (const runtime of craftRuntimes) {
       const dotMat = runtime.dot.children[0]?.material as THREE.MeshBasicMaterial | undefined
-      if (dotMat) dotMat.opacity = craftStageOpacity * leavingFade
-      if (runtime.line) (runtime.line.material as THREE.LineBasicMaterial).opacity = 0.5 * craftStageOpacity * leavingFade
+      if (dotMat) dotMat.opacity = elementsFadeNow
+      if (runtime.line) (runtime.line.material as THREE.LineBasicMaterial).opacity = 0.5 * elementsFadeNow
+    }
+    // 着陆点虚线轨迹随元素整体淡入淡出
+    for (const child of moonMesh?.children ?? []) {
+      if (child.name && child.name.startsWith('track:')) {
+        const trackMat = (child as THREE.Line).material as THREE.LineDashedMaterial | undefined
+        if (trackMat) trackMat.opacity = 0.85 * elementsFadeNow
+      }
     }
     // （已移除）近距锐化切换：minFilter + needsUpdate 会触发 16k 纹理整体重传，
     // 放大跨越阈值时产生明显卡顿——收益远小于代价
@@ -677,7 +690,7 @@ function buildSiteMarkers() {
     const color = site.icon === 'astronaut' ? 0xffcf8f : site.icon === 'rover' ? 0xffb27d : site.icon === 'sample' ? 0x8fd6c2 : 0xcfd8e2
     const marker = new THREE.Mesh(
       new THREE.SphereGeometry(0.02, 12, 12),
-      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: revealStage.value >= 1 ? 1 : 0 }),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: elementsFade }),
     )
     // 球心落在月面半径上（2.6）：球体一半嵌进表面（被月球深度遮挡）、一半露出——
     // "镶嵌"在月面上的观感；露出半球深度 < 表面 → 通过深度测试，无 z-fighting
@@ -698,7 +711,7 @@ function buildSiteMarkers() {
       const points = site.track.map(([lat, lon]) => sitePosition(lat, lon, 2.6 * 1.008))
       const trackLine = new THREE.Line(
         new THREE.BufferGeometry().setFromPoints(points),
-        new THREE.LineDashedMaterial({ color, dashSize: 0.055, gapSize: 0.05, transparent: true, opacity: revealStage.value >= 1 ? 0.85 : 0 }),
+        new THREE.LineDashedMaterial({ color, dashSize: 0.055, gapSize: 0.05, transparent: true, opacity: elementsFade * 0.85 }),
       )
       trackLine.computeLineDistances()
       trackLine.name = `track:${site.id}`
@@ -741,10 +754,8 @@ function updateSiteMarkerProximity() {
     // 距离衰减：远视 1.0 → 贴面最低 0.8（轻微半透明，保持清晰可见）
     const fade = Math.min(1, Math.max(0.8, (d - 3.2) / (4.5 - 3.2)))
     const material = marker.material as THREE.MeshBasicMaterial
-    // 距离透明度 × 阶段揭示淡入 × 返回渐隐
-    let leavingFade = 1
-    if (props.leaving) leavingFade = Math.max(0, 1 - (performance.now() - leavingStartedAt) / 300)
-    material.opacity = fade * (revealStage.value >= 1 ? stageFade(1) : 0) * leavingFade
+    // 距离透明度 × 统一元素淡入淡出（进入一次性浮现 / 退出一次性消失）
+    material.opacity = fade * elementsFade
     marker.scale.setScalar(0.55 + 0.45 * fade)
   }
 }
@@ -785,14 +796,25 @@ watch(spacecraftEnabled, (enabled) => {
 watch(orbitsEnabled, (enabled) => {
   for (const runtime of craftRuntimes) if (runtime.line) runtime.line.visible = enabled
 })
-// 返回太阳系：月球以外的元素 300ms 渐隐（动画循环按 leavingFade 应用），只留月球球体——
-// 与地球返回"信息淡出只留地球"同节奏；随后由 App 变暗切页
-let leavingStartedAt = 0
+// 返回太阳系：全部多余元素 300ms 一次性淡出（统一 elementsFade），只留裸月球——
+// 随后由 App 遮罩完成星球渐暗切页；离开被中止（hash 守卫失败）时 leaving 回 false → 恢复显示
 watch(
   () => props.leaving,
   (leaving) => {
-    if (!leaving) return
-    leavingStartedAt = performance.now()
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (!leaving) {
+      if (elementsFade < 1) {
+        elementsVisible.value = true
+        animateElements(1, reduced ? 1 : 300)
+      }
+      return
+    }
+    if (elementsRevealTimer !== undefined) {
+      clearTimeout(elementsRevealTimer) // 防止入场延迟定时器在退出后把元素拉回
+      elementsRevealTimer = undefined
+    }
+    elementsVisible.value = false
+    animateElements(0, reduced ? 1 : 300)
     selectedSite.value = null
     selectedCraft.value = null
   },
@@ -967,6 +989,7 @@ function craftLabelStyle(label: { id: string; x: number; y: number }) {
 }
 
 onBeforeUnmount(() => {
+  if (elementsRevealTimer !== undefined) clearTimeout(elementsRevealTimer)
   cancelAnimationFrame(frameId)
   resizeObserver?.disconnect()
   renderer?.domElement.removeEventListener('wheel', onSceneWheel)
@@ -1073,7 +1096,7 @@ onBeforeUnmount(() => {
   position: absolute;
   inset: 0;
   opacity: 0;
-  transition: opacity 0.5s ease;
+  transition: opacity 0.3s ease;
   cursor: grab;
 }
 .moon-scene-host.revealed {

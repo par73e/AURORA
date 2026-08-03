@@ -35,6 +35,9 @@ button { cursor: pointer; }
   position: fixed;
   inset: 0;
   z-index: 60;
+  /* 提升为合成层：rAF 逐帧改 opacity 时只做合成，不再整屏重绘 41 层径向渐变
+     （不会像 will-change: transform 那样成为 fixed 后代的包含块，页头不受影响） */
+  will-change: opacity;
   /* 星点过渡背景：黑幕期间显示深空星点（与太阳系背景同风格），
      由多层径向渐变点 + 中央微亮椭圆 + 底色组成，随遮罩一起淡入淡出 */
   background:
@@ -183,7 +186,7 @@ button { cursor: pointer; }
 .scene-toolbar input:checked + i.amber { background: var(--amber); }
 .scene-toolbar i.terminator { width: 7px; height: 7px; border: 1px solid #587789; background: #26404f; transform: rotate(-20deg); }
 .scene-toolbar input:checked + i.terminator { border-color: rgba(114, 215, 255, .78); background: linear-gradient(90deg, #78d7f7 0 50%, #102634 50% 100%); }
-.scene-location { position: absolute; z-index: 7; top: 18px; left: 386px; display: flex; align-items: center; gap: 10px; min-height: 43px; padding: 7px 11px; border: 1px solid var(--line); border-radius: 4px; background: rgba(3, 9, 15, .8); color: var(--ink); text-align: left; backdrop-filter: blur(12px); }
+.scene-location { position: absolute; z-index: 7; top: 18px; left: 360px; display: flex; align-items: center; gap: 10px; min-height: 43px; padding: 7px 11px; border: 1px solid var(--line); border-radius: 4px; background: rgba(3, 9, 15, .8); color: var(--ink); text-align: left; backdrop-filter: blur(12px); }
 .scene-location:hover, .scene-location:focus-visible { border-color: rgba(114, 215, 255, .5); outline: 0; }
 .scene-location > i { width: 7px; height: 7px; border: 1px solid #426779; border-radius: 50%; opacity: .48; transition: opacity .2s, border-color .2s, background .2s, box-shadow .2s; }
 .scene-location > i.locating { animation: location-pulse 1.2s ease-out infinite; }
@@ -417,26 +420,32 @@ button { cursor: pointer; }
 .desktop-app.moon .brand:hover small,
 .desktop-app.moon .brand:focus-visible small { color: #c8d0d8; }
 
-/* ORBIT 页面信息延迟浮现：地球画布先出现（0.5s 渐亮），标签/工具栏/计数/内容区稍后淡入 */
-.scene-label,
-.scene-observer-label {
-  animation: orbit-ui-fade .55s ease .9s both;
+/* 首屏 DOM 元素（标签/工具栏/读数）入场：由 .elements-revealed class 驱动（App 在
+   revealTick + 1000ms 加设，与 3D 弹出同一时钟）——transition 淡入 300ms。
+   不用 CSS animation-delay：动画从挂载起算会与 revealTick 错位（黑幕时长不定）。
+   选择器限定 .orbit-section：不影响月球页同名控件。
+   注意：下方内容板块（航天器目录/发射场/发射日程）不做入场动画——它们在首屏视口之外，
+   淡入动画不可见且会在弹出时刻触发整页大区块首次 paint 造成掉帧；
+   直接挂载渲染（黑幕中完成），用户滚动到时已就绪 */
+.orbit-section .scene-label,
+.orbit-section .scene-observer-label,
+.orbit-section .scene-toolbar,
+.orbit-section .scene-location,
+.orbit-section .scene-readout {
+  opacity: 0;
+  transition: opacity .3s ease;
 }
-.scene-toolbar,
-.scene-location,
-.scene-readout {
-  animation: orbit-ui-arrive .55s cubic-bezier(.16, 1, .3, 1) .95s both;
+.orbit-section.elements-revealed .scene-label,
+.orbit-section.elements-revealed .scene-observer-label,
+.orbit-section.elements-revealed .scene-toolbar,
+.orbit-section.elements-revealed .scene-location,
+.orbit-section.elements-revealed .scene-readout {
+  opacity: 1;
 }
-.orbit-section .page-frame > *:not(.scene-frame) {
-  animation: orbit-ui-arrive .6s cubic-bezier(.16, 1, .3, 1) 1.05s both;
-}
-
-@keyframes orbit-ui-fade { from { opacity: 0; } }
-@keyframes orbit-ui-arrive { from { opacity: 0; transform: translateY(10px); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .scene-label, .scene-observer-label, .scene-toolbar, .scene-location, .scene-readout,
-  .orbit-section .page-frame > *:not(.scene-frame) { animation: none; }
+  .orbit-section .scene-label, .orbit-section .scene-observer-label, .orbit-section .scene-toolbar,
+  .orbit-section .scene-location, .orbit-section .scene-readout { transition: none; }
 }
 
 /* ORBIT 离开动画：页面信息淡出，只保留地球 */

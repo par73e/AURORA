@@ -3,10 +3,10 @@
 // 布局为静态示意：太阳位于右上角（非居中），行星静止在各自轨道上沿右上→左下方向排成一线；
 // 小行星带与柯伊伯带保留；大小与距离只保留大致相对关系，非等比。
 
-import mercuryUrl from '../assets/solar/8k_mercury.jpg'
+import mercuryUrl from '../assets/solar/4k_mercury.jpg'
 import venusUrl from '../assets/solar/4k_venus_atmosphere.jpg'
 import earthUrl from '../assets/solar/2k_earth_daymap.jpg' // SSS 平光贴图：与全系行星风格统一（BMNG 自带烘焙阴影，不适配场景光照）
-import marsUrl from '../assets/solar/8k_mars.jpg'
+import marsUrl from '../assets/solar/4k_mars.jpg'
 import jupiterUrl from '../assets/solar/8k_jupiter.jpg'
 import saturnUrl from '../assets/solar/8k_saturn.jpg'
 import saturnRingUrl from '../assets/solar/8k_saturn_ring_alpha.png'
