@@ -14,10 +14,10 @@
         <!-- 轨道飞行器标签 -->
         <button
           v-for="label in craftLabels"
-          v-show="label.visible && spacecraftEnabled && !leaving"
+          v-show="label.visible && spacecraftEnabled"
           :key="label.id"
           class="craft-label"
-          :class="{ selected: selectedCraft === label.id, 'stage-late': revealStage < 3 }"
+          :class="{ selected: selectedCraft === label.id, 'stage-late': revealStage < 3, 'leaving-fade': leaving }"
           :style="craftLabelStyle(label)"
           :aria-label="`${craftById(label.id)?.nameZh}（${craftById(label.id)?.nameEn}）`"
           @click="selectedCraft = label.id"
@@ -29,10 +29,10 @@
         <!-- 着陆点标签：图标（宇航员/着陆器/月球车/样本）+ 地点名 + 任务名 -->
         <button
           v-for="label in siteLabels"
-          v-show="label.visible && selectedSite === label.id && !leaving"
+          v-show="label.visible && selectedSite === label.id"
           :key="label.id"
           class="craft-label site-label"
-          :class="{ selected: selectedSite === label.id }"
+          :class="{ selected: selectedSite === label.id, 'leaving-fade': leaving }"
           :data-icon="siteById(label.id)?.icon ?? 'lander'"
           :style="siteLabelStyle(label)"
           :aria-label="`${siteById(label.id)?.siteName}（${siteById(label.id)?.missionName}）`"
@@ -515,12 +515,17 @@ onMounted(() => {
 
     // 距离自适应灵敏度：旋转速度 ∝ 相机距离——放大后不会"跟飞"（9 处保持原手感 0.48）
     if (controls) controls.rotateSpeed = 0.48 * (camera.position.length() / 9)
-    // 分阶段揭示：飞行器/轨道在阶段 2 淡入（材质透明度），可见性由开关/遮挡各自控制
+    // 分阶段揭示：飞行器/轨道淡入（材质透明度），可见性由开关/遮挡各自控制
     const craftStageOpacity = revealStage.value >= 1 ? stageFade(1) : 0
+    // 返回渐隐：leaving 时 300ms 内 opacity → 0（之后由各 visible 逻辑接管隐藏）
+    let leavingFade = 1
+    if (props.leaving) {
+      leavingFade = Math.max(0, 1 - (performance.now() - leavingStartedAt) / 300)
+    }
     for (const runtime of craftRuntimes) {
       const dotMat = runtime.dot.children[0]?.material as THREE.MeshBasicMaterial | undefined
-      if (dotMat) dotMat.opacity = craftStageOpacity
-      if (runtime.line) (runtime.line.material as THREE.LineBasicMaterial).opacity = 0.5 * craftStageOpacity
+      if (dotMat) dotMat.opacity = craftStageOpacity * leavingFade
+      if (runtime.line) (runtime.line.material as THREE.LineBasicMaterial).opacity = 0.5 * craftStageOpacity * leavingFade
     }
     // （已移除）近距锐化切换：minFilter + needsUpdate 会触发 16k 纹理整体重传，
     // 放大跨越阈值时产生明显卡顿——收益远小于代价
@@ -693,8 +698,10 @@ function updateSiteMarkerProximity() {
     const d = world.distanceTo(camera.position)
     const fade = Math.min(1, Math.max(0, (d - 3.2) / (4.5 - 3.2)))
     const material = marker.material as THREE.MeshBasicMaterial
-    // 距离淡出 × 阶段揭示淡入
-    material.opacity = fade * (revealStage.value >= 1 ? stageFade(1) : 0)
+    // 距离淡出 × 阶段揭示淡入 × 返回渐隐
+    let leavingFade = 1
+    if (props.leaving) leavingFade = Math.max(0, 1 - (performance.now() - leavingStartedAt) / 300)
+    material.opacity = fade * (revealStage.value >= 1 ? stageFade(1) : 0) * leavingFade
     marker.scale.setScalar(0.45 + 0.55 * fade)
   }
 }
@@ -735,25 +742,16 @@ watch(spacecraftEnabled, (enabled) => {
 watch(orbitsEnabled, (enabled) => {
   for (const runtime of craftRuntimes) if (runtime.line) runtime.line.visible = enabled
 })
-// 返回太阳系：先清空月球以外的所有元素（标记/轨迹/飞行器/轨道/面板），只留月球球体——
-// 与地球返回流程"信息淡出只留地球"对齐，随后由 App 变暗切页
+// 返回太阳系：月球以外的元素 300ms 渐隐（动画循环按 leavingFade 应用），只留月球球体——
+// 与地球返回"信息淡出只留地球"同节奏；随后由 App 变暗切页
+let leavingStartedAt = 0
 watch(
   () => props.leaving,
   (leaving) => {
     if (!leaving) return
+    leavingStartedAt = performance.now()
     selectedSite.value = null
     selectedCraft.value = null
-    for (const site of landingSites.value) {
-      const marker = siteMarkers.get(site.id)
-      if (marker) marker.visible = false
-    }
-    for (const child of moonMesh?.children ?? []) {
-      if (child.name && child.name.startsWith('track:')) child.visible = false
-    }
-    for (const runtime of craftRuntimes) {
-      runtime.dot.visible = false
-      if (runtime.line) runtime.line.visible = false
-    }
   },
 )
 
@@ -1081,6 +1079,8 @@ onBeforeUnmount(() => {
 /* 分阶段揭示：阶段 3 前的标签淡入（透明度过渡，不抢占点击） */
 .craft-label.stage-late { opacity: 0 !important; pointer-events: none; }
 .craft-label { transition: opacity .45s ease; }
+/* 返回渐隐：标签 300ms 淡出 */
+.craft-label.leaving-fade { opacity: 0 !important; pointer-events: none; }
 
 /* 着陆点标签：图标着色 + 银灰主题 */
 .site-label { gap: 5px !important; }

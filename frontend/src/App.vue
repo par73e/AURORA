@@ -512,7 +512,7 @@ function onEarthSelect() {
     requestAnimationFrame(() => {
       veilDuration.value = '0.3s'
       veilActive.value = false
-      // 进入边界：遮罩开始淡出的同一帧递增信号，地球场景据此 0.2s 渐亮
+      // 进入边界：遮罩开始淡出的同一帧递增信号，地球场景据此 0.5s 渐亮（与月球一致）
       orbitRevealTick.value += 1
     })
   }
@@ -564,7 +564,7 @@ function onMoonSelect() {
     requestAnimationFrame(() => {
       veilDuration.value = '0.3s'
       veilActive.value = false
-      // 进入边界：遮罩开始淡出的同一帧递增信号，月球场景据此 0.5s 渐亮
+      // 进入边界：遮罩开始淡出的同一帧递增信号，月球场景据此 0.5s 渐亮（与地球一致）
       moonRevealTick.value += 1
     })
   }

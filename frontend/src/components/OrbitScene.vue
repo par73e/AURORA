@@ -48,10 +48,16 @@ const labels = ref<Array<{ id: string; kind: 'spacecraft' | 'site'; name: string
 const observerLabel = ref<{ name: string; x: number; y: number; visible: boolean } | null>(null)
 /** 入场渐亮：进入边界（revealTick 递增）时置 true，0.2s 过渡；直接加载默认已亮 */
 const sceneRevealed = ref(!props.revealTick)
+/** 分阶段揭示是否已排程（revealTick 递增时才启动——与月球同基准：渐亮开始时计时） */
+let revealScheduled = false
 watch(
   () => props.revealTick,
   (tick) => {
     if (tick) sceneRevealed.value = true
+    if (tick && !revealScheduled) {
+      revealScheduled = true
+      scheduleRevealLayers()
+    }
   },
 )
 const textureState = ref<'loading' | 'ready' | 'fallback'>('loading')
@@ -123,6 +129,19 @@ function scheduleReveal(object: THREE.Object3D, delay: number, duration: number)
     }
   })
   if (entries.length > 0) revealTasks.push({ started: performance.now(), delay, duration, entries })
+}
+
+/** 分阶段入场（revealTick 递增时调用）：地球先出现 → 黄道面/自转轴淡入 → 轨道/航天器/发射场依次浮现。
+ *  与月球页基准一致：从"遮罩渐亮开始"计时 */
+function scheduleRevealLayers() {
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  scheduleReveal(axisGuide, reduced ? 0 : 600, reduced ? 1 : 550)
+  for (const tip of poleTips) scheduleReveal(tip, reduced ? 0 : 600, reduced ? 1 : 550)
+  scheduleReveal(eclipticGuide, reduced ? 0 : 600, reduced ? 1 : 550)
+  if (orbitGroup) scheduleReveal(orbitGroup, reduced ? 0 : 1250, reduced ? 1 : 550)
+  if (spacecraftGroup) scheduleReveal(spacecraftGroup, reduced ? 0 : 1500, reduced ? 1 : 550)
+  if (siteGroup) scheduleReveal(siteGroup, reduced ? 0 : 1750, reduced ? 1 : 550)
+  if (observerMarker) scheduleReveal(observerMarker, reduced ? 0 : 2000, reduced ? 1 : 400)
 }
 
 function updateReveals() {
@@ -538,15 +557,7 @@ function setupScene() {
   resizeObserver.observe(host)
   rebuildDataLayers()
   rebuildObserverMarker()
-  // 分阶段入场：地球先出现 → 黄道面与自转轴淡入 → 轨道线/航天器/发射场依次浮现
-  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  scheduleReveal(axisGuide, reduced ? 0 : 600, reduced ? 1 : 550)
-  for (const tip of poleTips) scheduleReveal(tip, reduced ? 0 : 600, reduced ? 1 : 550)
-  scheduleReveal(eclipticGuide, reduced ? 0 : 600, reduced ? 1 : 550)
-  if (orbitGroup) scheduleReveal(orbitGroup, reduced ? 0 : 1250, reduced ? 1 : 550)
-  if (spacecraftGroup) scheduleReveal(spacecraftGroup, reduced ? 0 : 1500, reduced ? 1 : 550)
-  if (siteGroup) scheduleReveal(siteGroup, reduced ? 0 : 1750, reduced ? 1 : 550)
-  if (observerMarker) scheduleReveal(observerMarker, reduced ? 0 : 2000, reduced ? 1 : 400)
+  // 分阶段入场：由 revealTick 递增触发（scheduleRevealLayers），与月球页同基准
   beginFocus()
   if (!props.focusTarget) {
     // 入场微转：无焦点目标时，从绕地球略微偏转的角度平滑回到默认视角（不硬切到当前位置）
