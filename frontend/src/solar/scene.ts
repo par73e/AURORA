@@ -1077,11 +1077,12 @@ export class SolarSystemScene {
     const earthRuntime = this.planetRuntimes.get('earth')
     if (!earthRuntime) return
     const earthPosition = earthRuntime.axial.getWorldPosition(this.tempWorldB)
-    // 终点：按当前模式构图（排布 = 小行星带锚定；真实位置 = 太阳居中）
+    // 终点：正对地球（返回主视角对准地球，而非构图中心——构图中心附近有月球，
+    // 拉远后月球会出现在画面中央）。镜头距离沿用当前构图距离，画面完整（太阳右上/海王星左下）
     const aspect = this.host.clientWidth / this.host.clientHeight
-    const { target, distance } = this.computeModeComposition(aspect)
+    const { distance } = this.computeModeComposition(aspect)
     this.fitDistance = distance
-    this.lookAt.copy(target)
+    this.lookAt.copy(earthPosition)
     this.camera.position.copy(this.lookAt).addScaledVector(this.dir, distance)
     this.camera.lookAt(this.lookAt)
     this.camera.updateMatrixWorld(true)
