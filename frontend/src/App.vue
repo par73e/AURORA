@@ -637,11 +637,11 @@ function enterSolarSystemFromMoon(skipPush = false) {
       }
       void setSurface('solar-system')
       requestAnimationFrame(() => {
-        veilDuration.value = reduced ? '0.01s' : '0.5s' // 渐亮 500ms
+        veilDuration.value = reduced ? '0.01s' : '0.3s' // 渐亮 300ms（原 500ms 太长）
         veilActive.value = false
       })
       transitionTimer = undefined
-    }, reduced ? 30 : 460)
+    }, reduced ? 30 : 300)
   }, reduced ? 20 : 450)
 }
 
