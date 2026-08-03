@@ -1080,14 +1080,14 @@ export class SolarSystemScene {
     const earthRuntime = this.planetRuntimes.get('earth')
     if (!earthRuntime) return
     const earthPosition = earthRuntime.axial.getWorldPosition(this.tempWorldB)
-    // 终点：严格以地球为中心（注视点 = 地球位置，镜头距地球 = 构图距离，画面完整）
+    // 终点：默认构图（与封面入场推镜一致——还原到"最初始的视角"）
     // 宽高兜底：挂载瞬间容器可能 0×0，NaN 会传播进相机位置导致渲染崩溃
     const host = this.host
     const aspect =
       host.clientWidth > 0 && host.clientHeight > 0 ? host.clientWidth / host.clientHeight : window.innerWidth / window.innerHeight
-    const { distance } = this.computeModeComposition(aspect)
+    const { target, distance } = this.computeModeComposition(aspect)
     this.fitDistance = distance
-    this.lookAt.copy(earthPosition)
+    this.lookAt.copy(target)
     this.camera.position.copy(this.lookAt).addScaledVector(this.dir, distance)
     this.camera.lookAt(this.lookAt)
     this.camera.updateMatrixWorld(true)
