@@ -890,7 +890,7 @@ onBeforeUnmount(() => {
         </div>
       </header>
 
-      <MoonScene v-if="surface === 'moon'" :reveal-tick="moonRevealTick" :enter-from-solar="moonEnterFromSolar" :leaving="moonLeaving" @blank-click="collapseHeaderFromScene" @textures-ready="onMoonSceneReady" />
+      <MoonScene v-if="surface === 'moon'" :reveal-tick="moonRevealTick" :enter-from-solar="moonEnterFromSolar" :leaving="moonLeaving" :header-expanded="headerExpanded" @blank-click="collapseHeaderFromScene" @textures-ready="onMoonSceneReady" />
 
       <SolarSystem
         ref="solarSystemRef"
