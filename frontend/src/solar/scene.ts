@@ -511,13 +511,18 @@ export class SolarSystemScene {
     return (nu + spec.perihelionLongitudeDeg * DEG) % (Math.PI * 2)
   }
 
-  /** 当前时刻的月球真实黄经（Meeus 低精度公式：平黄经 + 主摄动项，~0.3° 精度），
+  /** 当前时刻的月球真实黄经（Meeus 低精度公式前三项：平黄经 + 摄动主项，~0.1° 精度），
    *  映射到场景角度（+x = 春分点，与行星 realOrbitalAngle 同系） */
   private realMoonAngle(): number {
     const days = (Date.now() - SolarSystemScene.J2000_MS) / 86400000
     const meanLongitude = 218.316 + 13.176396 * days // 月球平黄经（度）
     const meanAnomaly = 134.963 + 13.064993 * days // 平近点角（度）
-    const lambda = meanLongitude + 6.289 * Math.sin(meanAnomaly * DEG) // e 主导的摄动主项
+    const elongation = 297.85 + 12.190749 * days // 平距角 D（度）
+    const lambda =
+      meanLongitude +
+      6.289 * Math.sin(meanAnomaly * DEG) +
+      1.274 * Math.sin((2 * elongation - meanAnomaly) * DEG) +
+      0.658 * Math.sin(2 * elongation * DEG)
     return (((lambda % 360) + 360) % 360) * DEG
   }
 
