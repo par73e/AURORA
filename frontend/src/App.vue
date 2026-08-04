@@ -43,7 +43,7 @@ const observerViewActive = ref(false)
 const dayNightEnabled = ref(false)
 type AppSurface = 'cover' | 'solar-system' | 'orbit' | 'moon'
 
-// 初始页面：纯 hash 决定（无 hash = 首页；#orbit/#moon/#solar-system = 对应页）。
+// 初始页面：纯 hash 决定（无 hash = 首页；#earth/#moon/#solar-system = 对应页）。
 // 不用 sessionStorage 恢复——打开网站应总是首页（上次会话的页面残留会导致"打开就是 #solar-system"）
 const surface = ref<AppSurface>(surfaceFromHash())
 const solarSystemRef = ref<InstanceType<typeof SolarSystem> | null>(null)
@@ -264,7 +264,7 @@ function transitionTo(nextSurface: AppSurface, zoom = 1, origin = '50% 50%', tim
 function surfaceFromHash(): AppSurface {
   if (window.location.hash === '#solar-system') return 'solar-system'
   if (['#moon', '#moon-scene', '#moon-objects', '#moon-sites'].includes(window.location.hash)) return 'moon'
-  if (['#orbit', '#objects', '#sites', '#launches'].includes(window.location.hash)) return 'orbit'
+  if (['#earth', '#objects', '#sites', '#launches'].includes(window.location.hash)) return 'orbit'
   return 'cover'
 }
 
@@ -411,7 +411,7 @@ function leaveObserverView() {
 function selectAndFocus(nextSelection: Selection) {
   observerViewActive.value = false
   selection.value = nextSelection
-  window.requestAnimationFrame(() => document.querySelector('#orbit')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+  window.requestAnimationFrame(() => document.querySelector('#earth')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
 }
 
 function timeOnly(value: Date | string) {
@@ -559,7 +559,7 @@ function enterSolarSystemFromOrbit(skipPush = false) {
 }
 
 function enterOrbit() {
-  window.history.pushState(null, '', '#orbit')
+  window.history.pushState(null, '', '#earth')
   // 朝向地球方向推近（地球大致位于画面 55%/38% 处），形成“放大进入地球”的感觉
   transitionTo('orbit', 1.12, '55% 38%')
 }
@@ -613,9 +613,9 @@ function exitPlanetToCover(skipPush = false) {
 
 // ---- 太阳系 → 地球：镜头在太阳系内放大地球 → 变暗 → 切页 ----
 
-/** 点击地球瞬间：URL 切到 #orbit，开始预热 ORBIT 资源 */
+/** 点击地球瞬间：URL 切到 #earth，开始预热 ORBIT 资源 */
 function onEarthFlyStart() {
-  window.history.pushState(null, '', '#orbit')
+  window.history.pushState(null, '', '#earth')
   preloadOrbitTextures()
   cancelPendingTransition()
 }
@@ -982,7 +982,7 @@ onBeforeUnmount(() => {
             <SolarSystemItem v-if="surface === 'orbit' || surface === 'moon'" title="太阳系" :icon-size="30" :animated="true" @click="enterSolarSystem" />
           </div>
           <nav v-if="surface === 'orbit'" aria-label="页面导航">
-            <a href="#orbit"><i class="nav-num">Ⅰ</i>地球</a>
+            <a href="#earth"><i class="nav-num">Ⅰ</i>地球</a>
             <a href="#objects"><i class="nav-num">Ⅱ</i>航天器</a>
             <a href="#sites"><i class="nav-num">Ⅲ</i>发射场</a>
             <a href="#launches"><i class="nav-num">Ⅳ</i>发射日程</a>
@@ -1025,7 +1025,7 @@ onBeforeUnmount(() => {
       />
 
       <template v-else-if="surface === 'orbit'">
-      <section id="orbit" ref="orbitSection" class="orbit-section" :class="{ leaving: orbitSectionLeaving, 'elements-revealed': orbitElementsRevealed }">
+      <section id="earth" ref="orbitSection" class="orbit-section" :class="{ leaving: orbitSectionLeaving, 'elements-revealed': orbitElementsRevealed }">
         <div class="page-frame">
           <div ref="orbitSceneFrame" class="scene-frame">
             <OrbitScene
