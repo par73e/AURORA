@@ -93,11 +93,12 @@ export function distanceAU(xKm: number, yKm: number, zKm: number): number {
 }
 
 /** 拟合椭圆（太阳位于焦点）：由真实采样线性最小二乘求半长轴/偏心率/近日点方向，
- *  并按"当前真实方向"锚定近日点时刻——加载瞬间标记精确对准真实位置 */
+ *  并按"当前真实方向"锚定近日点时刻。绘制与标记用**场景空间真椭圆**（径向压缩后的
+ *  近日/远日半径构造，保证画面上是标准椭圆而非压缩畸变形状）；角向运动用真实开普勒周期 */
 export interface FittedEllipse {
-  /** 半长轴（AU） */
+  /** 真实半长轴（AU，开普勒传播与信息面板用） */
   aAU: number
-  /** 偏心率 */
+  /** 真实偏心率 */
   e: number
   /** 近日点方向角（黄道面内，与场景 +x 春分点一致） */
   perihelionAngle: number
@@ -105,6 +106,10 @@ export interface FittedEllipse {
   perihelionEpochMs: number
   /** 公转周期（天，开普勒第三定律 a^1.5） */
   periodDays: number
+  /** 场景空间椭圆半长轴（径向压缩后） */
+  aScene: number
+  /** 场景空间椭圆偏心率 */
+  eScene: number
 }
 
 /** 角度归一化到 (-π, π] */
@@ -208,12 +213,17 @@ export function fitEllipseFromSamples(positions: Array<{ epoch: string; x: numbe
   const nu = normPi(interpolateAngle(ts, th, nowMs) - w)
   const E = 2 * Math.atan2(Math.sqrt(1 - e) * Math.sin(nu / 2), Math.sqrt(1 + e) * Math.cos(nu / 2))
   const M = E - e * Math.sin(E)
-  return { aAU, e, perihelionAngle: w, perihelionEpochMs: nowMs - M / n0, periodDays }
+  // 场景空间真椭圆：径向压缩后的近日/远日半径构造（保证画面为标准椭圆，太阳在焦点）
+  const rpScene = sceneRadiusFromAU(aAU * (1 - e))
+  const raScene = sceneRadiusFromAU(aAU * (1 + e))
+  const aScene = (rpScene + raScene) / 2
+  const eScene = (raScene - rpScene) / (raScene + rpScene)
+  return { aAU, e, perihelionAngle: w, perihelionEpochMs: nowMs - M / n0, periodDays, aScene, eScene }
 }
 
-/** 椭圆轨道上某时刻的位置（极坐标）：开普勒方程解真近点角，太阳位于焦点。
- *  用于探测器实时位置传播——标记严格落在拟合椭圆上 */
-export function ellipsePositionAt(fit: FittedEllipse, timeMs: number): { rAU: number; theta: number } {
+/** 椭圆轨道上某时刻的位置：真实开普勒角向运动 + 场景空间椭圆径向位置。
+ *  rAU = 真实日心距离（AU，信息面板），rScene = 场景椭圆半径（标记落点） */
+export function ellipsePositionAt(fit: FittedEllipse, timeMs: number): { rAU: number; rScene: number; theta: number } {
   const n = (Math.PI * 2) / (fit.periodDays * 86400000) // 平均角速度 rad/ms
   let M = (n * (timeMs - fit.perihelionEpochMs)) % (Math.PI * 2)
   if (M < 0) M += Math.PI * 2
@@ -229,20 +239,20 @@ export function ellipsePositionAt(fit: FittedEllipse, timeMs: number): { rAU: nu
   }
   const nu = 2 * Math.atan2(Math.sqrt(1 + fit.e) * Math.sin(E / 2), Math.sqrt(1 - fit.e) * Math.cos(E / 2))
   const rAU = (fit.aAU * (1 - fit.e * fit.e)) / (1 + fit.e * Math.cos(nu))
-  return { rAU, theta: fit.perihelionAngle + nu }
+  const rScene = (fit.aScene * (1 - fit.eScene * fit.eScene)) / (1 + fit.eScene * Math.cos(nu))
+  return { rAU, rScene, theta: fit.perihelionAngle + nu }
 }
 
-/** 拟合椭圆采样 → 场景坐标点（太阳位于原点即焦点，极坐标 r=a(1-e²)/(1+e·cosν)）
- *  经光滑径向映射 + 黄经方向映射，生成闭合椭圆轨道；240 段保证高偏心率轨道近日段也平滑 */
+/** 拟合椭圆采样 → 场景坐标点（**场景空间真椭圆**：太阳位于焦点，极坐标
+ *  r=a·(1-e²)/(1+e·cosν)，近日/远日与压缩后一致，画面为标准椭圆） */
 export function ellipseScenePoints(fit: FittedEllipse, count = 240): Array<{ x: number; z: number }> {
-  const p = fit.aAU * (1 - fit.e * fit.e)
+  const p = fit.aScene * (1 - fit.eScene * fit.eScene)
   const points: Array<{ x: number; z: number }> = []
   for (let i = 0; i < count; i += 1) {
     const nu = (i / count) * Math.PI * 2
-    const rAU = p / (1 + fit.e * Math.cos(nu))
+    const rScene = p / (1 + fit.eScene * Math.cos(nu))
     const theta = fit.perihelionAngle + nu
-    const radius = sceneRadiusFromAU(rAU)
-    points.push({ x: radius * Math.cos(theta), z: radius * Math.sin(theta) })
+    points.push({ x: rScene * Math.cos(theta), z: rScene * Math.sin(theta) })
   }
   return points
 }
