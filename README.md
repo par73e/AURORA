@@ -54,6 +54,6 @@ cd frontend
 pnpm dev
 ```
 
-浏览器访问 `http://localhost:5173`。开发环境通过 Vite 把 `/api` 转发到 Go 的 `http://localhost:8080`。
+浏览器访问 `http://localhost:5173/AURORA/`（地址栏路径为 `/AURORA/`）。开发环境通过 Vite 把 `/api` 转发到 Go 的 `http://localhost:8080`。
 
 后端各目录的初学者说明见 [`backend/README.md`](backend/README.md)。数据库表会在后端启动时自动创建，不需要逐条执行 SQL。
