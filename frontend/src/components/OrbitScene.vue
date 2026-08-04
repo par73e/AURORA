@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import type { LaunchEvent, LaunchSite, SceneLayers, Selection, Spacecraft } from '../types'
+import type { LaunchEvent, LaunchSite, Observatory, SceneLayers, Selection, Spacecraft } from '../types'
 import { EARTH_DAY_TEXTURE_URL, EARTH_NIGHT_TEXTURE_URL, EARTH_RADIUS, latLonToVector, sampleOrbit, spacecraftPoint } from '../orbit/coordinates'
 
 const EARTH_AXIAL_TILT_DEGREES = 23.44
@@ -26,6 +26,7 @@ const props = defineProps<{
   spacecraft: Spacecraft[]
   sites: LaunchSite[]
   events: LaunchEvent[] // 面板迁移时漏声明：selectedEvent 依赖它，缺失导致面板内容空白
+  observatories?: Observatory[]
   layers: SceneLayers
   selection: Selection | null
   headerExpanded?: boolean
@@ -61,7 +62,7 @@ function emitTexturesReady() {
 }
 
 const canvasHost = ref<HTMLDivElement | null>(null)
-const labels = ref<Array<{ id: string; kind: 'spacecraft' | 'site'; name: string; x: number; y: number; visible: boolean }>>([])
+const labels = ref<Array<{ id: string; kind: 'spacecraft' | 'site' | 'observatory'; name: string; x: number; y: number; visible: boolean }>>([])
 const observerLabel = ref<{ name: string; x: number; y: number; visible: boolean } | null>(null)
 /** 入场渐亮：进入边界（revealTick 递增）时置 true，0.2s 过渡；直接加载默认已亮 */
 const sceneRevealed = ref(!props.revealTick)
@@ -112,6 +113,9 @@ watch(
 )
 const selectedSpacecraft = computed(() =>
   localSelection.value?.kind === 'spacecraft' ? props.spacecraft.find((item) => item.id === localSelection.value?.id) : undefined,
+)
+const selectedObservatory = computed(() =>
+  localSelection.value?.kind === 'observatory' ? (props.observatories ?? []).find((item) => item.id === localSelection.value?.id) : undefined,
 )
 const selectedSite = computed(() =>
   localSelection.value?.kind === 'site' ? props.sites.find((item) => item.id === localSelection.value?.id) : undefined,
@@ -167,6 +171,8 @@ const textureState = ref<'loading' | 'ready' | 'fallback'>('loading')
 const pointerNearEarth = ref(false)
 /** 悬停选中的航天器（不触发展开/运镜，仅驱动高亮：标记+标签+轨道线联动） */
 const hoveredSpacecraftId = ref<string | null>(null)
+/** 悬停选中的空间天文台（同航天器高亮逻辑） */
+const hoveredObservatoryId = ref<string | null>(null)
 
 let renderer: THREE.WebGLRenderer | undefined
 let scene: THREE.Scene | undefined
@@ -367,7 +373,13 @@ function updateReveals() {
 
 const selectionKey = computed(() => props.selection ? `${props.selection.kind}:${props.selection.id}` : '')
 /** 高亮键：悬停优先，无悬停时回退到点击选中（选中态保持粘滞） */
-const activeKey = computed(() => (hoveredSpacecraftId.value ? `spacecraft:${hoveredSpacecraftId.value}` : selectionKey.value))
+const activeKey = computed(() =>
+  hoveredSpacecraftId.value
+    ? `spacecraft:${hoveredSpacecraftId.value}`
+    : hoveredObservatoryId.value
+      ? `observatory:${hoveredObservatoryId.value}`
+      : selectionKey.value,
+)
 
 function disposeGroup(group?: THREE.Group) {
   if (!group) return
@@ -456,6 +468,27 @@ function rebuildDataLayers() {
       lineObjects.set(key, { line, near: true, isActive })
       orbitGroup.add(line)
     }
+  }
+
+  // 空间天文台（非地球轨道）：外圈示意条目，位置由 App 按真实 JPL 方向计算（见 observatories prop）
+  for (const obs of props.observatories ?? []) {
+    const key = `observatory:${obs.id}`
+    const marker = new THREE.Mesh(
+      new THREE.SphereGeometry(0.048, 16, 16),
+      markerMaterial(obs.color, false),
+    )
+    marker.position.set(obs.position.x, obs.position.y, obs.position.z)
+    marker.userData = { kind: 'observatory', id: obs.id }
+    spacecraftGroup.add(marker)
+    markerObjects.set(key, marker)
+
+    const hit = new THREE.Mesh(
+      new THREE.SphereGeometry(0.2, 8, 8),
+      new THREE.MeshBasicMaterial({ visible: false }),
+    )
+    hit.userData = { kind: 'observatory', id: obs.id }
+    marker.add(hit)
+    hoverTargets.set(key, hit)
   }
 
   for (const site of props.sites) {
@@ -568,6 +601,21 @@ function updateLabels() {
       id: craft.id,
       kind: 'spacecraft',
       name: craft.nameZh,
+      x: (projected.x * 0.5 + 0.5) * width,
+      y: (-projected.y * 0.5 + 0.5) * height,
+      visible: projected.z > -1 && projected.z < 1 && !isOccludedByEarth(position),
+    })
+  }
+
+  for (const obs of props.observatories ?? []) {
+    const marker = markerObjects.get(`observatory:${obs.id}`)
+    if (!marker || !props.layers.spacecraft) continue
+    const position = marker.getWorldPosition(new THREE.Vector3())
+    const projected = position.clone().project(camera)
+    next.push({
+      id: obs.id,
+      kind: 'observatory',
+      name: obs.nameZh,
       x: (projected.x * 0.5 + 0.5) * width,
       y: (-projected.y * 0.5 + 0.5) * height,
       visible: projected.z > -1 && projected.z < 1 && !isOccludedByEarth(position),
@@ -889,6 +937,7 @@ function resize() {
 function onPointerDown(event: PointerEvent) {
   // 按下即清悬停：避免拖拽期间残留点亮；点击选中由 selectionKey 继续驱动高亮
   hoveredSpacecraftId.value = null
+  hoveredObservatoryId.value = null
   pointerStart.set(event.clientX, event.clientY)
   pointerViewChangeAnnounced = false
   // 按下瞬间：按在地球上 → 立即收起页头（拖拽中页头不应遮挡操作）
@@ -922,23 +971,31 @@ function onPointerMove(event: PointerEvent) {
     pointer.set(((event.clientX - bounds.left) / bounds.width) * 2 - 1, -((event.clientY - bounds.top) / bounds.height) * 2 + 1)
     raycaster.setFromCamera(pointer, camera)
     const hovered = raycaster.intersectObjects([...hoverTargets.values(), ...markerObjects.values()])[0]?.object.userData as
-      | { kind?: 'spacecraft'; id?: string }
+      | { kind?: 'spacecraft' | 'observatory'; id?: string }
       | undefined
-    hoveredSpacecraftId.value = hovered?.kind === 'spacecraft' && hovered.id ? hovered.id : null
+    if (hovered?.kind === 'spacecraft' && hovered.id) hoveredSpacecraftId.value = hovered.id
+    else if (hovered?.kind === 'observatory' && hovered.id) hoveredObservatoryId.value = hovered.id
+    else {
+      hoveredSpacecraftId.value = null
+      hoveredObservatoryId.value = null
+    }
   }
 }
 
 function onPointerLeave() {
   pointerNearEarth.value = false
   hoveredSpacecraftId.value = null
+  hoveredObservatoryId.value = null
 }
 
-/** 标签悬停：航天器标签也参与点亮（标签范围同样可选中/高亮） */
-function onLabelEnter(label: { kind: 'spacecraft' | 'site'; id: string }) {
+/** 标签悬停：航天器/空间天文台标签也参与点亮（标签范围同样可选中/高亮） */
+function onLabelEnter(label: { kind: 'spacecraft' | 'site' | 'observatory'; id: string }) {
   if (label.kind === 'spacecraft') hoveredSpacecraftId.value = label.id
+  else if (label.kind === 'observatory') hoveredObservatoryId.value = label.id
 }
-function onLabelLeave(label: { kind: 'spacecraft' | 'site'; id: string }) {
+function onLabelLeave(label: { kind: 'spacecraft' | 'site' | 'observatory'; id: string }) {
   if (label.kind === 'spacecraft') hoveredSpacecraftId.value = null
+  else if (label.kind === 'observatory') hoveredObservatoryId.value = null
 }
 
 function onSceneWheel(event: WheelEvent) {
@@ -965,7 +1022,7 @@ function onPointerUp(event: PointerEvent) {
   pointer.set(((event.clientX - bounds.left) / bounds.width) * 2 - 1, -((event.clientY - bounds.top) / bounds.height) * 2 + 1)
   raycaster.setFromCamera(pointer, camera)
   const hits = raycaster.intersectObjects([...markerObjects.values()], false)
-  const target = hits[0]?.object.userData as { kind?: 'spacecraft' | 'site'; id?: string }
+  const target = hits[0]?.object.userData as { kind?: 'spacecraft' | 'site' | 'observatory'; id?: string }
   if (target?.kind && target.id) {
     localSelection.value = { kind: target.kind, id: target.id } // 本地立即驱动面板（不依赖 App 渲染）
     emit('select', { kind: target.kind, id: target.id })
@@ -1168,6 +1225,19 @@ onBeforeUnmount(() => {
         <p class="source-caption">轨道历元 {{ formatEpochUTC(selectedSpacecraft.orbitEpoch) }}<br>{{ selectedSpacecraft.sourceName }}</p>
       </template>
 
+      <template v-else-if="selectedObservatory">
+        <p class="context-type launch-context">SPACE OBSERVATORY · 非地球轨道</p>
+        <h2>{{ selectedObservatory.nameZh }}</h2>
+        <p class="context-subtitle">{{ selectedObservatory.nameEn }}</p>
+        <p class="context-description">{{ selectedObservatory.description }}</p>
+        <dl>
+          <div><dt>运营方</dt><dd>{{ selectedObservatory.operatorName }}</dd></div>
+          <div><dt>当前距地球</dt><dd>{{ selectedObservatory.distanceAU.toFixed(4) }} AU（JPL 实时）</dd></div>
+          <div><dt>位置</dt><dd>{{ selectedObservatory.note }}</dd></div>
+        </dl>
+        <p class="source-caption">JPL Horizons<br>方向来自真实星历，距离不按比例（外圈示意）</p>
+      </template>
+
       <template v-else-if="selectedSite">
         <p class="context-type launch-context">LAUNCH SITE · {{ selectedSite.countryCode }}</p>
         <h2>{{ selectedSite.nameZh }}</h2>
@@ -1247,6 +1317,7 @@ onBeforeUnmount(() => {
 .scene-label::before { content: ''; position: absolute; right: 100%; top: 50%; width: 14px; height: 1px; background: rgba(120, 188, 222, .35); }
 .scene-label i { width: 4px; height: 4px; border-radius: 50%; background: #72d7ff; box-shadow: 0 0 8px #72d7ff; }
 .scene-label.site i { background: #ffb866; box-shadow: 0 0 8px #ffb866; }
+.scene-label.observatory i { background: #b48cff; box-shadow: 0 0 8px #b48cff; }
 .scene-label:hover { color: #dce9f0; border-color: rgba(124, 184, 216, .4); background: rgba(5, 14, 22, .8); }
 .scene-label.selected { color: #e8f4fb; border-color: rgba(114, 215, 255, .5); background: rgba(6, 17, 26, .82); }
 .scene-label.selected i { box-shadow: 0 0 8px #72d7ff; }

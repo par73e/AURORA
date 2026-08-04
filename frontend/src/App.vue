@@ -12,11 +12,12 @@ import OrbitScene from './components/OrbitScene.vue'
 import SolarSystem from './components/SolarSystem.vue'
 import SolarSystemItem from './components/SolarSystemItem.vue'
 import MoonScene from './components/MoonScene.vue'
-import { fetchOrbitOverview } from './api'
-import { spacecraftPoint } from './orbit/coordinates'
+import { fetchDeepSpaceProbes, fetchOrbitOverview } from './api'
+import * as THREE from 'three'
+import { AU_KM, earthHeliocentricEclipticKm, interpolateProbeKm, spacecraftPoint, sunSceneDirection } from './orbit/coordinates'
 import { moonHdReady, orbitTexturesReady, preloadMoonHdTexture, preloadOrbitTextures, preloadSolarTextures } from './preload'
 import { solarTexturesReady } from './solar/textures'
-import type { LaunchEvent, LaunchSite, OrbitOverview, SceneLayers, Selection } from './types'
+import type { LaunchEvent, LaunchSite, Observatory, OrbitOverview, SceneLayers, Selection } from './types'
 import { primaryOperator } from './operators'
 
 type ObserverLocationStatus = 'locating' | 'located' | 'fallback'
@@ -30,6 +31,8 @@ interface ObserverLocation {
 
 const fallbackObserver = observerFallback()
 const overview = ref<OrbitOverview | null>(null)
+/** 空间天文台（韦布/斯皮策）：地球页外圈示意条目，方向来自真实 JPL 数据 */
+const observatories = ref<Observatory[]>([])
 const loading = ref(true)
 const error = ref('')
 const now = ref(new Date())
@@ -272,6 +275,9 @@ function surfaceFromHash(): AppSurface {
 const selectedSpacecraft = computed(() => selection.value?.kind === 'spacecraft'
   ? overview.value?.spacecraft.find((item) => item.id === selection.value?.id)
   : undefined)
+const selectedObservatory = computed(() => selection.value?.kind === 'observatory'
+  ? observatories.value.find((item) => item.id === selection.value?.id)
+  : undefined)
 const selectedSite = computed(() => selection.value?.kind === 'site'
   ? overview.value?.launchSites.find((item) => item.id === selection.value?.id)
   : undefined)
@@ -343,6 +349,16 @@ const focusTarget = computed(() => {
   }
   if (selectedSite.value) {
     return { latitude: selectedSite.value.latitude, longitude: selectedSite.value.longitude, distance: 6.3, key: `site:${selectedSite.value.id}` }
+  }
+  if (selectedObservatory.value) {
+    const p = selectedObservatory.value.position
+    const r = Math.hypot(p.x, p.y, p.z) || 1
+    return {
+      latitude: Math.asin(p.y / r) * (180 / Math.PI),
+      longitude: Math.atan2(-p.z, p.x) * (180 / Math.PI),
+      distance: 7.5,
+      key: `observatory:${selectedObservatory.value.id}`,
+    }
   }
   if (selectedSpacecraft.value) {
     const point = spacecraftPoint(selectedSpacecraft.value, now.value)
@@ -892,10 +908,63 @@ async function load() {
   error.value = ''
   try {
     overview.value = await fetchOrbitOverview()
+    void loadObservatories()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '无法连接数据服务'
   } finally {
     loading.value = false
+  }
+}
+
+/** 空间天文台元数据（方向/距离由真实 JPL 采样计算） */
+const OBSERVATORY_DEFS = [
+  {
+    id: 'jwst',
+    nameZh: '詹姆斯·韦布空间望远镜',
+    nameEn: 'James Webb Space Telescope',
+    operatorName: 'NASA / ESA / CSA',
+    description: '工作在日地 L2 拉格朗日点附近的红外空间望远镜，2021 年 12 月发射，用于观测宇宙早期天体。',
+    color: 0xc9a9ff,
+  },
+  {
+    id: 'spitzer',
+    nameZh: '斯皮策空间望远镜',
+    nameEn: 'Spitzer Space Telescope',
+    operatorName: 'NASA',
+    description: '红外空间望远镜（2003—2020），位于地球公转轨道后方的日心轨道上，2020 年 1 月退役。',
+    color: 0xffb866,
+  },
+]
+
+/** 拉取深空探测真实采样 → 计算韦布/斯皮策相对地球的真实方向，置于外圈示意环（7.2） */
+async function loadObservatories() {
+  try {
+    const probes = await fetchDeepSpaceProbes()
+    const now = new Date()
+    const antiSun = sunSceneDirection(now).negate()
+    const earthPos = earthHeliocentricEclipticKm(now)
+    const sunLonDeg = Math.atan2(-earthPos.y, -earthPos.x) * (180 / Math.PI)
+    const RING = 7.2
+    observatories.value = OBSERVATORY_DEFS.map((def) => {
+      const probe = probes.find((p) => p.id === def.id)
+      const rel = probe ? interpolateProbeKm(probe, now)?.sub(earthPos) : null
+      const distanceAU = rel ? rel.length() / AU_KM : 0
+      const relLonDeg = rel ? Math.atan2(rel.y, rel.x) * (180 / Math.PI) : 0
+      // 方位角偏移相对"反日方向"（= 地球黄经）测量：relLon − sunLon − 180，归一化到 (-180, 180]
+      let azOffsetDeg = (((relLonDeg - sunLonDeg - 180) % 360) + 360) % 360
+      if (azOffsetDeg > 180) azOffsetDeg -= 360
+      const dir = antiSun.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), THREE.MathUtils.degToRad(azOffsetDeg))
+      return {
+        ...def,
+        distanceAU,
+        azOffsetDeg,
+        position: { x: dir.x * RING, y: dir.y * RING, z: dir.z * RING },
+        note: def.id === 'jwst' ? '日地 L2 拉格朗日点（反日方向）' : '日心轨道（地球公转方向后方尾随）',
+        syncedAt: probe?.syncedAt,
+      }
+    })
+  } catch {
+    observatories.value = []
   }
 }
 
@@ -1049,6 +1118,7 @@ onBeforeUnmount(() => {
               :spacecraft="overview.spacecraft"
               :sites="overview.launchSites"
               :events="overview.events"
+              :observatories="observatories"
               :header-expanded="headerExpanded"
               :layers="layers"
               :selection="selection"

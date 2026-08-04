@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { eciToGeodetic, gstime, json2satrec, propagate } from 'satellite.js'
-import type { Spacecraft } from '../types'
+import type { DeepSpaceProbe, Spacecraft } from '../types'
 import earthDay8kUrl from '../assets/earth/blue-marble-8k.jpg'
 
 export const EARTH_RADIUS = 2.15
@@ -68,4 +68,64 @@ export function sampleOrbit(spacecraft: Spacecraft, center: Date) {
     if (point) points.push(point.position)
   }
   return points
+}
+
+// ---------------------------------------------------------------------------
+// 空间天文台（非地球轨道）支持：太阳方向 / 地球日心位置 / 探测采样插值
+// ---------------------------------------------------------------------------
+
+export const AU_KM = 149_597_870.7
+
+/** 场景惯性系中的地球轴倾（与 OrbitScene EARTH_TILT 同轴角，保证太阳方向一致） */
+export const EARTH_TILT_QUATERNION = new THREE.Quaternion().setFromAxisAngle(
+  new THREE.Vector3(0, 0, 1),
+  THREE.MathUtils.degToRad(23.44),
+)
+
+/** 太阳在场景惯性系中的单位方向（与 OrbitScene.updateSun 同公式：太阳赤纬 + 子午线 + 轴倾） */
+export function sunSceneDirection(date = new Date()): THREE.Vector3 {
+  const yearStart = Date.UTC(date.getUTCFullYear(), 0, 0)
+  const dayOfYear = Math.floor((date.getTime() - yearStart) / 86_400_000)
+  const declination = 23.44 * Math.sin(THREE.MathUtils.degToRad((360 / 365) * (dayOfYear - 81)))
+  const utcHours = date.getUTCHours() + date.getUTCMinutes() / 60 + date.getUTCSeconds() / 3600
+  const subsolarLongitude = 180 - utcHours * 15
+  return latLonToVector(declination, subsolarLongitude, 1).applyQuaternion(EARTH_TILT_QUATERNION).normalize()
+}
+
+/** 地球当前日心黄道位置（km）：J2000 轨道根数 + 迭代开普勒方程（与太阳系页同款公式） */
+export function earthHeliocentricEclipticKm(date = new Date()): THREE.Vector3 {
+  const J2000_MS = Date.UTC(2000, 0, 1, 12)
+  const days = (date.getTime() - J2000_MS) / 86_400_000
+  const meanLongitude = (100.46435 + (360 / 365.256) * days) % 360
+  const M = THREE.MathUtils.degToRad((((meanLongitude - 102.93735) % 360) + 360) % 360)
+  let E = M
+  for (let i = 0; i < 8; i += 1) E = E - (E - 0.016708 * Math.sin(E) - M) / (1 - 0.016708 * Math.cos(E))
+  const nu = 2 * Math.atan2(Math.sqrt(1 + 0.016708) * Math.sin(E / 2), Math.sqrt(1 - 0.016708) * Math.cos(E / 2))
+  const rAU = 1.000001018 * (1 - 0.016708 * Math.cos(E))
+  const trueLongitude = nu + THREE.MathUtils.degToRad(102.93735)
+  return new THREE.Vector3(Math.cos(trueLongitude), Math.sin(trueLongitude), 0).multiplyScalar(rAU * AU_KM)
+}
+
+/** 探测采样线性插值到指定时刻（km 日心黄道）；越界返回最近端点；无采样返回 null */
+export function interpolateProbeKm(probe: DeepSpaceProbe, date = new Date()): THREE.Vector3 | null {
+  const pos = probe.positions
+  if (!pos.length) return null
+  const t = date.getTime()
+  const first = pos[0]
+  const last = pos[pos.length - 1]
+  if (t <= Date.parse(first.epoch)) return new THREE.Vector3(first.x, first.y, first.z)
+  if (t >= Date.parse(last.epoch)) return new THREE.Vector3(last.x, last.y, last.z)
+  for (let i = 0; i < pos.length - 1; i += 1) {
+    const a = Date.parse(pos[i].epoch)
+    const b = Date.parse(pos[i + 1].epoch)
+    if (a <= t && t <= b) {
+      const f = (t - a) / (b - a)
+      return new THREE.Vector3(
+        pos[i].x + (pos[i + 1].x - pos[i].x) * f,
+        pos[i].y + (pos[i + 1].y - pos[i].y) * f,
+        pos[i].z + (pos[i + 1].z - pos[i].z) * f,
+      )
+    }
+  }
+  return null
 }
