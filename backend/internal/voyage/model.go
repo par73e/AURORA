@@ -9,6 +9,8 @@ type Probe struct {
 	NameEN         string          `json:"nameEn"`
 	OperatorName   string          `json:"operatorName"`
 	LaunchDate     string          `json:"launchDate"`
+	LaunchSite     string          `json:"launchSite"`
+	LaunchVehicle  string          `json:"launchVehicle"`
 	MissionType    string          `json:"missionType"`
 	Target         string          `json:"target"`
 	Description    string          `json:"description"`

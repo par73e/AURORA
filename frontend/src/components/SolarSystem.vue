@@ -34,6 +34,14 @@ const probes = ref<DeepSpaceProbe[]>([])
 const selectedProbe = ref<DeepSpaceProbe | null>(null)
 /** 选中探测器当前距日（AU，打开面板时读取一次） */
 const probeDistAU = ref<number | null>(null)
+/** 选中探测器轨道参数（倾角/偏心率/周期；无拟合轨道为 null → 显示 —） */
+const probeOrbit = ref<{ inclinationDeg: number; eccentricity: number; periodDays: number } | null>(null)
+/** 发射信息（日期 · 地点 · 火箭，与地球/月球面板同构） */
+const probeLaunchText = computed(() => {
+  const p = selectedProbe.value
+  if (!p) return ''
+  return [p.launchDate, p.launchSite, p.launchVehicle].filter(Boolean).join(' · ')
+})
 
 const activePlanet = computed<PlanetSpec>(() => planets.find((p) => p.id === activeId.value) ?? planets[2])
 const activeName = computed(() => {
@@ -89,14 +97,16 @@ function onProbeClick(id: string) {
   if (scene?.flyToProbe(id) === true) selectProbe(id)
 }
 
-/** 点击深空探测器：打开信息面板 + 读取当前距日（AU） */
+/** 点击深空探测器：打开信息面板 + 读取当前距日（AU）与轨道参数 */
 function selectProbe(id: string) {
   const probe = probes.value.find((p) => p.id === id) ?? null
   selectedProbe.value = probe
   probeDistAU.value = null
+  probeOrbit.value = null
   if (probe && scene) {
     const info = scene.getProbeInfo(id)
     if (info) probeDistAU.value = info.distAU
+    probeOrbit.value = scene.getProbeOrbit(id)
   }
 }
 
@@ -104,6 +114,7 @@ function selectProbe(id: string) {
 function closeProbePanel() {
   selectedProbe.value = null
   probeDistAU.value = null
+  probeOrbit.value = null
   scene?.clearProbeSelection()
 }
 
@@ -157,6 +168,7 @@ onMounted(() => {
       onProbeDeselect: () => {
         selectedProbe.value = null
         probeDistAU.value = null
+        probeOrbit.value = null
       },
       onSelect: choosePlanet,
       onFlyZoom: () => emit(moonFlight ? 'moon-fly-zoom' : 'earth-fly-zoom'),
@@ -338,14 +350,16 @@ defineExpose({ resetView })
       <p class="probe-panel-kicker">{{ selectedProbe.missionType }} · 精度等级 {{ selectedProbe.precisionGrade }}</p>
       <h2>{{ selectedProbe.nameZh }} <small>{{ selectedProbe.nameEn }}</small></h2>
       <dl>
-        <div><dt>机构</dt><dd>{{ selectedProbe.operatorName }}</dd></div>
-        <div><dt>发射日期</dt><dd>{{ selectedProbe.launchDate }}</dd></div>
+        <div><dt>运营方</dt><dd>{{ selectedProbe.operatorName }}</dd></div>
+        <div><dt>发射地点</dt><dd>{{ probeLaunchText }}</dd></div>
+        <div><dt>轨道倾角</dt><dd>{{ probeOrbit ? probeOrbit.inclinationDeg.toFixed(2) + '°' : '—' }}</dd></div>
+        <div><dt>偏心率</dt><dd>{{ probeOrbit ? probeOrbit.eccentricity.toFixed(4) : '—' }}</dd></div>
+        <div><dt>轨道周期</dt><dd>{{ probeOrbit ? probeOrbit.periodDays.toFixed(0) + ' 天' : '—' }}</dd></div>
         <div><dt>目标</dt><dd>{{ selectedProbe.target }}</dd></div>
         <div v-if="probeDistAU !== null"><dt>当前距日</dt><dd>{{ probeDistAU.toFixed(2) }} AU</dd></div>
-        <div><dt>数据</dt><dd>JPL Horizons · {{ formatSyncTime(selectedProbe.syncedAt) }}</dd></div>
       </dl>
       <p class="probe-panel-desc">{{ selectedProbe.description }}</p>
-      <p class="probe-panel-note">位置来自 JPL Horizons 星历</p>
+      <p class="probe-panel-note">数据来源：JPL Horizons · {{ formatSyncTime(selectedProbe.syncedAt) }}</p>
     </aside>
 
     <button class="reset-view" type="button" @click="resetView">重置</button>

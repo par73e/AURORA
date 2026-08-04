@@ -1072,7 +1072,7 @@ onBeforeUnmount(() => {
         <p class="context-description">{{ selectedSpacecraft.description }}</p>
         <dl>
           <div><dt>运营方</dt><dd>{{ selectedSpacecraft.operatorName }}</dd></div>
-          <div v-if="selectedSpacecraft.launchDate"><dt>发射</dt><dd>{{ selectedSpacecraft.launchDate }} · {{ selectedSpacecraft.launchSite }} · {{ selectedSpacecraft.launchVehicle }}</dd></div>
+          <div v-if="selectedSpacecraft.launchDate"><dt>发射地点</dt><dd>{{ selectedSpacecraft.launchDate }} · {{ selectedSpacecraft.launchSite }} · {{ selectedSpacecraft.launchVehicle }}</dd></div>
           <div><dt>轨道倾角</dt><dd>{{ Number(selectedSpacecraft.omm.INCLINATION).toFixed(2) }}°</dd></div>
           <div><dt>偏心率</dt><dd>{{ Number(selectedSpacecraft.omm.ECCENTRICITY).toFixed(6) }}</dd></div>
           <div><dt>轨道周期</dt><dd>{{ orbitPeriodText(selectedSpacecraft.omm.MEAN_MOTION) }}</dd></div>

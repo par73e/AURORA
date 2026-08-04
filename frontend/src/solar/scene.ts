@@ -1034,6 +1034,18 @@ export class SolarSystemScene {
     return { distAU: runtime.currentAU, epochMs: runtime.currentEpochMs }
   }
 
+  /** 探测器轨道参数（信息面板用，与地球/月球面板对齐：倾角/偏心率/周期）。
+   *  无拟合轨道（旅行者/新视野等逃逸轨迹）返回 null，面板显示 — */
+  getProbeOrbit(id: string): { inclinationDeg: number; eccentricity: number; periodDays: number } | null {
+    const runtime = this.probeRuntimes.get(id)
+    if (!runtime?.fit) return null
+    return {
+      inclinationDeg: (runtime.fit.inclinationRad * 180) / Math.PI,
+      eccentricity: runtime.fit.e,
+      periodDays: runtime.fit.periodDays,
+    }
+  }
+
   // ---- 标签投影 ----------------------------------------------------------
 
   private projectToScreen(x: number, y: number, z: number, width: number, height: number) {

@@ -145,6 +145,8 @@ export interface DeepSpaceProbe {
   nameEn: string
   operatorName: string
   launchDate: string
+  launchSite: string
+  launchVehicle: string
   missionType: string
   target: string
   description: string
