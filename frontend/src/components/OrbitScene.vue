@@ -914,8 +914,9 @@ function onPointerMove(event: PointerEvent) {
     pointerViewChangeAnnounced = true
     emit('view-change')
   }
-  // 悬停高亮（仅航天器）：命中标记即点亮标签+轨道线；拖拽中不更新避免闪烁
-  if (event.buttons === 0 && camera && renderer) {
+  // 悬停高亮（仅航天器）：命中标记即点亮标签+轨道线；拖拽中不更新避免闪烁；
+  // 航天器图层隐藏/淡出期不触发（避免点亮不可见飞行器）
+  if (event.buttons === 0 && camera && renderer && spacecraftGroup?.visible) {
     const bounds = renderer.domElement.getBoundingClientRect()
     pointer.set(((event.clientX - bounds.left) / bounds.width) * 2 - 1, -((event.clientY - bounds.top) / bounds.height) * 2 + 1)
     raycaster.setFromCamera(pointer, camera)
