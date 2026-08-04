@@ -30,12 +30,12 @@ export function latLonToVector(latitude: number, longitude: number, radius = EAR
 
 /** 展示高度（km，含夸张）：LEO ≤2000km 沿用 ×3.2 夸张（ISS/天宫/哈勃不变）；
  *  MEO/GEO 若继续 ×3.2 会飞出默认视锥（GPS 20180km → 半径 ~24 单位，完全不可见），
- *  故对 >2000km 的高度做平方根压缩，落到 5.5–6 单位可见带（LEO 之上、默认视角内）。
+ *  故对 >2000km 的高度做平方根压缩，落到 LEO 之上、默认视角内的可见带。
  *  仍为真实 TLE 传播：轨道面/相位/相对运动真实，仅显示高度带压缩（与月球 ×3 同思路）。 */
 function exaggeratedAltitude(altitudeKm: number): number {
   if (altitudeKm <= 2000) return altitudeKm * ALTITUDE_EXAGGERATION
-  // 系数 8.3：由 GPS(20180km)→~5.5、GEO(35786km)→~6.0 单位（默认视锥 ±3.5 内、LEO 之上）反推
-  const compressed = 2000 + 8.3 * Math.sqrt(altitudeKm - 2000)
+  // 系数 5.5：GPS(20180km)→~5.1、GEO(35786km)→~5.4 单位（比早期 8.3 方案更靠近地球 ~9%，用户要求同比例缩小一点）
+  const compressed = 2000 + 5.5 * Math.sqrt(altitudeKm - 2000)
   return compressed * ALTITUDE_EXAGGERATION
 }
 

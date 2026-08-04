@@ -108,6 +108,8 @@
             <span>名称、英文或数据来源</span>
             <input v-model="craftQuery" type="search" placeholder="输入 LRO、鹊桥…" spellcheck="false" />
           </label>
+          <label><span>运营方</span><select v-model="craftOperatorFilter"><option value="all">全部运营方</option><option v-for="operator in craftOperators" :key="operator" :value="operator">{{ operator }}</option></select></label>
+          <label><span>排序</span><select v-model="craftSort"><option value="name">名称</option><option value="type">类型</option><option value="operator">运营方</option></select></label>
         </div>
         <div class="catalog-meta">
           <span>共 {{ filteredCrafts.length }} 个对象</span>
@@ -194,6 +196,10 @@ const orbitsEnabled = ref(true)
 const sitesEnabled = ref(true)
 const selectedCraft = ref<string | null>(null)
 const craftQuery = ref('')
+/** 航天器目录：运营方筛选 + 排序（与地球页一致） */
+const craftOperatorFilter = ref('all')
+const craftSort = ref('name')
+const craftOperators = computed(() => [...new Set(crafts.value.map((c) => c.operatorName))].sort())
 const siteQuery = ref('')
 const craftLabels = ref<Array<{ id: string; x: number; y: number; visible: boolean }>>([])
 const siteLabels = ref<Array<{ id: string; x: number; y: number; visible: boolean }>>([])
@@ -332,14 +338,24 @@ function formatEpochUTC(iso?: string) {
 }
 
 const filteredCrafts = computed(() => {
+  let items = crafts.value
+  if (craftOperatorFilter.value !== 'all') {
+    items = items.filter((c) => c.operatorName === craftOperatorFilter.value)
+  }
   const q = craftQuery.value.trim().toLowerCase()
-  if (!q) return crafts.value
-  return crafts.value.filter(
-    (c) =>
-      c.nameZh.toLowerCase().includes(q) ||
-      c.nameEn.toLowerCase().includes(q) ||
-      c.sourceName.toLowerCase().includes(q),
-  )
+  if (q) {
+    items = items.filter(
+      (c) =>
+        c.nameZh.toLowerCase().includes(q) ||
+        c.nameEn.toLowerCase().includes(q) ||
+        c.sourceName.toLowerCase().includes(q),
+    )
+  }
+  const sorted = [...items]
+  if (craftSort.value === 'operator') sorted.sort((a, b) => a.operatorName.localeCompare(b.operatorName, 'zh-CN'))
+  else if (craftSort.value === 'type') sorted.sort((a, b) => (a.type ?? '').localeCompare(b.type ?? '', 'zh-CN'))
+  else sorted.sort((a, b) => a.nameZh.localeCompare(b.nameZh, 'zh-CN'))
+  return sorted
 })
 
 // 占位（craftById 已覆盖原 helper）
@@ -1139,6 +1155,12 @@ onBeforeUnmount(() => {
 .moon-sites-section .catalog-controls input {
   border-color: rgba(200, 208, 216, .25);
   background: #0a0f14;
+  color: #e2e7ec;
+}
+.moon-objects-section .catalog-controls select,
+.moon-sites-section .catalog-controls select {
+  border-color: rgba(200, 208, 216, .25);
+  background-color: #0a0f14;
   color: #e2e7ec;
 }
 .moon-objects-section .catalog-controls input:focus,
