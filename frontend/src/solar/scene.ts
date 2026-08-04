@@ -1159,13 +1159,13 @@ export class SolarSystemScene {
   // ---- 相机与构图 --------------------------------------------------------
 
   /** 当前模式的目标构图：aligned = 小行星带锚定（右上太阳/对角线行星）；
-   *  real = 太阳居中（锚定屏幕 40%），画面放大拉近（×0.88），柯伊伯带外缘/海王星轨道部分出屏 */
+   *  real = 太阳居中（锚定屏幕正中 50%），画面放大拉近（×0.80），海王星轨道部分出屏 */
   private computeModeComposition(aspect: number): { target: THREE.Vector3; distance: number } {
     if (this.compositionMode === 'real') {
       const tanHalfV = Math.tan((VIEW.fov / 2) * DEG)
-      // 距离由水平方向决定：realFitMargin 0.88 = 放大拉近（柯伊伯带外缘/海王星轨道部分出屏）
+      // 距离由水平方向决定：realFitMargin 0.80 = 进一步放大拉近（海王星轨道部分出屏）
       const distance = (KUIPER_BELT.outer / (tanHalfV * aspect)) * VIEW.realFitMargin
-      // 太阳锚定在屏幕 40%（画面下拉、太阳更低），椭圆中心随之、短轴竖向居中平衡
+      // 太阳锚定在屏幕正中（50%），椭圆中心随之、短轴竖向居中平衡
       const beta = (2 * VIEW.realAnchorScreenY - 1) * tanHalfV
       const target = new THREE.Vector3(0, 0, 0).addScaledVector(this.upv, distance * beta)
       return { target, distance }
