@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -33,7 +34,43 @@ type PositionSample struct {
 
 // FetchProbeSamples 拉取指定探测器从 now-windowDays 到 now+windowDays 的日心黄道位置采样。
 // 返回按时间升序的采样点（约 181 条）；失败返回 error（由调用方降级保留旧数据）。
+// 部分探测器星历有明确截止（如 STEREO-A 至 2026-10、隼鸟 2 号至 2026-10-02），
+// 请求超出会被 Horizons 拒绝：检测 "No ephemeris ... after" 并钳制 STOP_TIME 重试一次。
 func FetchProbeSamples(ctx context.Context, client *http.Client, naifID string, now time.Time) ([]PositionSample, error) {
+	startTime := now.AddDate(0, 0, -windowDays)
+	stopTime := now.AddDate(0, 0, windowDays)
+	for attempt := 0; attempt < 2; attempt++ {
+		samples, body, err := fetchProbeSamplesOnce(ctx, client, naifID, startTime, stopTime)
+		if err == nil {
+			return samples, nil
+		}
+		end := parseEphemerisEnd(body)
+		if end.IsZero() {
+			return nil, err
+		}
+		// 窗口超出星历截止：钳制 STOP_TIME 重试（保留完整前窗，截止前一日为界）
+		stopTime = end.AddDate(0, 0, -1)
+	}
+	return nil, fmt.Errorf("horizons fetch %s: 星历窗口钳制后仍失败", naifID)
+}
+
+// parseEphemerisEnd 从 Horizons 错误正文解析星历截止日期（"No ephemeris for target ... after A.D. 2026-OCT-23"）；
+// 无截止信息返回零值。
+func parseEphemerisEnd(body string) time.Time {
+	m := ephemerisEndPattern.FindStringSubmatch(body)
+	if len(m) < 2 {
+		return time.Time{}
+	}
+	t, err := time.Parse("2006-Jan-02", m[1])
+	if err != nil {
+		return time.Time{}
+	}
+	return t.UTC()
+}
+
+var ephemerisEndPattern = regexp.MustCompile(`No ephemeris for target.*after A\.D\. (\d{4}-[A-Za-z]{3}-\d{2})`)
+
+func fetchProbeSamplesOnce(ctx context.Context, client *http.Client, naifID string, startTime, stopTime time.Time) ([]PositionSample, string, error) {
 	query := url.Values{}
 	query.Set("format", "text")
 	query.Set("COMMAND", naifID)
@@ -45,39 +82,39 @@ func FetchProbeSamples(ctx context.Context, client *http.Client, naifID string, 
 	query.Set("CSV_FORMAT", "YES")
 	query.Set("MAKE_EPHEM", "YES")
 	// Horizons API 时间值不接受空格：ISO 8601（T 分隔）
-	query.Set("START_TIME", now.AddDate(0, 0, -windowDays).Format("2006-01-02T15:04:05"))
-	query.Set("STOP_TIME", now.AddDate(0, 0, windowDays).Format("2006-01-02T15:04:05"))
+	query.Set("START_TIME", startTime.Format("2006-01-02T15:04:05"))
+	query.Set("STOP_TIME", stopTime.Format("2006-01-02T15:04:05"))
 	query.Set("STEP_SIZE", stepSize)
 
 	endpoint := horizonsEndpoint + "?" + query.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("horizons request: %w", err)
+		return nil, "", fmt.Errorf("horizons request: %w", err)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
-		return nil, fmt.Errorf("horizons read: %w", err)
+		return nil, "", fmt.Errorf("horizons read: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("horizons status %d: %s", resp.StatusCode, truncate(string(body), 300))
+		return nil, string(body), fmt.Errorf("horizons status %d: %s", resp.StatusCode, truncate(string(body), 300))
 	}
-	// 文本错误提示（未知 COMMAND 等）也会以 200 返回
+	// 文本错误提示（未知 COMMAND、星历越界等）也会以 200 返回
 	if !strings.Contains(strings.ToLower(string(body)), "$$soe") {
-		return nil, fmt.Errorf("horizons no ephemeris data: %s", truncate(string(body), 300))
+		return nil, string(body), fmt.Errorf("horizons no ephemeris data: %s", truncate(string(body), 300))
 	}
 	samples, err := parseSOESamples(string(body))
 	if err != nil {
-		return nil, err
+		return nil, string(body), err
 	}
 	if len(samples) == 0 {
-		return nil, fmt.Errorf("horizons SOE 数据行为空")
+		return nil, string(body), fmt.Errorf("horizons SOE 数据行为空")
 	}
-	return samples, nil
+	return samples, string(body), nil
 }
 
 // parseSOESamples 解析 $$SOE … $$EOE 区段全部数据行：
