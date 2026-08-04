@@ -1246,9 +1246,9 @@ onBeforeUnmount(() => {
 .scene-label::before { content: ''; position: absolute; right: 100%; top: 50%; width: 14px; height: 1px; background: rgba(120, 188, 222, .35); }
 .scene-label i { width: 4px; height: 4px; border-radius: 50%; background: #72d7ff; box-shadow: 0 0 8px #72d7ff; }
 .scene-label.site i { background: #ffb866; box-shadow: 0 0 8px #ffb866; }
-.scene-label:hover { color: #fff; border-color: rgba(114, 215, 255, .55); background: rgba(10, 28, 42, .88); }
-.scene-label.selected { color: #fff; border-color: rgba(114, 215, 255, .95); background: rgba(12, 34, 50, .92); box-shadow: 0 0 12px rgba(114, 215, 255, .22); }
-.scene-label.selected i { box-shadow: 0 0 12px #72d7ff, 0 0 24px rgba(114, 215, 255, .6); }
+.scene-label:hover { color: #dce9f0; border-color: rgba(124, 184, 216, .4); background: rgba(5, 14, 22, .8); }
+.scene-label.selected { color: #e8f4fb; border-color: rgba(114, 215, 255, .5); background: rgba(6, 17, 26, .82); }
+.scene-label.selected i { box-shadow: 0 0 8px #72d7ff; }
 .scene-observer-label { position: absolute; left: 0; top: 0; z-index: 3; display: flex; align-items: center; gap: 7px; padding: 5px 8px; border: 1px solid rgba(121, 227, 189, .34); background: rgba(3, 10, 17, .78); color: #c7eee1; font: 500 10px/1.2 var(--font-sans); white-space: nowrap; pointer-events: none; backdrop-filter: blur(8px); }
 .scene-observer-label::before { content: ''; position: absolute; right: 100%; top: 50%; width: 14px; height: 1px; background: rgba(121, 227, 189, .4); }
 .scene-observer-label i { width: 5px; height: 5px; border-radius: 50%; background: #79e3bd; box-shadow: 0 0 8px rgba(121, 227, 189, .65); }
