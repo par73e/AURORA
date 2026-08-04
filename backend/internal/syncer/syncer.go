@@ -239,8 +239,7 @@ func (s *Syncer) get(ctx context.Context, endpoint string) ([]byte, error) {
 	return body, nil
 }
 
-// SyncMoonSpacecraft 从 JPL Horizons 拉取月球飞行器实时轨道根数（镜像 SyncCelesTrak）。
-// 从 JPL Horizons 拉取月球飞行器（LRO/CAPSTONE 等已支持）实时轨道根数；
+// SyncMoonSpacecraft 从 JPL Horizons 拉取月球飞行器（LRO/CAPSTONE 等已支持）实时轨道根数；
 // 未支持的飞行器跳过（前端回退静态参数）。
 func (s *Syncer) SyncMoonSpacecraft(ctx context.Context) error {
 	if s.moonRepo == nil {

@@ -15,7 +15,7 @@ ON CONFLICT (id) DO NOTHING;
 
 -- 发射信息补充（curation，与 003 同模式）
 UPDATE spacecraft SET
-    launch_date = '2010-05-28', launch_site = '卡纳维拉尔角 SLC-41（美国）', launch_vehicle = 'Delta IV Medium'
+    launch_date = '2010-05-28', launch_site = '卡纳维拉尔角 SLC-37B（美国）', launch_vehicle = 'Delta IV Medium'
     WHERE id = 'gps-2f';
 UPDATE spacecraft SET
     launch_date = '2018-12-23', launch_site = '卡纳维拉尔角 SLC-40（美国）', launch_vehicle = 'Falcon 9'
