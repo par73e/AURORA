@@ -428,6 +428,8 @@ function rebuildDataLayers() {
   spacecraftGroup = new THREE.Group()
   orbitGroup = new THREE.Group()
   siteGroup = new THREE.Group()
+  observatoryGroup = new THREE.Group()
+  scene?.add(observatoryGroup)
   // 物理正确分层：航天器/轨道线挂在惯性参考系（不随地表视觉自转——真实中卫星轨道
   // 惯性固定、地球在下面转，飞行器按真实速度缓慢漂移）；发射场随地表转（经纬度地表固定）
   earthSystemGroup.add(spacecraftGroup, orbitGroup)
