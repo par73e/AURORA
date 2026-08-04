@@ -23,8 +23,9 @@ const (
 // LRO 的 NASA NAIF ID 为 -850，但 Horizons 中须用 -85（-850 会报 No such record）；
 // CAPSTONE（-1176）任务已于 2026-07 结束，星历不再更新——仍在映射内，无数据时由同步器跳过。
 var moonNAIFByID = map[string]string{
-	"lro":      "-85",
-	"capstone": "-1176",
+	"lro":           "-85", // LRO：NASA NAIF -850，Horizons 中须用 -85
+	"capstone":      "-1176",
+	"chandrayaan-2": "-152", // 月船2号轨道器（在役，2026 数据实测可用）
 }
 
 // HorizonsResult 一次同步的结果
