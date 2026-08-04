@@ -17,8 +17,15 @@ import (
 const (
 	horizonsEndpoint = "https://ssd.jpl.nasa.gov/api/horizons.api"
 	moonNAIFCenter   = "500@301"
-	lroNAIFID        = "-85" // Horizons 中 LRO 的 ID 是 -85（-850 会报 No such record）
 )
+
+// Horizons 支持的月球飞行器 NAIF ID 映射（月心坐标）。
+// LRO 的 NASA NAIF ID 为 -850，但 Horizons 中须用 -85（-850 会报 No such record）；
+// CAPSTONE（-1176）任务已于 2026-07 结束，星历不再更新——仍在映射内，无数据时由同步器跳过。
+var moonNAIFByID = map[string]string{
+	"lro":      "-85",
+	"capstone": "-1176",
+}
 
 // HorizonsResult 一次同步的结果
 type HorizonsResult struct {
@@ -28,15 +35,16 @@ type HorizonsResult struct {
 }
 
 // FetchMoonSpacecraftElements 从 Horizons 拉取指定飞行器当前状态矢量并转换。
-// 目前仅支持 LRO（NAIF -850）；失败返回 error，由调用方降级（保留旧数据）。
+// 不在 moonNAIFByID 映射内的飞行器返回 error；同步器对单个飞行器拉取失败一律跳过（静态参数兜底）。
 func FetchMoonSpacecraftElements(ctx context.Context, client *http.Client, spacecraftID string) (HorizonsResult, error) {
-	if spacecraftID != "lro" {
+	naifID, ok := moonNAIFByID[spacecraftID]
+	if !ok {
 		return HorizonsResult{}, fmt.Errorf("spacecraft %q 暂无 Horizons 支持", spacecraftID)
 	}
 	now := time.Now().UTC()
 	query := url.Values{}
 	query.Set("format", "text")
-	query.Set("COMMAND", lroNAIFID)
+	query.Set("COMMAND", naifID)
 	query.Set("EPHEM_TYPE", "VECTORS")
 	query.Set("CENTER", moonNAIFCenter)
 	query.Set("REF_PLANE", "ECLIPTIC")

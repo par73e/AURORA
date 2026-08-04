@@ -240,7 +240,8 @@ func (s *Syncer) get(ctx context.Context, endpoint string) ([]byte, error) {
 }
 
 // SyncMoonSpacecraft 从 JPL Horizons 拉取月球飞行器实时轨道根数（镜像 SyncCelesTrak）。
-// 目前仅 LRO（NAIF -850）支持；失败时保留旧数据（前端回退静态参数）。
+// 从 JPL Horizons 拉取月球飞行器（LRO/CAPSTONE 等已支持）实时轨道根数；
+// 未支持的飞行器跳过（前端回退静态参数）。
 func (s *Syncer) SyncMoonSpacecraft(ctx context.Context) error {
 	if s.moonRepo == nil {
 		return errors.New("moon repository 未配置")
@@ -260,12 +261,14 @@ func (s *Syncer) SyncMoonSpacecraft(ctx context.Context) error {
 	}
 	for _, craft := range catalog {
 		if craft.Kind != "orbital" {
-			continue // 定点飞行器（鹊桥二号）无绕月轨道
+			continue // 定点飞行器（鹊桥二号等）无绕月轨道
 		}
 		result, err := moon.FetchMoonSpacecraftElements(ctx, s.client, craft.ID)
 		if err != nil {
-			syncErr = fmt.Errorf("horizons sync %s: %w", craft.ID, err)
-			return syncErr
+			// 单个飞行器失败（未支持/星历结束/临时错误）不 abort 整轮：
+			// 记录日志继续，其余飞行器照常同步，前端回退静态参数
+			slog.Warn("moon orbit sync skipped", "craft", craft.ID, "error", err)
+			continue
 		}
 		if err := s.moonRepo.SaveMoonSnapshot(ctx, craft.ID, result.Epoch.UTC().Format(time.RFC3339), result.Elements, result.Raw); err != nil {
 			syncErr = err
