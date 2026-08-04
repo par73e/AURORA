@@ -1589,6 +1589,13 @@ export class SolarSystemScene {
     this.hoverSelectedId = null
   }
 
+  /** 外部设置悬停目标（探测器标签悬停/移开时由组件调用）：点亮对应探测器轨迹 */
+  setHover(id: string | null) {
+    if (id === this.hoveredId) return
+    this.hoveredId = id
+    this.callbacks.onHover(id)
+  }
+
   private onMotionChange = (event: MediaQueryListEvent) => {
     this.timeScale = event.matches ? 0 : 1
   }

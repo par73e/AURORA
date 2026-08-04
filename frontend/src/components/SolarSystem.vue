@@ -78,6 +78,11 @@ function choosePlanet(id: string) {
   }
 }
 
+/** 探测器标签悬停/移开：点亮/熄灭对应探测器轨迹（与悬停 3D 标记一致） */
+function hoverProbe(id: string | null) {
+  scene?.setHover(id)
+}
+
 /** 点击深空探测器（3D 标记或标签）：镜头飞近 + （椭圆轨道）点亮轨道 + 打开信息面板，一个入口。
  *  飞行中/运镜未启动时不弹面板，保持状态一致 */
 function onProbeClick(id: string) {
@@ -274,6 +279,10 @@ defineExpose({ resetView })
         :class="{ active: selectedProbe?.id === label.id }"
         :style="planetLabelStyle(label)"
         :aria-label="`${probeNameById.get(label.id)}（${probeNameEnById.get(label.id)}）`"
+        @mouseenter="hoverProbe(label.id)"
+        @mouseleave="hoverProbe(null)"
+        @focus="hoverProbe(label.id)"
+        @blur="hoverProbe(null)"
         @click="onProbeClick(label.id)"
       >
         <strong>{{ probeNameById.get(label.id) }}</strong>
