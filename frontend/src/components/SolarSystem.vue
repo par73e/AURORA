@@ -4,6 +4,9 @@ import { SolarSystemScene, type SolarLabel } from '../solar/scene'
 import { solarSession } from '../solar/session'
 import { MOON, planets, SUN, type PlanetSpec } from '../solar/data'
 import { solarTexturesReady } from '../solar/textures'
+import { fetchDeepSpaceProbes } from '../api'
+import type { DeepSpaceProbe } from '../types'
+import type { ProbeData } from '../solar/scene'
 
 const props = defineProps<{ enterFromOrbit?: boolean; enterFromMoon?: boolean; flyDelay?: number; playEntryFly?: boolean }>()
 
@@ -23,6 +26,14 @@ const labels = ref<SolarLabel[]>([])
 let scene: SolarSystemScene | undefined
 /** 当前飞行动画的目标：true = 月球（事件回调据此分发） */
 let moonFlight = false
+/** 组件已卸载标记（fetch 回调守卫，避免向已 dispose 的 scene 写数据） */
+let unmounted = false
+/** 深空探测器（JPL Horizons 日同步，/api/v1/voyage/probes） */
+const probes = ref<DeepSpaceProbe[]>([])
+/** 点击选中的探测器（信息面板） */
+const selectedProbe = ref<DeepSpaceProbe | null>(null)
+/** 选中探测器当前距日（AU，打开面板时读取一次） */
+const probeDistAU = ref<number | null>(null)
 
 const activePlanet = computed<PlanetSpec>(() => planets.find((p) => p.id === activeId.value) ?? planets[2])
 const activeName = computed(() => {
@@ -37,6 +48,7 @@ const activeNameEn = computed(() => {
 })
 
 const planetLabels = computed(() => labels.value.filter((l) => l.kind === 'planet'))
+const probeLabels = computed(() => labels.value.filter((l) => l.kind === 'probe'))
 const sunLabel = computed(() => labels.value.find((l) => l.kind === 'sun') ?? null)
 const beltLabels = computed(() => labels.value.filter((l) => l.kind === 'belt'))
 const earthLabel = computed(() => labels.value.find((l) => l.kind === 'planet' && l.id === 'earth') ?? null)
@@ -46,8 +58,13 @@ const nameEnById = new Map(planets.map((p) => [p.id, p.nameEn]))
 nameById.set(MOON.id, MOON.name)
 nameEnById.set(MOON.id, MOON.nameEn)
 
+const probeNameById = computed(() => new Map(probes.value.map((p) => [p.id, p.nameZh])))
+const probeNameEnById = computed(() => new Map(probes.value.map((p) => [p.id, p.nameEn])))
+const probeColorById = computed(() => new Map(probes.value.map((p) => [p.id, p.color])))
+
 function choosePlanet(id: string) {
   activeId.value = id
+  selectedProbe.value = null
   if (id === 'earth') {
     // 地球：先在太阳系场景内放大地球，飞行到位后再由 App 切换页面
     moonFlight = false
@@ -59,6 +76,25 @@ function choosePlanet(id: string) {
     scene?.flyToMoon()
     emit('moon-fly-start')
   }
+}
+
+/** 点击深空探测器：打开信息面板 + 读取当前距日（AU） */
+function selectProbe(id: string) {
+  const probe = probes.value.find((p) => p.id === id) ?? null
+  selectedProbe.value = probe
+  probeDistAU.value = null
+  if (probe && scene) {
+    const info = scene.getProbeInfo(id)
+    if (info) probeDistAU.value = info.distAU
+  }
+}
+
+/** 同步时间展示（UTC） */
+function formatSyncTime(iso?: string) {
+  if (!iso) return '暂无同步'
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC`
 }
 
 // 排列线（屏幕方向：右上 → 左下）的单位法向（右下），标签沿该方向放在球体轮廓之外，避免压到相邻行星；
@@ -93,8 +129,10 @@ onMounted(() => {
     canvasHost.value,
     {
       onHover: (id) => {
-        if (id) activeId.value = id
+        // 探测器不进入 activeId（键盘导航顺序只含太阳/行星/月球）；悬停高亮由 scene 处理
+        if (id && !probes.value.some((p) => p.id === id)) activeId.value = id
       },
+      onProbeSelect: (id) => selectProbe(id),
       onSelect: choosePlanet,
       onFlyZoom: () => emit(moonFlight ? 'moon-fly-zoom' : 'earth-fly-zoom'),
       onFlyComplete: () => emit(moonFlight ? 'select-moon' : 'select-earth'),
@@ -116,9 +154,20 @@ onMounted(() => {
     scene.flyInFromDistance(props.flyDelay ?? 0)
   }
   // 刷新/直接加载：不播推镜，静态恢复默认构图（resize 触发 refit 定位）
+  // 深空探测器：挂载后拉取 JPL Horizons 位置采样并传入场景（标记点 + 轨迹线）
+  fetchDeepSpaceProbes()
+    .then((items) => {
+      if (unmounted) return
+      probes.value = items
+      if (scene) scene.setProbes(items)
+    })
+    .catch((error) => {
+      console.error('加载深空探测器数据失败:', error)
+    })
 })
 
 onBeforeUnmount(() => {
+  unmounted = true
   window.removeEventListener('keydown', onKeydown)
   scene?.dispose()
 })
@@ -197,6 +246,21 @@ defineExpose({ resetView })
         <i class="earth-entry">ENTER {{ nameEnById.get(label.id) }} ↗</i>
       </button>
 
+      <button
+        v-for="label in probeLabels"
+        v-show="label.visible"
+        :key="label.id"
+        class="solar-label probe-label"
+        :class="{ active: selectedProbe?.id === label.id }"
+        :style="[planetLabelStyle(label), { '--probe-color': probeColorById.get(label.id) ?? '#7fd7ff' }]"
+        :aria-label="`${probeNameById.get(label.id)}（${probeNameEnById.get(label.id)}）`"
+        @click="selectProbe(label.id)"
+      >
+        <i class="probe-dot" aria-hidden="true" />
+        <strong>{{ probeNameById.get(label.id) }}</strong>
+        <small>{{ probeNameEnById.get(label.id) }}</small>
+      </button>
+
       <div
         v-if="sunLabel"
         v-show="sunLabel.visible"
@@ -236,6 +300,21 @@ defineExpose({ resetView })
         </svg>
       </div>
     </div>
+
+    <aside v-if="selectedProbe" class="probe-panel" role="dialog" aria-label="深空探测器信息">
+      <button class="probe-panel-close" type="button" aria-label="关闭信息面板" @click="selectedProbe = null">×</button>
+      <p class="probe-panel-kicker">{{ selectedProbe.missionType }} · 精度等级 {{ selectedProbe.precisionGrade }}</p>
+      <h2>{{ selectedProbe.nameZh }} <small>{{ selectedProbe.nameEn }}</small></h2>
+      <dl>
+        <div><dt>机构</dt><dd>{{ selectedProbe.operatorName }}</dd></div>
+        <div><dt>发射日期</dt><dd>{{ selectedProbe.launchDate }}</dd></div>
+        <div><dt>目标</dt><dd>{{ selectedProbe.target }}</dd></div>
+        <div v-if="probeDistAU !== null"><dt>当前距日</dt><dd>{{ probeDistAU.toFixed(2) }} AU</dd></div>
+        <div><dt>数据</dt><dd>JPL Horizons · {{ formatSyncTime(selectedProbe.syncedAt) }}</dd></div>
+      </dl>
+      <p class="probe-panel-desc">{{ selectedProbe.description }}</p>
+      <p class="probe-panel-note">位置来自 JPL Horizons 星历；距离与尺度为示意压缩</p>
+    </aside>
 
     <button class="position-toggle" type="button" @click="togglePositions">
       <i :class="{ real: !alignedPositions }" aria-hidden="true" />
@@ -373,6 +452,63 @@ defineExpose({ resetView })
   text-shadow: 0 1px 6px rgba(0, 0, 0, .8);
 }
 .belt-label small { display: block; margin-top: 4px; color: rgba(76, 109, 123, .65); font: 400 6px var(--font-mono); letter-spacing: .1em; }
+
+.probe-label { pointer-events: auto; cursor: pointer; }
+.probe-label .probe-dot {
+  width: 5px;
+  height: 5px;
+  margin-top: 1px;
+  border-radius: 50%;
+  background: var(--probe-color, #7fd7ff);
+  box-shadow: 0 0 6px var(--probe-color, #7fd7ff);
+}
+.probe-label strong { color: rgba(214, 228, 235, .78); font-size: 8px; font-weight: 500; letter-spacing: .09em; }
+.probe-label small { color: rgba(104, 138, 153, .6); font: 400 6px var(--font-mono); letter-spacing: .14em; }
+.probe-label:focus-visible { outline: 1px dashed rgba(115, 223, 255, .5); outline-offset: 4px; border-radius: 2px; }
+
+.probe-panel {
+  position: absolute;
+  z-index: 9;
+  left: 32px;
+  bottom: 120px;
+  width: min(340px, calc(100vw - 64px));
+  padding: 18px 20px 16px;
+  border: 1px solid rgba(120, 165, 190, .22);
+  border-radius: 12px;
+  background: linear-gradient(200deg, rgba(6, 14, 22, .94), rgba(9, 20, 30, .9));
+  color: #d8e6ee;
+  backdrop-filter: blur(14px);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .45);
+}
+.probe-panel-close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  width: 22px;
+  height: 22px;
+  border: 1px solid rgba(120, 165, 190, .25);
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(150, 178, 192, .8);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.probe-panel-close:hover { color: #e8f5fb; border-color: rgba(120, 165, 190, .5); }
+.probe-panel-kicker {
+  margin: 0 0 8px;
+  color: rgba(112, 179, 209, .72);
+  font: 500 8px var(--font-mono);
+  letter-spacing: .16em;
+}
+.probe-panel h2 { margin: 0 0 12px; font-size: 17px; font-weight: 500; letter-spacing: .04em; }
+.probe-panel h2 small { margin-left: 8px; color: rgba(122, 152, 168, .72); font: 400 9px var(--font-mono); letter-spacing: .14em; }
+.probe-panel dl { display: grid; gap: 6px; margin: 0 0 12px; }
+.probe-panel dl > div { display: grid; grid-template-columns: 56px 1fr; gap: 10px; }
+.probe-panel dt { color: rgba(112, 145, 162, .78); font: 500 8px var(--font-mono); letter-spacing: .08em; }
+.probe-panel dd { margin: 0; color: rgba(214, 228, 236, .92); font-size: 11px; line-height: 1.5; }
+.probe-panel-desc { margin: 0 0 10px; color: rgba(178, 200, 212, .82); font-size: 11px; line-height: 1.7; }
+.probe-panel-note { margin: 0; color: rgba(100, 128, 144, .6); font: 400 8px var(--font-mono); letter-spacing: .04em; }
 
 .position-toggle {
   position: absolute;

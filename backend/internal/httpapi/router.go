@@ -7,11 +7,12 @@ import (
 
 	"aurora/backend/internal/moon"
 	"aurora/backend/internal/orbit"
+	"aurora/backend/internal/voyage"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-func Router(repository *orbit.Repository, moonRepository *moon.Repository) http.Handler {
+func Router(repository *orbit.Repository, moonRepository *moon.Repository, voyageRepository *voyage.Repository) http.Handler {
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer)
 	router.Get("/api/health", func(w http.ResponseWriter, _ *http.Request) {
@@ -43,6 +44,15 @@ func Router(repository *orbit.Repository, moonRepository *moon.Repository) http.
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"landingSites": items})
+	})
+	router.Get("/api/v1/voyage/probes", func(w http.ResponseWriter, r *http.Request) {
+		items, err := voyageRepository.ListProbes(r.Context())
+		if err != nil {
+			slog.Error("load deep space probes", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "暂时无法读取深空探测器数据"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"probes": items})
 	})
 	return router
 }

@@ -13,11 +13,13 @@ import (
 
 	"aurora/backend/internal/moon"
 	"aurora/backend/internal/orbit"
+	"aurora/backend/internal/voyage"
 )
 
 type Syncer struct {
 	repository *orbit.Repository
 	moonRepo   *moon.Repository
+	voyageRepo *voyage.Repository
 	client     *http.Client
 }
 
@@ -28,6 +30,11 @@ func New(repository *orbit.Repository) *Syncer {
 // NewWithMoon 附带月球仓库（月球飞行器同步需要）
 func NewWithMoon(repository *orbit.Repository, moonRepo *moon.Repository) *Syncer {
 	return &Syncer{repository: repository, moonRepo: moonRepo, client: &http.Client{Timeout: 30 * time.Second}}
+}
+
+// NewWithMoonVoyage 附带月球与深空探测器仓库（两者同步都需要）
+func NewWithMoonVoyage(repository *orbit.Repository, moonRepo *moon.Repository, voyageRepo *voyage.Repository) *Syncer {
+	return &Syncer{repository: repository, moonRepo: moonRepo, voyageRepo: voyageRepo, client: &http.Client{Timeout: 60 * time.Second}}
 }
 
 func (s *Syncer) SyncCelesTrak(ctx context.Context) error {
@@ -169,6 +176,44 @@ func (s *Syncer) SyncLaunches(ctx context.Context) error {
 			return err
 		}
 		records++
+	}
+	return nil
+}
+
+// SyncDeepSpaceProbes 从 JPL Horizons 拉取深空探测器日心位置采样（±90 天、日采样），
+// 整窗替换每个目标的位置采样表（同步失败保留旧数据，前端仍可展示）。
+func (s *Syncer) SyncDeepSpaceProbes(ctx context.Context) error {
+	if s.voyageRepo == nil {
+		return errors.New("voyage repository 未配置")
+	}
+	runID, err := s.repository.StartSync(ctx, "jpl_horizons")
+	if err != nil {
+		return err
+	}
+	records := 0
+	var syncErr error
+	defer func() { _ = s.repository.FinishSync(context.Background(), runID, records, syncErr) }()
+
+	catalog, err := s.voyageRepo.ListCatalog(ctx)
+	if err != nil {
+		syncErr = err
+		return err
+	}
+	now := time.Now().UTC()
+	for _, item := range catalog {
+		samples, err := voyage.FetchProbeSamples(ctx, s.client, item.NaifID, now)
+		if err != nil {
+			// 单个目标失败不 abort 整轮：记日志继续，其余目标照常刷新
+			slog.Warn("deep space probe sync skipped", "probe", item.ID, "error", err)
+			continue
+		}
+		if err := s.voyageRepo.ReplaceProbeSamples(ctx, item.ID, samples); err != nil {
+			slog.Warn("deep space probe samples save failed", "probe", item.ID, "error", err)
+			continue
+		}
+		records += len(samples)
+		slog.Info("deep space probe synced", "probe", item.ID, "samples", len(samples),
+			"window", now.AddDate(0, 0, -90).Format("2006-01-02")+" → "+now.AddDate(0, 0, 90).Format("2006-01-02"))
 	}
 	return nil
 }

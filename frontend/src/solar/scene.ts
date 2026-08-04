@@ -19,9 +19,32 @@ import {
   type PlanetSpec,
 } from './data'
 import { solarTexture } from './textures'
+import { distanceAU, heliocentricToScene } from './scale'
+
+/** 深空探测器数据（来自 /api/v1/voyage/probes；位置为 JPL Horizons 日心黄道坐标 km） */
+export interface ProbeData {
+  id: string
+  nameZh: string
+  nameEn: string
+  operatorName: string
+  missionType: string
+  target: string
+  description: string
+  precisionGrade: string
+  color: string
+  /** 最近一次同步时间（无采样时为空，与 API 类型一致） */
+  syncedAt?: string
+  positions: Array<{ epoch: string; x: number; y: number; z: number }>
+}
+
+/** 探测器轨迹线样式：默认暗淡，指针悬停时变亮 */
+const PROBE_TRAJECTORY_OPACITY_DEFAULT = 0.3
+const PROBE_TRAJECTORY_OPACITY_HOVER = 0.85
+/** 探测器标记半径（场景单位） */
+const PROBE_MARKER_RADIUS = 0.55
 
 export interface SolarLabel {
-  kind: 'planet' | 'sun' | 'belt'
+  kind: 'planet' | 'sun' | 'belt' | 'probe'
   id: string
   x: number
   y: number
@@ -33,6 +56,8 @@ export interface SolarLabel {
 export interface SolarSceneCallbacks {
   onHover(id: string | null): void
   onSelect(id: string): void
+  /** 点击深空探测器（与行星/月球选择分开处理） */
+  onProbeSelect?(id: string): void
   /** 镜头飞向地球过程中，地球放大到一定程度时触发（用于开始变暗） */
   onFlyZoom?(): void
   /** 镜头飞行结束（地球已放大到位）时触发（用于切换页面） */
@@ -44,6 +69,25 @@ type LabelSink = (labels: SolarLabel[]) => void
 interface PlanetRuntime {
   spec: PlanetSpec
   axial: THREE.Object3D
+}
+
+/** 深空探测器运行时状态 */
+interface ProbeRuntime {
+  data: ProbeData
+  /** 采样点场景坐标（映射后） */
+  points: THREE.Vector3[]
+  /** 采样历元毫秒（升序，与 points/aus 对齐） */
+  epochsMs: number[]
+  /** 采样点距日（AU） */
+  aus: number[]
+  /** 当前插值位置（场景坐标） */
+  current: THREE.Vector3
+  /** 当前距日（AU） */
+  currentAU: number
+  /** 当前参考历元（毫秒，取插值区间起点） */
+  currentEpochMs: number
+  marker: THREE.Mesh
+  trajectory: THREE.Line | null
 }
 
 const DEG = Math.PI / 180
@@ -150,6 +194,11 @@ export class SolarSystemScene {
   private orbitMaterials = new Map<string, THREE.LineBasicMaterial>()
   /** 键盘导航（←/→）选中的目标 id；指针悬停优先于键盘选中（hoveredId ?? selectedId） */
   private selectedId: string | null = null
+  /** 深空探测器运行时（标记点 + 轨迹线 + 位置插值） */
+  private probeRuntimes = new Map<string, ProbeRuntime>()
+  private probeMeshes: THREE.Mesh[] = []
+  /** 探测器轨迹线材质（悬停该探测器时轨迹变亮） */
+  private trajectoryMaterials = new Map<string, THREE.LineBasicMaterial>()
   /** 每颗行星当前展示的轨道角度（弧度，黄道面 XZ 平面，0 = +x） */
   private planetAngles = new Map<string, number>()
   /** 行星角度动画（先加速后减速） */
@@ -275,6 +324,15 @@ export class SolarSystemScene {
     this.controls.dispose()
     this.renderer.dispose()
     dom.remove()
+    // 深空探测器标记/轨迹资源（探测器对象不入 disposables，由 setProbes 重入或此处释放，避免二次 dispose）
+    for (const runtime of this.probeRuntimes.values()) {
+      runtime.marker.geometry.dispose()
+      ;(runtime.marker.material as THREE.Material).dispose()
+      if (runtime.trajectory) {
+        runtime.trajectory.geometry.dispose()
+        ;(runtime.trajectory.material as THREE.Material).dispose()
+      }
+    }
     for (const belt of this.beltGroups) belt.dispose()
     for (const item of this.disposables) item.dispose()
     for (const texture of this.textures) texture.dispose()
@@ -782,8 +840,10 @@ export class SolarSystemScene {
       this.controls.panSpeed = THREE.MathUtils.clamp(this.fitDistance / Math.max(dist, 4), 0.4, 6)
     }
     this.controls.update()
-    // 轨道线悬停高亮：悬停行星的轨道每帧向高亮样式缓动，其余回到暗淡
+    // 轨道线/轨迹线悬停高亮：悬停行星的轨道与悬停探测器的轨迹每帧缓动，其余回到暗淡
     this.updateOrbitHighlights(rawDelta)
+    // 深空探测器位置插值（标记点随墙钟在采样点间移动）
+    this.updateProbes()
     // 同步注视点：平移会移动 controls.target，标签与 resize 逻辑依赖 lookAt
     this.lookAt.copy(this.controls.target)
     this.updateLabels()
@@ -803,6 +863,118 @@ export class SolarSystemScene {
       material.opacity += (targetOpacity - material.opacity) * factor
       material.color.lerp(active ? ORBIT_COLOR_HOVER : ORBIT_COLOR_DEFAULT, factor)
     }
+    // 深空探测器轨迹线：仅指针悬停高亮（键盘导航不含探测器）
+    for (const [id, material] of this.trajectoryMaterials) {
+      const active = id === this.hoveredId
+      const targetOpacity = active ? PROBE_TRAJECTORY_OPACITY_HOVER : PROBE_TRAJECTORY_OPACITY_DEFAULT
+      material.opacity += (targetOpacity - material.opacity) * factor
+    }
+  }
+
+  // ---- 深空探测器 ----------------------------------------------------------
+
+  /** 设置深空探测器数据（SolarSystem.vue 挂载后 fetch 传入）：构建标记点、轨迹线与标签 */
+  setProbes(probes: ProbeData[]) {
+    // 清空旧数据并释放其资源（防御：重复调用时先移除旧对象）
+    for (const runtime of this.probeRuntimes.values()) {
+      this.scene.remove(runtime.marker)
+      runtime.marker.geometry.dispose()
+      ;(runtime.marker.material as THREE.Material).dispose()
+      if (runtime.trajectory) {
+        this.scene.remove(runtime.trajectory)
+        runtime.trajectory.geometry.dispose()
+        ;(runtime.trajectory.material as THREE.Material).dispose()
+      }
+    }
+    this.probeRuntimes.clear()
+    this.probeMeshes.length = 0
+    this.trajectoryMaterials.clear()
+
+    const tmp = { x: 0, z: 0 }
+    for (const data of probes) {
+      if (!data.positions || data.positions.length === 0) continue
+      const points: THREE.Vector3[] = []
+      const epochsMs: number[] = []
+      const aus: number[] = []
+      for (const p of data.positions) {
+        heliocentricToScene(p.x, p.y, p.z, tmp)
+        points.push(new THREE.Vector3(tmp.x, 0, tmp.z))
+        epochsMs.push(Date.parse(p.epoch))
+        aus.push(distanceAU(p.x, p.y, p.z))
+      }
+
+      const marker = new THREE.Mesh(
+        new THREE.SphereGeometry(PROBE_MARKER_RADIUS, 12, 12),
+        new THREE.MeshBasicMaterial({ color: data.color }),
+      )
+      marker.userData = { id: data.id }
+      marker.position.copy(points[0])
+      this.scene.add(marker)
+      this.probeMeshes.push(marker)
+
+      let trajectory: THREE.Line | null = null
+      if (points.length >= 2) {
+        const material = new THREE.LineBasicMaterial({
+          color: data.color,
+          transparent: true,
+          opacity: PROBE_TRAJECTORY_OPACITY_DEFAULT,
+        })
+        trajectory = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), material)
+        this.scene.add(trajectory)
+        this.trajectoryMaterials.set(data.id, material)
+      }
+
+      this.probeRuntimes.set(data.id, {
+        data,
+        points,
+        epochsMs,
+        aus,
+        current: points[0].clone(),
+        currentAU: aus[0] ?? 0,
+        currentEpochMs: epochsMs[0] ?? 0,
+        marker,
+        trajectory,
+      })
+    }
+    this.updateProbes()
+    this.updateLabels()
+  }
+
+  /** 深空探测器位置插值：按墙钟在采样点间线性插值（日粒度采样，视觉连续足够） */
+  private updateProbes() {
+    const now = Date.now()
+    for (const runtime of this.probeRuntimes.values()) {
+      const { epochsMs, points, aus } = runtime
+      const n = epochsMs.length
+      if (n === 0) continue
+      let lo = 0
+      let hi = n - 1
+      let t = 0
+      if (now <= epochsMs[0]) {
+        hi = 0
+      } else if (now >= epochsMs[n - 1]) {
+        lo = n - 1
+      } else {
+        while (lo + 1 < hi) {
+          const mid = (lo + hi) >> 1
+          if (epochsMs[mid] <= now) lo = mid
+          else hi = mid
+        }
+        t = (now - epochsMs[lo]) / (epochsMs[hi] - epochsMs[lo])
+      }
+      runtime.current.copy(points[lo])
+      if (hi !== lo) runtime.current.lerp(points[hi], t)
+      runtime.currentAU = aus[lo] + (hi === lo ? 0 : (aus[hi] - aus[lo]) * t)
+      runtime.currentEpochMs = epochsMs[lo]
+      runtime.marker.position.copy(runtime.current)
+    }
+  }
+
+  /** 探测器当前距日（AU）与参考历元（信息面板用）；无数据返回 null */
+  getProbeInfo(id: string): { distAU: number; epochMs: number } | null {
+    const runtime = this.probeRuntimes.get(id)
+    if (!runtime || runtime.epochsMs.length === 0) return null
+    return { distAU: runtime.currentAU, epochMs: runtime.currentEpochMs }
   }
 
   // ---- 标签投影 ----------------------------------------------------------
@@ -850,6 +1022,10 @@ export class SolarSystemScene {
     if (this.moonAnchor) {
       const world = this.moonAnchor.getWorldPosition(this.tempWorldB)
       labels.push(this.projectLabel('planet', 'moon', world, MOON.radius, width, height, halfFovTan))
+    }
+
+    for (const runtime of this.probeRuntimes.values()) {
+      labels.push(this.projectLabel('probe', runtime.data.id, runtime.current, PROBE_MARKER_RADIUS, width, height, halfFovTan))
     }
 
     for (const anchor of this.beltAnchors) {
@@ -1262,7 +1438,7 @@ export class SolarSystemScene {
       -((event.clientY - bounds.top) / bounds.height) * 2 + 1,
     )
     this.raycaster.setFromCamera(this.pointer, this.camera)
-    const hits = this.raycaster.intersectObjects([this.sunMesh, ...this.planetMeshes])
+    const hits = this.raycaster.intersectObjects([this.sunMesh, ...this.planetMeshes, ...this.probeMeshes])
     return (hits[0]?.object.userData.id as string | undefined) ?? null
   }
 
@@ -1275,7 +1451,10 @@ export class SolarSystemScene {
     this.renderer.domElement.style.cursor = 'grab'
     if (this.pointerStart.distanceTo(new THREE.Vector2(event.clientX, event.clientY)) > 5) return
     const id = this.raycastFromPointer(event)
-    if (id) this.callbacks.onSelect(id)
+    if (id) {
+      if (this.probeRuntimes.has(id)) this.callbacks.onProbeSelect?.(id)
+      else this.callbacks.onSelect(id)
+    }
   }
 
   private onPointerMove = (event: PointerEvent) => {

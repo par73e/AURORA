@@ -137,3 +137,22 @@ export interface SceneLayers {
   orbits: boolean
   sites: boolean
 }
+
+/** 深空探测器（来自 /api/v1/voyage/probes，VOYAGE 太阳系标注） */
+export interface DeepSpaceProbe {
+  id: string
+  nameZh: string
+  nameEn: string
+  operatorName: string
+  launchDate: string
+  missionType: string
+  target: string
+  description: string
+  precisionGrade: string
+  color: string
+  sortOrder: number
+  /** 最近一次 JPL Horizons 同步时间（无采样时为空） */
+  syncedAt?: string
+  /** 日心黄道位置采样（km，按时间升序，±90 天窗口） */
+  positions: Array<{ epoch: string; x: number; y: number; z: number }>
+}
