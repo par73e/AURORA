@@ -55,6 +55,8 @@ export interface SolarLabel {
   /** 屏幕上的物体半径（像素），用于把标签放在轮廓之外 */
   radiusPx: number
   visible: boolean
+  /** 标签不透明度（入场推镜驱动淡入） */
+  opacity: number
 }
 
 export interface SolarSceneCallbacks {
@@ -222,6 +224,10 @@ export class SolarSystemScene {
   } | null = null
   /** 用户是否已主动拖拽/缩放（之后 resize 保留其视角，不再重置构图） */
   private userInteracted = false
+  /** 入场推镜缓动进度（0→1，驱动标签淡入）；非入场推镜时为 null */
+  private entryFlyEased: number | null = null
+  /** 待触发的入场推镜（容器尺寸就绪后启动，防首帧尺寸为 0） */
+  private pendingEntryFly: { delayMs: number } | null = null
   /** 飞向地球的镜头动画状态（三次贝塞尔路径：P0 → P1 → P2 → P3，控制点抬升避开火星） */
   private flyState: {
     p0: THREE.Vector3

@@ -10,6 +10,10 @@ export interface Spacecraft {
   sourceUrl: string
   orbitEpoch: string
   orbitSyncedAt: string
+  /** 发射信息（API 可选返回） */
+  launchDate?: string
+  launchSite?: string
+  launchVehicle?: string
   omm: Record<string, string | number>
 }
 

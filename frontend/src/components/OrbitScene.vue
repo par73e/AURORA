@@ -144,7 +144,7 @@ function formatEpochUTC(iso: string) {
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC`
 }
 
-function orbitPeriodText(meanMotion: string) {
+function orbitPeriodText(meanMotion: string | number) {
   const mm = Number(meanMotion)
   if (!Number.isFinite(mm) || mm <= 0) return '—'
   return `${(1440 / mm).toFixed(1)} 分钟`

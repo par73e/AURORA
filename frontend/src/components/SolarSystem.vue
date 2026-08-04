@@ -171,8 +171,14 @@ onMounted(() => {
         probeOrbit.value = null
       },
       onSelect: choosePlanet,
-      onFlyZoom: () => emit(moonFlight ? 'moon-fly-zoom' : 'earth-fly-zoom'),
-      onFlyComplete: () => emit(moonFlight ? 'select-moon' : 'select-earth'),
+      onFlyZoom: () => {
+        if (moonFlight) emit('moon-fly-zoom')
+        else emit('earth-fly-zoom')
+      },
+      onFlyComplete: () => {
+        if (moonFlight) emit('select-moon')
+        else emit('select-earth')
+      },
     },
     (next) => {
       labels.value = next
