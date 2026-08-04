@@ -48,6 +48,13 @@ interface PlanetRuntime {
 
 const DEG = Math.PI / 180
 
+/** 轨道线样式：默认所有轨道同一亮度（暗淡），悬停某颗行星时该行星的轨道线变亮；
+ *  太阳/月球没有轨道线（月球是卫星，不画独立轨道） */
+const ORBIT_COLOR_DEFAULT = new THREE.Color(0x69b0d3)
+const ORBIT_COLOR_HOVER = new THREE.Color(0xa9e2ff)
+const ORBIT_OPACITY_DEFAULT = 0.4
+const ORBIT_OPACITY_HOVER = 0.95
+
 /** 拉远上限 = 当前构图距离的 32 倍（限制最小缩小比例；原 Infinity） */
 const MAX_ZOOM_OUT_FACTOR = 32
 
@@ -139,6 +146,10 @@ export class SolarSystemScene {
   /** 太阳系构图模式：aligned = 一字排布（小行星带锚定视角）；real = 真实公转位置（太阳居中视角） */
   private compositionMode: 'aligned' | 'real' = 'aligned'
   private hoveredId: string | null = null
+  /** 各行星轨道线的材质（悬停该行星时轨道线变亮，其余保持暗淡） */
+  private orbitMaterials = new Map<string, THREE.LineBasicMaterial>()
+  /** 键盘导航（←/→）选中的目标 id；指针悬停优先于键盘选中（hoveredId ?? selectedId） */
+  private selectedId: string | null = null
   /** 每颗行星当前展示的轨道角度（弧度，黄道面 XZ 平面，0 = +x） */
   private planetAngles = new Map<string, number>()
   /** 行星角度动画（先加速后减速） */
@@ -321,18 +332,17 @@ export class SolarSystemScene {
         const theta = (i / 160) * Math.PI * 2
         points.push(new THREE.Vector3(Math.cos(theta) * spec.orbitRadius, 0, Math.sin(theta) * spec.orbitRadius))
       }
-      const isEarth = spec.id === 'earth'
-      const orbitLine = new THREE.LineLoop(
-        new THREE.BufferGeometry().setFromPoints(points),
-        new THREE.LineBasicMaterial({
-          color: isEarth ? 0x6fd2ed : 0x69b0d3,
-          transparent: true,
-          opacity: isEarth ? 0.62 : 0.4,
-        }),
-      )
+      // 所有轨道线默认同一亮度；悬停某颗行星时该轨道线变亮（updateOrbitHighlights 每帧缓动）
+      const material = new THREE.LineBasicMaterial({
+        color: ORBIT_COLOR_DEFAULT.clone(), // 每颗行星独立 Color 实例，避免 lerp 互相污染
+        transparent: true,
+        opacity: ORBIT_OPACITY_DEFAULT,
+      })
+      const orbitLine = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(points), material)
       orbitLine.userData = { id: spec.id }
+      this.orbitMaterials.set(spec.id, material)
       this.scene.add(orbitLine)
-      this.disposables.push(orbitLine.geometry, orbitLine.material as THREE.Material)
+      this.disposables.push(orbitLine.geometry, material)
     }
   }
 
@@ -711,7 +721,8 @@ export class SolarSystemScene {
   }
 
   private tick() {
-    const delta = Math.min(this.clock.getDelta(), 0.05) * this.timeScale
+    const rawDelta = Math.min(this.clock.getDelta(), 0.05)
+    const delta = rawDelta * this.timeScale
     this.elapsed += delta
 
     this.sunMesh.rotation.y += (Math.PI * 2 / SUN_ROTATION_SECONDS) * delta
@@ -771,10 +782,27 @@ export class SolarSystemScene {
       this.controls.panSpeed = THREE.MathUtils.clamp(this.fitDistance / Math.max(dist, 4), 0.4, 6)
     }
     this.controls.update()
+    // 轨道线悬停高亮：悬停行星的轨道每帧向高亮样式缓动，其余回到暗淡
+    this.updateOrbitHighlights(rawDelta)
     // 同步注视点：平移会移动 controls.target，标签与 resize 逻辑依赖 lookAt
     this.lookAt.copy(this.controls.target)
     this.updateLabels()
     this.renderer.render(this.scene, this.camera)
+  }
+
+  /** 轨道线悬停高亮：悬停行星的轨道线变亮、其余保持暗淡。
+   *  每帧按 rawDelta 指数缓动（与时间缩放无关）；reduced-motion 下直接切换（同 veil 处理） */
+  private updateOrbitHighlights(rawDelta: number) {
+    // 悬停优先于键盘选中：指针在某颗行星上时高亮跟随指针；指针离开后回到键盘选中的目标
+    const highlightId = this.hoveredId ?? this.selectedId
+    // timeScale 为 0（系统减弱动态效果）：不做缓动，状态直接切换
+    const factor = this.timeScale === 0 ? 1 : 1 - Math.exp(-rawDelta * 10)
+    for (const [id, material] of this.orbitMaterials) {
+      const active = id === highlightId
+      const targetOpacity = active ? ORBIT_OPACITY_HOVER : ORBIT_OPACITY_DEFAULT
+      material.opacity += (targetOpacity - material.opacity) * factor
+      material.color.lerp(active ? ORBIT_COLOR_HOVER : ORBIT_COLOR_DEFAULT, factor)
+    }
   }
 
   // ---- 标签投影 ----------------------------------------------------------
@@ -1266,6 +1294,11 @@ export class SolarSystemScene {
       this.hoveredId = null
       this.callbacks.onHover(null)
     }
+  }
+
+  /** 设置键盘导航选中的目标（←/→ 切换时由组件调用）；仅作为高亮来源，不改指针状态 */
+  setSelected(id: string | null) {
+    this.selectedId = id
   }
 
   private onMotionChange = (event: MediaQueryListEvent) => {

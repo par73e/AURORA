@@ -150,10 +150,14 @@ function onKeydown(event: KeyboardEvent) {
     // 右箭头 = 向内侧（水星方向）
     event.preventDefault()
     activeId.value = SELECTION_ORDER[(index - 1 + SELECTION_ORDER.length) % SELECTION_ORDER.length]
+    // 方向键选中同样点亮对应行星的轨道线（scene 内指针悬停优先于键盘选中）
+    scene?.setSelected(activeId.value)
   } else if (event.key === 'ArrowLeft') {
     // 左箭头 = 向外侧（海王星方向）
     event.preventDefault()
     activeId.value = SELECTION_ORDER[(index + 1) % SELECTION_ORDER.length]
+    // 方向键选中同样点亮对应行星的轨道线（scene 内指针悬停优先于键盘选中）
+    scene?.setSelected(activeId.value)
   } else if (event.key === 'Enter') {
     if (activeId.value === 'earth') choosePlanet('earth')
     else if (activeId.value === 'moon') choosePlanet('moon')
