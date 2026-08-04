@@ -215,7 +215,9 @@ let sunLight: THREE.DirectionalLight | undefined
 let nightLightsMaterial: THREE.ShaderMaterial | undefined
 const markerObjects = new Map<string, THREE.Object3D>()
 /** 轨道线（含近地标志）：默认只显示 LEO/SSO，选中/悬停时点亮任意飞行器的轨道 */
-const lineObjects = new Map<string, { line: THREE.Line; near: boolean }>()
+const lineObjects = new Map<string, { line: THREE.Line; near: boolean; isActive: boolean }>()
+/** 轨道采样缓存（15 分钟桶）：选中重建时免重复 SGP4 采样（24 颗 × 121 次传播→缓存命中一次） */
+const orbitSampleCache = new Map<string, { at: number; points: THREE.Vector3[] }>()
 const raycaster = new THREE.Raycaster()
 /** 标记点距离补偿临时向量（每帧复用，避免分配） */
 const markerScaleTmp = new THREE.Vector3()
@@ -379,6 +381,16 @@ function disposeGroup(group?: THREE.Group) {
   group.parent?.remove(group)
 }
 
+/** 轨道采样缓存读取：15 分钟桶内复用（选中重建时免重复 SGP4 采样） */
+function cachedOrbitPoints(craft: Spacecraft, now: Date): THREE.Vector3[] {
+  const bucket = Math.floor(now.getTime() / 900_000)
+  const hit = orbitSampleCache.get(craft.id)
+  if (hit && hit.at === bucket) return hit.points
+  const points = sampleOrbit(craft, now)
+  orbitSampleCache.set(craft.id, { at: bucket, points })
+  return points
+}
+
 function markerMaterial(color: number, selected: boolean) {
   return new THREE.MeshBasicMaterial({
     color,
@@ -423,12 +435,13 @@ function rebuildDataLayers() {
     // （LEO/SSO 贴地圆环视觉干净）；MEO/GEO/HEO 轨道在近地视角横穿或溢出画面
     // （"错乱线"），平时隐藏——选中（悬停/点击）时临时点亮作为醒目提醒
     const near = craft.category?.startsWith('LEO') || craft.category?.startsWith('SSO')
+    const isActive = activeKey.value === key
     const line = new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints(sampleOrbit(craft, now)),
-      new THREE.LineBasicMaterial({ color: 0x42b7e8, transparent: true, opacity: activeKey.value === key ? 0.95 : 0.22 }),
+      new THREE.BufferGeometry().setFromPoints(cachedOrbitPoints(craft, now)),
+      new THREE.LineBasicMaterial({ color: isActive ? 0x8eeaff : 0x42b7e8, transparent: true, opacity: isActive ? 0.95 : 0.22 }),
     )
-    line.visible = near || activeKey.value === key
-    lineObjects.set(key, { line, near })
+    line.visible = near || isActive
+    lineObjects.set(key, { line, near, isActive })
     orbitGroup.add(line)
   }
 
@@ -861,6 +874,8 @@ function resize() {
 }
 
 function onPointerDown(event: PointerEvent) {
+  // 按下即清悬停：避免拖拽期间残留点亮；点击选中由 selectionKey 继续驱动高亮
+  hoveredSpacecraftId.value = null
   pointerStart.set(event.clientX, event.clientY)
   pointerViewChangeAnnounced = false
   // 按下瞬间：按在地球上 → 立即收起页头（拖拽中页头不应遮挡操作）
@@ -1024,11 +1039,15 @@ function animate(time = 0) {
     }
     for (const [key, entry] of lineObjects) {
       const isActive = activeKey.value === key
-      entry.line.visible = entry.near || isActive
-      const material = entry.line.material as THREE.LineBasicMaterial
-      // 选中：轨道线全亮 + 提亮色（醒目提醒）；未选中回落到近地轨道常显淡色
-      material.opacity = isActive ? 0.95 : 0.22
-      material.color.set(isActive ? 0x8eeaff : 0x42b7e8)
+      const show = entry.near || isActive
+      if (entry.line.visible !== show) entry.line.visible = show
+      // 仅状态变化时写材质（避免每帧 color.set 触发渲染失效）
+      if (entry.isActive !== isActive) {
+        entry.isActive = isActive
+        const material = entry.line.material as THREE.LineBasicMaterial
+        material.opacity = isActive ? 0.95 : 0.22
+        material.color.set(isActive ? 0x8eeaff : 0x42b7e8)
+      }
     }
     if (observerMarker) {
       const d = observerMarker.getWorldPosition(markerScaleTmp).distanceTo(camera.position)
