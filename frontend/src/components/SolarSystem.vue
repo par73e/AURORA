@@ -238,8 +238,12 @@ function onKeydown(event: KeyboardEvent) {
   }
 }
 
-/** 复位视角：恢复到默认的斜俯视构图（由页头太阳系图标触发） */
+/** 复位视角：恢复到当前模式的默认构图（一字排开 → 小行星带锚定；真实位置 → 太阳居中），
+ *  同时清掉探测器选中状态（由页头图标/重置按钮触发） */
 function resetView() {
+  selectedProbe.value = null
+  probeDistAU.value = null
+  scene?.clearProbeSelection()
   scene?.resetView()
 }
 
@@ -341,8 +345,10 @@ defineExpose({ resetView })
         <div><dt>数据</dt><dd>JPL Horizons · {{ formatSyncTime(selectedProbe.syncedAt) }}</dd></div>
       </dl>
       <p class="probe-panel-desc">{{ selectedProbe.description }}</p>
-      <p class="probe-panel-note">位置来自 JPL Horizons 星历；距离与尺度为示意压缩{{ selectedProbe.orbitKind === 'ellipse' ? '，轨道线为拟合椭圆' : '' }}</p>
+      <p class="probe-panel-note">位置来自 JPL Horizons 星历</p>
     </aside>
+
+    <button class="reset-view" type="button" @click="resetView">重置</button>
 
     <button class="position-toggle" type="button" @click="togglePositions">
       <i :class="{ real: !alignedPositions }" aria-hidden="true" />
@@ -530,7 +536,8 @@ defineExpose({ resetView })
 .probe-panel-desc { margin: 0 0 10px; color: rgba(178, 200, 212, .82); font-size: 11px; line-height: 1.7; }
 .probe-panel-note { margin: 0; color: rgba(100, 128, 144, .6); font: 400 8px var(--font-mono); letter-spacing: .04em; }
 
-.position-toggle {
+.position-toggle,
+.reset-view {
   position: absolute;
   z-index: 8;
   right: 32px;
@@ -549,7 +556,11 @@ defineExpose({ resetView })
   transition: border-color .2s, color .2s, background .2s;
   backdrop-filter: blur(12px);
 }
-.position-toggle:hover {
+.reset-view {
+  bottom: 118px; /* 位于"显示行星当前位置"上方 */
+}
+.position-toggle:hover,
+.reset-view:hover {
   border-color: rgba(114, 215, 255, .4);
   background: rgba(3, 9, 15, .92);
   color: #d8e9f2;
@@ -593,5 +604,6 @@ defineExpose({ resetView })
   .solar-readout { left: 24px; }
   .solar-credits { right: 24px; }
 .position-toggle { right: 24px; }
+.reset-view { right: 24px; }
 }
 </style>
