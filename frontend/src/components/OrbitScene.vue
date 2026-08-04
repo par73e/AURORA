@@ -396,9 +396,9 @@ function disposeGroup(group?: THREE.Group) {
   group.parent?.remove(group)
 }
 
-/** 轨道采样缓存读取：15 分钟桶内复用（选中重建时免重复 SGP4 采样） */
+/** 轨道采样缓存读取：1 分钟桶内复用（选中重建时免重复 SGP4 采样；环的参考 GMST 离当前 ≤1 分钟） */
 function cachedOrbitPoints(craft: Spacecraft, now: Date): THREE.Vector3[] {
-  const bucket = Math.floor(now.getTime() / 900_000)
+  const bucket = Math.floor(now.getTime() / 60_000)
   const hit = orbitSampleCache.get(craft.id)
   if (hit && hit.at === bucket) return hit.points
   const points = sampleOrbit(craft, now)

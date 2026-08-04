@@ -39,13 +39,15 @@ function exaggeratedAltitude(altitudeKm: number): number {
   return compressed * ALTITUDE_EXAGGERATION
 }
 
-export function spacecraftPoint(spacecraft: Spacecraft, date: Date): OrbitalPoint | null {
+export function spacecraftPoint(spacecraft: Spacecraft, date: Date, referenceGmst?: number): OrbitalPoint | null {
   try {
     const satrec = json2satrec(spacecraft.omm as never)
     const state = propagate(satrec, date)
     if (!state || !state.position || typeof state.position === 'boolean') return null
 
-    const geo = eciToGeodetic(state.position, gstime(date))
+    // referenceGmst 提供时用固定参考帧（画轨道环）：逐样本用自身 gmst 会把地球自转混进
+    // 采样，一个周期后端点错开 ~ω·P（ISS 约 23°）环不闭合；固定帧下环=真实惯性轨道（闭合）
+    const geo = eciToGeodetic(state.position, referenceGmst ?? gstime(date))
     const latitude = THREE.MathUtils.radToDeg(geo.latitude)
     const longitude = THREE.MathUtils.radToDeg(geo.longitude)
     const altitudeKm = Math.max(0, geo.height)
@@ -61,14 +63,15 @@ export function sampleOrbit(spacecraft: Spacecraft, center: Date) {
   const meanMotion = Number(spacecraft.omm.MEAN_MOTION) || 15
   const periodMinutes = 1440 / meanMotion
   const samples = 120
+  // 固定参考 GMST（中心时刻）：整个轨道环画在场景固定坐标系（≈中心时刻地球固连系），
+  // 环 = 真实惯性轨道，端点仅差 J2 进动（~0.3°）；补首点闭合
+  const referenceGmst = gstime(center)
 
   for (let index = 0; index <= samples; index += 1) {
     const offsetMinutes = (index / samples - 0.5) * periodMinutes
-    const point = spacecraftPoint(spacecraft, new Date(center.getTime() + offsetMinutes * 60_000))
+    const point = spacecraftPoint(spacecraft, new Date(center.getTime() + offsetMinutes * 60_000), referenceGmst)
     if (point) points.push(point.position)
   }
-  // 强制闭合：真实 SGP4 含 J2 进动（一个周期内轨道面/拱线漂移），±半周期两个端点
-  // 不在同一位置，直接连线会留下开口；补首点使轨道环首尾相连（视觉闭合，开口极小）
   if (points.length > 2) points.push(points[0].clone())
   return points
 }
