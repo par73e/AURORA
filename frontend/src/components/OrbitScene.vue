@@ -412,11 +412,16 @@ function rebuildDataLayers() {
     spacecraftGroup.add(marker)
     markerObjects.set(key, marker)
 
-    const line = new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints(sampleOrbit(craft, now)),
-      new THREE.LineBasicMaterial({ color: 0x42b7e8, transparent: true, opacity: selected ? 0.68 : 0.22 }),
-    )
-    orbitGroup.add(line)
+    // GNSS 星座代表星（GPS/伽利略/北斗）不画轨道线：MEO 轨道（a≈26000km、倾角 55°）
+    // 在 LEO 视角下横穿画面即"错乱线"；保留真实位置标记 + 标签 + 面板（与太阳系
+    // 探测器"不画轨迹"同思路）
+    if (!craft.category?.includes('GNSS')) {
+      const line = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(sampleOrbit(craft, now)),
+        new THREE.LineBasicMaterial({ color: 0x42b7e8, transparent: true, opacity: selected ? 0.68 : 0.22 }),
+      )
+      orbitGroup.add(line)
+    }
   }
 
   for (const site of props.sites) {

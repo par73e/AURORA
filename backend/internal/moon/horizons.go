@@ -20,11 +20,11 @@ const (
 )
 
 // Horizons 支持的月球飞行器 NAIF ID 映射（月心坐标）。
-// LRO 的 NASA NAIF ID 为 -850，但 Horizons 中须用 -85（-850 会报 No such record）；
-// CAPSTONE（-1176）任务已于 2026-07 结束，星历不再更新——仍在映射内，无数据时由同步器跳过。
+// LRO 的 NASA NAIF ID 为 -850，但 Horizons 中须用 -85（-850 会报 No such record）。
+// CAPSTONE 的 NRHO 半长轴（~42300km）经月面尺度夸张后达 ~185 单位，无法合理显示，
+// 故其不用实时根数、回退静态 NRHO 示意轨道。
 var moonNAIFByID = map[string]string{
-	"lro":           "-85", // LRO：NASA NAIF -850，Horizons 中须用 -85
-	"capstone":      "-1176",
+	"lro":           "-85",
 	"chandrayaan-2": "-152", // 月船2号轨道器（在役，2026 数据实测可用）
 }
 
