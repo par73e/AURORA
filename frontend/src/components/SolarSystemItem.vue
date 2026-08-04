@@ -1,4 +1,3 @@
-<!-- SolarSystemItem.vue -->
 <template>
   <button
     class="solar-system-item"
@@ -41,7 +40,7 @@
   </button>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed } from 'vue'
 
 const props = defineProps({

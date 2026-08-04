@@ -632,7 +632,8 @@ onMounted(() => {
     const elementsFadeNow = updateElementsFade()
     updateMoonSpin(now)
     for (const runtime of craftRuntimes) {
-      const dotMat = runtime.dot.children[0]?.material as THREE.MeshBasicMaterial | undefined
+      const dotChild = runtime.dot.children[0] as THREE.Mesh | undefined
+      const dotMat = dotChild?.material as THREE.MeshBasicMaterial | undefined
       if (dotMat) dotMat.opacity = elementsFadeNow
       if (runtime.line) (runtime.line.material as THREE.LineBasicMaterial).opacity = 0.5 * elementsFadeNow
       // 部分透视补偿（远小近大、不过度）：scale = (d/基准)^0.6；
@@ -827,7 +828,7 @@ function updateSiteMarkerProximity() {
     if (!marker) continue
     const world = marker.getWorldPosition(focusTmp)
     const d = world.distanceTo(camera.position)
-    const material = marker.material as THREE.MeshBasicMaterial
+    const material = (marker as THREE.Mesh).material as THREE.MeshBasicMaterial
     // 距离透明度（远处 70% 半透明、放大后实色）× 统一元素淡入淡出（进入一次性浮现 / 退出一次性消失）
     material.opacity = distOpacity(d) * elementsFade
     // 部分透视补偿（远小近大、不过度）：k=0.6；去掉原"贴面微缩"（近处缩小的观感反物理）
@@ -854,6 +855,19 @@ function siteGlyph(icon: 'astronaut' | 'lander' | 'rover' | 'sample') {
 // 晨昏线开关（镜像地球 applyDayNightMode）：
 // 关闭 = 观测光(相机方向) 3.1 + 太阳光 0 → 360° 全亮；
 // 打开 = 太阳光 3.1 + 观测光 0 → 真实阴影
+
+/** 真实太阳方向（镜像地球页 updateSun）：按当前日期/时刻计算太阳在月面坐标系
+ *  中的方向（北 = +y），用于晨昏线/月相——严格按时间，每天月相不同 */
+function realSunDirection(): THREE.Vector3 {
+  const now = new Date()
+  const yearStart = Date.UTC(now.getUTCFullYear(), 0, 0)
+  const dayOfYear = Math.floor((now.getTime() - yearStart) / 86_400_000)
+  const declination = 23.44 * Math.sin(DEG * ((360 / 365) * (dayOfYear - 81)))
+  const utcHours = now.getUTCHours() + now.getUTCMinutes() / 60 + now.getUTCSeconds() / 3600
+  const subsolarLongitude = 180 - utcHours * 15
+  return sitePosition(declination, subsolarLongitude, 10)
+}
+
 watch(terminatorEnabled, (enabled) => {
   if (!observationLight || !sunLight) return
   observationLight.intensity = enabled ? 0 : 3.1

@@ -280,6 +280,8 @@ function scheduleHideAll(duration: number) {
   const entries: RevealEntry[] = []
   const hide = (object: THREE.Object3D | undefined) => {
     if (!object) return
+    const snapshot = hideSnapshot
+    if (!snapshot) return
     object.traverse((child) => {
       const material = (child as THREE.Mesh).material
       if (!material) return
@@ -288,7 +290,7 @@ function scheduleHideAll(duration: number) {
         const wasTransparent = item.transparent
         if (!wasTransparent) item.transparent = true
         const from = revealTo.get(item) ?? item.opacity
-        hideSnapshot.push({ material: item, from, restoreTransparent: !wasTransparent })
+        snapshot.push({ material: item, from, restoreTransparent: !wasTransparent })
         entries.push({ material: item, from, to: 0, restoreTransparent: false })
       }
     })
@@ -333,9 +335,9 @@ function scheduleRevealLayers() {
   }, delay)
   // 航天器/发射场/观测标记的隐藏与淡入由每帧 elementsFadeNow 统一驱动（含距离透明度），
   // 不再进 revealTasks——避免两套写入互相覆盖
-  scheduleReveal(axisGuide, delay, duration)
+  if (axisGuide) scheduleReveal(axisGuide, delay, duration)
   for (const tip of poleTips) scheduleReveal(tip, delay, duration)
-  scheduleReveal(eclipticGuide, delay, duration)
+  if (eclipticGuide) scheduleReveal(eclipticGuide, delay, duration)
   if (orbitGroup) scheduleReveal(orbitGroup, delay, duration)
 }
 
@@ -450,7 +452,7 @@ function updateSpacecraftPositions(now: Date) {
 function rebuildObserverMarker() {
   disposeGroup(observerMarker)
   observerMarker = undefined
-  if (!earthSystemGroup || !props.observerTarget) return
+  if (!earthSystemGroup || !props.observerTarget || !spinGroup) return
 
   const position = latLonToVector(
     props.observerTarget.latitude,

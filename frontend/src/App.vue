@@ -975,7 +975,7 @@ onBeforeUnmount(() => {
           <div class="header-left">
             <!-- 不 prevent：让浏览器原生执行 href="#home" fragment 导航（该环境禁止 JS 导航 API，
                  但原生同文档 hash 跳转不受限——导航栏链接一直可用即证明）；returnToCover 负责过渡动画 -->
-            <a class="brand" href="#home" aria-label="返回 AURORA 封面" @click="returnToCover">
+            <a class="brand" href="#home" aria-label="返回 AURORA 封面" @click="() => returnToCover()">
               <span class="brand-mark"><i /><i /><i /></span>
               <span><strong>AURORA</strong><small>ORBITAL OBSERVATORY</small></span>
             </a>
