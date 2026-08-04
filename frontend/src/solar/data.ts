@@ -157,10 +157,10 @@ export const VIEW = {
   /** 视角中心（小行星带）锚定位置：水平居中、垂直略偏上（整体上移） */
   anchorScreenX: 0.5,
   anchorScreenY: 0.45,
-  /** 真实位置模式：太阳锚定位置（屏幕从上往下比例；0.35 = 从下往上 65%） */
-  realAnchorScreenY: 0.35,
-  /** 真实位置模式：水平边距系数（1.0 = 边界刚好到达柯伊伯带外缘） */
-  realFitMargin: 1.0,
+  /** 真实位置模式：太阳锚定位置（屏幕从上往下比例；0.40 = 画面下拉、太阳更低） */
+  realAnchorScreenY: 0.40,
+  /** 真实位置模式：水平边距系数（0.88 = 放大拉近，柯伊伯带外缘/海王星轨道部分出屏） */
+  realFitMargin: 0.88,
 }
 
 export const SUN = {
