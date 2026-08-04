@@ -216,6 +216,8 @@ let nightLightsMaterial: THREE.ShaderMaterial | undefined
 const markerObjects = new Map<string, THREE.Object3D>()
 /** 轨道线（含近地标志）：默认只显示 LEO/SSO，选中/悬停时点亮任意飞行器的轨道 */
 const lineObjects = new Map<string, { line: THREE.Line; near: boolean; isActive: boolean }>()
+/** 悬停命中球（不可见放大版，标记的子节点）：让"鼠标放上去"更易触发高亮预览 */
+const hoverTargets = new Map<string, THREE.Mesh>()
 /** 轨道采样缓存（15 分钟桶）：选中重建时免重复 SGP4 采样（24 颗 × 121 次传播→缓存命中一次） */
 const orbitSampleCache = new Map<string, { at: number; points: THREE.Vector3[] }>()
 const raycaster = new THREE.Raycaster()
@@ -403,6 +405,7 @@ function markerMaterial(color: number, selected: boolean) {
 function rebuildDataLayers() {
   if (!earthSystemGroup || !spinGroup) return
   markerObjects.clear()
+  hoverTargets.clear()
   lineObjects.clear()
   disposeGroup(spacecraftGroup)
   disposeGroup(orbitGroup)
@@ -430,6 +433,15 @@ function rebuildDataLayers() {
     marker.userData = { kind: 'spacecraft', id: craft.id }
     spacecraftGroup.add(marker)
     markerObjects.set(key, marker)
+
+    // 不可见放大命中球（标记子节点，继承位置/缩放）：悬停预览的宽容目标，视觉不渲染
+    const hit = new THREE.Mesh(
+      new THREE.SphereGeometry(0.15, 8, 8),
+      new THREE.MeshBasicMaterial({ visible: false }),
+    )
+    hit.userData = { kind: 'spacecraft', id: craft.id }
+    marker.add(hit)
+    hoverTargets.set(key, hit)
 
     // 轨道线：全部飞行器都按真实 TLE 采样（显示半径压缩）；默认只显示近地轨道
     // （LEO/SSO 贴地圆环视觉干净）；MEO/GEO/HEO 轨道在近地视角横穿或溢出画面
@@ -907,7 +919,7 @@ function onPointerMove(event: PointerEvent) {
     const bounds = renderer.domElement.getBoundingClientRect()
     pointer.set(((event.clientX - bounds.left) / bounds.width) * 2 - 1, -((event.clientY - bounds.top) / bounds.height) * 2 + 1)
     raycaster.setFromCamera(pointer, camera)
-    const hovered = raycaster.intersectObjects([...markerObjects.values()])[0]?.object.userData as
+    const hovered = raycaster.intersectObjects([...hoverTargets.values(), ...markerObjects.values()])[0]?.object.userData as
       | { kind?: 'spacecraft'; id?: string }
       | undefined
     hoveredSpacecraftId.value = hovered?.kind === 'spacecraft' && hovered.id ? hovered.id : null
