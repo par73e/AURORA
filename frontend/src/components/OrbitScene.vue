@@ -210,6 +210,7 @@ let poleTips: THREE.Mesh[] = []
 let eclipticGuide: THREE.LineLoop | undefined
 let spacecraftGroup: THREE.Group | undefined
 let orbitGroup: THREE.Group | undefined
+let observatoryGroup: THREE.Group | undefined
 let siteGroup: THREE.Group | undefined
 let observerMarker: THREE.Group | undefined
 let earth: THREE.Mesh | undefined
@@ -421,6 +422,7 @@ function rebuildDataLayers() {
   lineObjects.clear()
   disposeGroup(spacecraftGroup)
   disposeGroup(orbitGroup)
+  disposeGroup(observatoryGroup)
   disposeGroup(siteGroup)
 
   spacecraftGroup = new THREE.Group()
@@ -471,6 +473,7 @@ function rebuildDataLayers() {
   }
 
   // 空间天文台（非地球轨道）：外圈示意条目，位置由 App 按真实 JPL 方向计算（见 observatories prop）
+  // 挂场景级组（不随地球轴倾旋转——方向已含轴倾，双倾会偏离真实反日点）
   for (const obs of props.observatories ?? []) {
     const key = `observatory:${obs.id}`
     const marker = new THREE.Mesh(
@@ -479,7 +482,7 @@ function rebuildDataLayers() {
     )
     marker.position.set(obs.position.x, obs.position.y, obs.position.z)
     marker.userData = { kind: 'observatory', id: obs.id }
-    spacecraftGroup.add(marker)
+    observatoryGroup?.add(marker)
     markerObjects.set(key, marker)
 
     const hit = new THREE.Mesh(
@@ -509,6 +512,7 @@ function rebuildDataLayers() {
   spacecraftGroup.visible = props.layers.spacecraft
   orbitGroup.visible = props.layers.orbits
   siteGroup.visible = props.layers.sites
+  if (observatoryGroup) observatoryGroup.visible = props.layers.spacecraft
 }
 
 function updateSpacecraftPositions(now: Date) {
@@ -664,6 +668,8 @@ function setupScene() {
   earthSystemGroup.name = 'earth-equatorial-frame'
   earthSystemGroup.quaternion.copy(EARTH_TILT)
   scene.add(earthSystemGroup)
+  observatoryGroup = new THREE.Group()
+  scene.add(observatoryGroup)
   // 自转参考系挂在倾斜参考系下：局部 Y = 自转轴（23.44° 倾角由父级承担）
   spinGroup = new THREE.Group()
   spinGroup.name = 'earth-spin-frame'
@@ -1146,7 +1152,7 @@ function animate(time = 0) {
   if (scene && camera && renderer) renderer.render(scene, camera)
 }
 
-watch(() => [props.spacecraft, props.sites], async () => {
+watch(() => [props.spacecraft, props.sites, props.observatories], async () => {
   orbitSampleCache.clear() // TLE 刷新（同 id 新 omm）时清轨道采样缓存，避免 15 分钟桶内旧轨道
   await nextTick()
   rebuildDataLayers()
@@ -1156,6 +1162,7 @@ watch(() => props.layers, () => {
   if (spacecraftGroup) spacecraftGroup.visible = props.layers.spacecraft
   if (orbitGroup) orbitGroup.visible = props.layers.orbits
   if (siteGroup) siteGroup.visible = props.layers.sites
+  if (observatoryGroup) observatoryGroup.visible = props.layers.spacecraft
 }, { deep: true })
 
 watch(selectionKey, rebuildDataLayers)
