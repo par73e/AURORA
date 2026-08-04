@@ -511,6 +511,16 @@ export class SolarSystemScene {
     return (nu + spec.perihelionLongitudeDeg * DEG) % (Math.PI * 2)
   }
 
+  /** 当前时刻的月球真实黄经（Meeus 低精度公式：平黄经 + 主摄动项，~0.3° 精度），
+   *  映射到场景角度（+x = 春分点，与行星 realOrbitalAngle 同系） */
+  private realMoonAngle(): number {
+    const days = (Date.now() - SolarSystemScene.J2000_MS) / 86400000
+    const meanLongitude = 218.316 + 13.176396 * days // 月球平黄经（度）
+    const meanAnomaly = 134.963 + 13.064993 * days // 平近点角（度）
+    const lambda = meanLongitude + 6.289 * Math.sin(meanAnomaly * DEG) // e 主导的摄动主项
+    return (((lambda % 360) + 360) % 360) * DEG
+  }
+
   /** 切换到"真实公转位置"模式：行星转到位 + 月球滑入公转相位 + 镜头飞向太阳居中构图 */
   animateToRealPositions() {
     // 起始角取当前显示值（模式未翻转）；目标按目标模式显式传入
@@ -528,15 +538,13 @@ export class SolarSystemScene {
     this.flyToModeComposition()
   }
 
-  /** 月球角度过渡（easeOut）：起始角 = 当前显示值；目标按目标模式计算（真实 = 相位外推），走最短弧 */
+  /** 月球角度过渡（easeOut）：起始角 = 当前显示值；目标按目标模式计算（真实 = 当前真实月相），走最短弧 */
   private startMoonTransition(targetMode: 'aligned' | 'real') {
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     const duration = reduced ? 200 : 1600
     const from = this.currentMoonDisplayAngle()
-    const target =
-      targetMode === 'real'
-        ? this.moonAngle + (Math.PI * 2 / MOON.orbitSeconds) * (duration / 1000)
-        : Math.PI
+    // 真实模式目标 = 当前真实月相（最短弧滑入）；排布模式 = 视角左侧固定位
+    const target = targetMode === 'real' ? this.realMoonAngle() : Math.PI
     // 最短弧：差值归一化到 [-π, π]，避免相位累积导致的多圈倒退
     let delta = target - from
     delta = ((((delta + Math.PI) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) - Math.PI
@@ -560,6 +568,7 @@ export class SolarSystemScene {
       this.planetAngles.set(spec.id, this.realOrbitalAngle(spec))
       this.applyPlanetAngle(spec.id)
     }
+    this.moonAngle = this.realMoonAngle() // 月球同步到当前真实月相（此前保持 0，固定位置）
     this.angleAnimation = null
     const host = this.host
     const aspect = host.clientWidth / host.clientHeight
