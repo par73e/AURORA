@@ -165,6 +165,8 @@ function launchVehicleName(event: LaunchEvent) {
 }
 const textureState = ref<'loading' | 'ready' | 'fallback'>('loading')
 const pointerNearEarth = ref(false)
+/** 悬停选中的航天器（不触发展开/运镜，仅驱动高亮：标记+标签+轨道线联动） */
+const hoveredSpacecraftId = ref<string | null>(null)
 
 let renderer: THREE.WebGLRenderer | undefined
 let scene: THREE.Scene | undefined
@@ -212,6 +214,8 @@ let observationLight: THREE.DirectionalLight | undefined
 let sunLight: THREE.DirectionalLight | undefined
 let nightLightsMaterial: THREE.ShaderMaterial | undefined
 const markerObjects = new Map<string, THREE.Object3D>()
+/** 轨道线（含近地标志）：默认只显示 LEO/SSO，选中/悬停时点亮任意飞行器的轨道 */
+const lineObjects = new Map<string, { line: THREE.Line; near: boolean }>()
 const raycaster = new THREE.Raycaster()
 /** 标记点距离补偿临时向量（每帧复用，避免分配） */
 const markerScaleTmp = new THREE.Vector3()
@@ -358,6 +362,8 @@ function updateReveals() {
 }
 
 const selectionKey = computed(() => props.selection ? `${props.selection.kind}:${props.selection.id}` : '')
+/** 高亮键：悬停优先，无悬停时回退到点击选中（选中态保持粘滞） */
+const activeKey = computed(() => (hoveredSpacecraftId.value ? `spacecraft:${hoveredSpacecraftId.value}` : selectionKey.value))
 
 function disposeGroup(group?: THREE.Group) {
   if (!group) return
@@ -385,6 +391,7 @@ function markerMaterial(color: number, selected: boolean) {
 function rebuildDataLayers() {
   if (!earthSystemGroup || !spinGroup) return
   markerObjects.clear()
+  lineObjects.clear()
   disposeGroup(spacecraftGroup)
   disposeGroup(orbitGroup)
   disposeGroup(siteGroup)
@@ -402,7 +409,7 @@ function rebuildDataLayers() {
     const point = spacecraftPoint(craft, now)
     if (!point) continue
     const key = `spacecraft:${craft.id}`
-    const selected = selectionKey.value === key
+    const selected = activeKey.value === key
     const marker = new THREE.Mesh(
       new THREE.SphereGeometry(selected ? 0.052 : 0.037, 16, 16),
       markerMaterial(0x72d7ff, selected),
@@ -412,16 +419,17 @@ function rebuildDataLayers() {
     spacecraftGroup.add(marker)
     markerObjects.set(key, marker)
 
-    // 轨道线仅画近地轨道（LEO/SSO，如 ISS/天宫/哈勃/Terra）——近地轨道在默认视锥内
-    // 呈贴地圆环，视觉干净；MEO/GEO/HEO（GNSS 星座、气象静止星、深椭圆科学星）的
-    // 轨道在近地视角下横穿或溢出画面（"错乱线"），只保留真实位置标记 + 标签 + 面板
-    if (craft.category?.startsWith('LEO') || craft.category?.startsWith('SSO')) {
-      const line = new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints(sampleOrbit(craft, now)),
-        new THREE.LineBasicMaterial({ color: 0x42b7e8, transparent: true, opacity: selected ? 0.68 : 0.22 }),
-      )
-      orbitGroup.add(line)
-    }
+    // 轨道线：全部飞行器都按真实 TLE 采样（显示半径压缩）；默认只显示近地轨道
+    // （LEO/SSO 贴地圆环视觉干净）；MEO/GEO/HEO 轨道在近地视角横穿或溢出画面
+    // （"错乱线"），平时隐藏——选中（悬停/点击）时临时点亮作为醒目提醒
+    const near = craft.category?.startsWith('LEO') || craft.category?.startsWith('SSO')
+    const line = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(sampleOrbit(craft, now)),
+      new THREE.LineBasicMaterial({ color: 0x42b7e8, transparent: true, opacity: activeKey.value === key ? 0.95 : 0.22 }),
+    )
+    line.visible = near || activeKey.value === key
+    lineObjects.set(key, { line, near })
+    orbitGroup.add(line)
   }
 
   for (const site of props.sites) {
@@ -879,10 +887,29 @@ function onPointerMove(event: PointerEvent) {
     pointerViewChangeAnnounced = true
     emit('view-change')
   }
+  // 悬停高亮（仅航天器）：命中标记即点亮标签+轨道线；拖拽中不更新避免闪烁
+  if (event.buttons === 0 && camera && renderer) {
+    const bounds = renderer.domElement.getBoundingClientRect()
+    pointer.set(((event.clientX - bounds.left) / bounds.width) * 2 - 1, -((event.clientY - bounds.top) / bounds.height) * 2 + 1)
+    raycaster.setFromCamera(pointer, camera)
+    const hovered = raycaster.intersectObjects([...markerObjects.values()])[0]?.object.userData as
+      | { kind?: 'spacecraft'; id?: string }
+      | undefined
+    hoveredSpacecraftId.value = hovered?.kind === 'spacecraft' && hovered.id ? hovered.id : null
+  }
 }
 
 function onPointerLeave() {
   pointerNearEarth.value = false
+  hoveredSpacecraftId.value = null
+}
+
+/** 标签悬停：航天器标签也参与点亮（标签范围同样可选中/高亮） */
+function onLabelEnter(label: { kind: 'spacecraft' | 'site'; id: string }) {
+  if (label.kind === 'spacecraft') hoveredSpacecraftId.value = label.id
+}
+function onLabelLeave(label: { kind: 'spacecraft' | 'site'; id: string }) {
+  if (label.kind === 'spacecraft') hoveredSpacecraftId.value = null
 }
 
 function onSceneWheel(event: WheelEvent) {
@@ -989,9 +1016,19 @@ function animate(time = 0) {
     const distOpacity = (d: number) => 0.7 + 0.3 * THREE.MathUtils.clamp((refDistance - d) / (refDistance - minDistance), 0, 1)
     for (const [key, marker] of markerObjects) {
       const d = marker.getWorldPosition(markerScaleTmp).distanceTo(camera.position)
-      marker.scale.setScalar(Math.pow(d / refDistance, 0.6))
+      const isActive = activeKey.value === key
+      // 选中/悬停：标记放大 35% + 全实色（醒目点亮）
+      marker.scale.setScalar(Math.pow(d / refDistance, 0.6) * (isActive ? 1.35 : 1))
       const material = (marker as THREE.Mesh).material as THREE.MeshBasicMaterial | undefined
-      if (material) material.opacity = (selectionKey.value === key ? 1 : distOpacity(d)) * fade
+      if (material) material.opacity = (isActive ? 1 : distOpacity(d)) * fade
+    }
+    for (const [key, entry] of lineObjects) {
+      const isActive = activeKey.value === key
+      entry.line.visible = entry.near || isActive
+      const material = entry.line.material as THREE.LineBasicMaterial
+      // 选中：轨道线全亮 + 提亮色（醒目提醒）；未选中回落到近地轨道常显淡色
+      material.opacity = isActive ? 0.95 : 0.22
+      material.color.set(isActive ? 0x8eeaff : 0x42b7e8)
     }
     if (observerMarker) {
       const d = observerMarker.getWorldPosition(markerScaleTmp).distanceTo(camera.position)
@@ -1059,8 +1096,10 @@ onBeforeUnmount(() => {
       v-show="label.visible && elementsShown"
       :key="`${label.kind}:${label.id}`"
       class="scene-label"
-      :class="[label.kind, { selected: selectionKey === `${label.kind}:${label.id}` }]"
+      :class="[label.kind, { selected: activeKey === `${label.kind}:${label.id}` }]"
       :style="{ transform: `translate(${label.x + 14}px, ${label.y - 11}px)` }"
+      @pointerenter="onLabelEnter(label)"
+      @pointerleave="onLabelLeave(label)"
       @click="localSelection = { kind: label.kind, id: label.id }; emit('select', { kind: label.kind, id: label.id })"
     >
       <i />{{ label.name }}
@@ -1174,7 +1213,9 @@ onBeforeUnmount(() => {
 .scene-label::before { content: ''; position: absolute; right: 100%; top: 50%; width: 14px; height: 1px; background: rgba(120, 188, 222, .35); }
 .scene-label i { width: 4px; height: 4px; border-radius: 50%; background: #72d7ff; box-shadow: 0 0 8px #72d7ff; }
 .scene-label.site i { background: #ffb866; box-shadow: 0 0 8px #ffb866; }
-.scene-label.selected { color: #fff; border-color: rgba(114, 215, 255, .72); }
+.scene-label:hover { color: #fff; border-color: rgba(114, 215, 255, .55); background: rgba(10, 28, 42, .88); }
+.scene-label.selected { color: #fff; border-color: rgba(114, 215, 255, .95); background: rgba(12, 34, 50, .92); box-shadow: 0 0 12px rgba(114, 215, 255, .22); }
+.scene-label.selected i { box-shadow: 0 0 12px #72d7ff, 0 0 24px rgba(114, 215, 255, .6); }
 .scene-observer-label { position: absolute; left: 0; top: 0; z-index: 3; display: flex; align-items: center; gap: 7px; padding: 5px 8px; border: 1px solid rgba(121, 227, 189, .34); background: rgba(3, 10, 17, .78); color: #c7eee1; font: 500 10px/1.2 var(--font-sans); white-space: nowrap; pointer-events: none; backdrop-filter: blur(8px); }
 .scene-observer-label::before { content: ''; position: absolute; right: 100%; top: 50%; width: 14px; height: 1px; background: rgba(121, 227, 189, .4); }
 .scene-observer-label i { width: 5px; height: 5px; border-radius: 50%; background: #79e3bd; box-shadow: 0 0 8px rgba(121, 227, 189, .65); }
