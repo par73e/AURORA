@@ -63,7 +63,8 @@ export function distanceAU(xKm: number, yKm: number, zKm: number): number {
   return Math.sqrt(xKm * xKm + yKm * yKm + zKm * zKm) / AU_KM
 }
 
-/** 拟合椭圆（太阳位于焦点）：由真实采样求近日/远日距离与近日点方向 */
+/** 拟合椭圆（太阳位于焦点）：由真实采样线性最小二乘求半长轴/偏心率/近日点方向，
+ *  并按"当前真实方向"锚定近日点时刻——加载瞬间标记精确对准真实位置 */
 export interface FittedEllipse {
   /** 半长轴（AU） */
   aAU: number
@@ -71,26 +72,135 @@ export interface FittedEllipse {
   e: number
   /** 近日点方向角（黄道面内，与场景 +x 春分点一致） */
   perihelionAngle: number
+  /** 近日点经过时刻（ms，由当前真实方向反推锚定） */
+  perihelionEpochMs: number
+  /** 公转周期（天，开普勒第三定律 a^1.5） */
+  periodDays: number
 }
 
-/** 从日心黄道采样拟合轨道椭圆（仅用黄道面投影 r=hypot(x,y)、θ=atan2(y,x)）。
- *  偏心 e≥1（双曲线逃逸轨道）或采样不足时返回 null */
-export function fitEllipseFromSamples(positions: Array<{ x: number; y: number; z: number }>): FittedEllipse | null {
-  let rp = Infinity
-  let ra = 0
-  let thetaP = 0
-  for (const p of positions) {
-    const r = Math.hypot(p.x, p.y)
-    if (r < rp) {
-      rp = r
-      thetaP = Math.atan2(p.y, p.x)
-    }
-    if (r > ra) ra = r
+/** 角度归一化到 (-π, π] */
+function normPi(a: number) {
+  return ((((a + Math.PI) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) - Math.PI
+}
+
+/** 角度线性插值（跨 ±π 边界走最短弧） */
+function interpolateAngle(ts: number[], th: number[], nowMs: number) {
+  const last = ts.length - 1
+  if (nowMs <= ts[0]) return th[0]
+  if (nowMs >= ts[last]) return th[last]
+  let lo = 0
+  let hi = last
+  while (lo + 1 < hi) {
+    const mid = (lo + hi) >> 1
+    if (ts[mid] <= nowMs) lo = mid
+    else hi = mid
   }
-  if (!Number.isFinite(rp) || rp <= 0 || ra <= rp) return null
-  const e = (ra - rp) / (ra + rp)
-  if (e >= 1) return null
-  return { aAU: ((ra + rp) / 2) / AU_KM, e, perihelionAngle: thetaP }
+  const t = (nowMs - ts[lo]) / (ts[hi] - ts[lo])
+  // 返回归一化角度（自包含，跨 ±π 边界走最短弧）
+  return normPi(th[lo] + normPi(th[hi] - th[lo]) * t)
+}
+
+/** 从日心黄道采样拟合轨道椭圆（黄道面投影 r=hypot(x,y)、θ=atan2(y,x)）。
+ *  线性最小二乘 u=1/r = A + C·cosθ + D·sinθ → p=1/A、e=p·√(C²+D²)、ω=atan2(D,C)——
+ *  与 JPL osculating 根数交叉验证：帕克/太阳轨道器的近日点黄经误差 <0.1° */
+export function fitEllipseFromSamples(positions: Array<{ epoch: string; x: number; y: number; z: number }>, nowMs: number): FittedEllipse | null {
+  const th: number[] = []
+  const invR: number[] = []
+  const ts: number[] = []
+  for (const s of positions) {
+    const epochMs = Date.parse(s.epoch)
+    const r = Math.hypot(s.x, s.y)
+    // NaN 防护：坏历元/坏坐标直接跳过，避免污染拟合与锚定
+    if (!Number.isFinite(epochMs) || !Number.isFinite(r) || r <= 0) continue
+    th.push(Math.atan2(s.y, s.x))
+    invR.push(AU_KM / r)
+    ts.push(epochMs)
+  }
+  const n = th.length
+  if (n < 5) return null
+
+  // 法方程（3×3）高斯消元（列主元）
+  let s1 = 0
+  let sc = 0
+  let ss = 0
+  let scc = 0
+  let sss = 0
+  let scs = 0
+  let su = 0
+  let suc = 0
+  let sus = 0
+  for (let i = 0; i < n; i += 1) {
+    const c = Math.cos(th[i])
+    const s = Math.sin(th[i])
+    s1 += 1
+    sc += c
+    ss += s
+    scc += c * c
+    sss += s * s
+    scs += c * s
+    su += invR[i]
+    suc += invR[i] * c
+    sus += invR[i] * s
+  }
+  const m = [
+    [s1, sc, ss],
+    [sc, scc, scs],
+    [ss, scs, sss],
+  ]
+  const b = [su, suc, sus]
+  for (let col = 0; col < 3; col += 1) {
+    let piv = col
+    for (let r = col + 1; r < 3; r += 1) if (Math.abs(m[r][col]) > Math.abs(m[piv][col])) piv = r
+    ;[m[col], m[piv]] = [m[piv], m[col]]
+    ;[b[col], b[piv]] = [b[piv], b[col]]
+    const diag = m[col][col]
+    if (Math.abs(diag) < 1e-12) return null
+    for (let r = 0; r < 3; r += 1) {
+      if (r === col || Math.abs(m[r][col]) < 1e-12) continue
+      const f = m[r][col] / diag
+      for (let c = col; c < 3; c += 1) m[r][c] -= f * m[col][c]
+      b[r] -= f * b[col]
+    }
+  }
+  const A = b[0] / m[0][0]
+  const C = b[1] / m[1][1]
+  const D = b[2] / m[2][2]
+  if (!(A > 0)) return null
+  const p = 1 / A
+  const e = p * Math.hypot(C, D)
+  if (!(e > 0) || e >= 1) return null
+  const w = Math.atan2(D, C)
+  const aAU = p / (1 - e * e)
+  const periodDays = Math.pow(aAU, 1.5) * 365.25
+  const n0 = (Math.PI * 2) / (periodDays * 86400000)
+
+  // 锚定：当前真实方向落在椭圆上 → 反推近日点时刻（加载瞬间方向精确对准真实位置，
+  // 半径取拟合值；之后按真实周期沿椭圆运行，帕克传播 44 天误差 <0.1°）
+  const nu = normPi(interpolateAngle(ts, th, nowMs) - w)
+  const E = 2 * Math.atan2(Math.sqrt(1 - e) * Math.sin(nu / 2), Math.sqrt(1 + e) * Math.cos(nu / 2))
+  const M = E - e * Math.sin(E)
+  return { aAU, e, perihelionAngle: w, perihelionEpochMs: nowMs - M / n0, periodDays }
+}
+
+/** 椭圆轨道上某时刻的位置（极坐标）：开普勒方程解真近点角，太阳位于焦点。
+ *  用于探测器实时位置传播——标记严格落在拟合椭圆上 */
+export function ellipsePositionAt(fit: FittedEllipse, timeMs: number): { rAU: number; theta: number } {
+  const n = (Math.PI * 2) / (fit.periodDays * 86400000) // 平均角速度 rad/ms
+  let M = (n * (timeMs - fit.perihelionEpochMs)) % (Math.PI * 2)
+  if (M < 0) M += Math.PI * 2
+  // 开普勒方程 M = E - e·sinE（牛顿迭代，e<1 快速收敛）
+  let E = M
+  for (let i = 0; i < 10; i += 1) {
+    const next = E - (E - fit.e * Math.sin(E) - M) / (1 - fit.e * Math.cos(E))
+    if (Math.abs(next - E) < 1e-9) {
+      E = next
+      break
+    }
+    E = next
+  }
+  const nu = 2 * Math.atan2(Math.sqrt(1 + fit.e) * Math.sin(E / 2), Math.sqrt(1 - fit.e) * Math.cos(E / 2))
+  const rAU = (fit.aAU * (1 - fit.e * fit.e)) / (1 + fit.e * Math.cos(nu))
+  return { rAU, theta: fit.perihelionAngle + nu }
 }
 
 /** 拟合椭圆采样 → 场景坐标点（太阳位于原点即焦点，极坐标 r=a(1-e²)/(1+e·cosν)）

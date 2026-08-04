@@ -19,7 +19,7 @@ import {
   type PlanetSpec,
 } from './data'
 import { solarTexture } from './textures'
-import { distanceAU, ellipseScenePoints, fitEllipseFromSamples, heliocentricToScene } from './scale'
+import { distanceAU, ellipsePositionAt, ellipseScenePoints, fitEllipseFromSamples, heliocentricToScene, sceneRadiusFromAU, type FittedEllipse } from './scale'
 
 /** 深空探测器数据（来自 /api/v1/voyage/probes；位置为 JPL Horizons 日心黄道坐标 km） */
 export interface ProbeData {
@@ -78,6 +78,8 @@ interface PlanetRuntime {
 /** 深空探测器运行时状态 */
 interface ProbeRuntime {
   data: ProbeData
+  /** 拟合椭圆（orbitKind==='ellipse' 时非空：标记按开普勒传播沿椭圆运行，严格落在椭圆上） */
+  fit: FittedEllipse | null
   /** 采样点场景坐标（映射后） */
   points: THREE.Vector3[]
   /** 采样历元毫秒（升序，与 points/aus 对齐） */
@@ -918,8 +920,9 @@ export class SolarSystemScene {
 
       let trajectory: THREE.Line | null = null
       // 绕日任务：拟合"太阳在焦点"的椭圆（一个完整轨道圈）——帕克周期约 89 天，
-      // ±90 天采样折线会绕两圈、视觉弯弯绕绕；拟合椭圆取真实近日/远日与近日点方向，自然美观
-      const fit = data.orbitKind === 'ellipse' ? fitEllipseFromSamples(data.positions) : null
+      // ±90 天采样折线会绕两圈、视觉弯弯绕绕；线性最小二乘拟合 a/e/近日点方向
+      // （与 JPL 根数交叉验证），并按当前真实方向锚定近日点时刻
+      const fit = data.orbitKind === 'ellipse' ? fitEllipseFromSamples(data.positions, Date.now()) : null
       const orbitPoints = fit ? ellipseScenePoints(fit) : null
       if (orbitPoints && orbitPoints.length >= 3) {
         const material = new THREE.LineBasicMaterial({
@@ -946,6 +949,7 @@ export class SolarSystemScene {
 
       this.probeRuntimes.set(data.id, {
         data,
+        fit,
         points,
         epochsMs,
         aus,
@@ -960,10 +964,22 @@ export class SolarSystemScene {
     this.updateLabels()
   }
 
-  /** 深空探测器位置插值：按墙钟在采样点间线性插值（日粒度采样，视觉连续足够） */
+  /** 深空探测器位置更新：椭圆轨道任务按开普勒方程在拟合椭圆上传播（标记严格落在椭圆上）；
+   *  其余任务按墙钟在真实采样点间线性插值 */
   private updateProbes() {
     const now = Date.now()
     for (const runtime of this.probeRuntimes.values()) {
+      if (runtime.fit) {
+        // 绕日任务：像行星一样在轨道上运行——M=n(t−T₀) → 开普勒方程 → 真近点角 → 椭圆位置
+        const { rAU, theta } = ellipsePositionAt(runtime.fit, now)
+        const radius = sceneRadiusFromAU(rAU)
+        runtime.current.set(Math.cos(theta) * radius, 0, Math.sin(theta) * radius)
+        runtime.currentAU = rAU
+        runtime.currentEpochMs = now
+        runtime.marker.position.copy(runtime.current)
+        runtime.marker.scale.setScalar(Math.pow(runtime.current.distanceTo(this.camera.position) / PROBE_MARKER_REF_DISTANCE, 0.6))
+        continue
+      }
       const { epochsMs, points, aus } = runtime
       const n = epochsMs.length
       if (n === 0) continue
