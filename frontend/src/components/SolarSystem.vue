@@ -60,7 +60,6 @@ nameEnById.set(MOON.id, MOON.nameEn)
 
 const probeNameById = computed(() => new Map(probes.value.map((p) => [p.id, p.nameZh])))
 const probeNameEnById = computed(() => new Map(probes.value.map((p) => [p.id, p.nameEn])))
-const probeColorById = computed(() => new Map(probes.value.map((p) => [p.id, p.color])))
 
 function choosePlanet(id: string) {
   activeId.value = id
@@ -252,11 +251,10 @@ defineExpose({ resetView })
         :key="label.id"
         class="solar-label probe-label"
         :class="{ active: selectedProbe?.id === label.id }"
-        :style="[planetLabelStyle(label), { '--probe-color': probeColorById.get(label.id) ?? '#7fd7ff' }]"
+        :style="planetLabelStyle(label)"
         :aria-label="`${probeNameById.get(label.id)}（${probeNameEnById.get(label.id)}）`"
         @click="selectProbe(label.id)"
       >
-        <i class="probe-dot" aria-hidden="true" />
         <strong>{{ probeNameById.get(label.id) }}</strong>
         <small>{{ probeNameEnById.get(label.id) }}</small>
       </button>
@@ -454,14 +452,6 @@ defineExpose({ resetView })
 .belt-label small { display: block; margin-top: 4px; color: rgba(76, 109, 123, .65); font: 400 6px var(--font-mono); letter-spacing: .1em; }
 
 .probe-label { pointer-events: auto; cursor: pointer; }
-.probe-label .probe-dot {
-  width: 5px;
-  height: 5px;
-  margin-top: 1px;
-  border-radius: 50%;
-  background: var(--probe-color, #7fd7ff);
-  box-shadow: 0 0 6px var(--probe-color, #7fd7ff);
-}
 .probe-label strong { color: rgba(214, 228, 235, .78); font-size: 8px; font-weight: 500; letter-spacing: .09em; }
 .probe-label small { color: rgba(104, 138, 153, .6); font: 400 6px var(--font-mono); letter-spacing: .14em; }
 .probe-label:focus-visible { outline: 1px dashed rgba(115, 223, 255, .5); outline-offset: 4px; border-radius: 2px; }
