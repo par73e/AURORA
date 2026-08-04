@@ -19,7 +19,7 @@ import {
   type PlanetSpec,
 } from './data'
 import { solarTexture } from './textures'
-import { distanceAU, ellipsePositionAt, ellipseScenePoints, fitEllipseFromSamples, heliocentricToScene, type FittedEllipse } from './scale'
+import { distanceAU, ellipseDirection3D, ellipsePositionAt, ellipseScenePoints, fitEllipseFromSamples, heliocentricToScene, type FittedEllipse } from './scale'
 
 /** 深空探测器数据（来自 /api/v1/voyage/probes；位置为 JPL Horizons 日心黄道坐标 km） */
 export interface ProbeData {
@@ -931,7 +931,7 @@ export class SolarSystemScene {
           opacity: PROBE_TRAJECTORY_OPACITY_DEFAULT,
         })
         trajectory = new THREE.LineLoop(
-          new THREE.BufferGeometry().setFromPoints(orbitPoints.map((q) => new THREE.Vector3(q.x, 0, q.z))),
+          new THREE.BufferGeometry().setFromPoints(orbitPoints.map((q) => new THREE.Vector3(q.x, q.y, q.z))),
           material,
         )
         this.scene.add(trajectory)
@@ -970,9 +970,11 @@ export class SolarSystemScene {
     const now = Date.now()
     for (const runtime of this.probeRuntimes.values()) {
       if (runtime.fit) {
-        // 绕日任务：真实开普勒角向运动 + 场景空间真椭圆径向位置——标记严格落在标准椭圆上（太阳在焦点）
-        const { rAU, rScene, theta } = ellipsePositionAt(runtime.fit, now)
-        runtime.current.set(Math.cos(theta) * rScene, 0, Math.sin(theta) * rScene)
+        // 绕日任务：真实开普勒角向运动 + 场景椭圆径向 + 真实轨道面三维方向——
+        // 标记严格落在三维倾斜椭圆上（太阳在焦点，轨道面按真实倾角）
+        const { rAU, rScene, nu } = ellipsePositionAt(runtime.fit, now)
+        const dir = ellipseDirection3D(runtime.fit, nu)
+        runtime.current.set(dir.x * rScene, dir.y * rScene, dir.z * rScene)
         runtime.currentAU = rAU
         runtime.currentEpochMs = now
         runtime.marker.position.copy(runtime.current)

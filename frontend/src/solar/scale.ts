@@ -110,6 +110,12 @@ export interface FittedEllipse {
   aScene: number
   /** 场景空间椭圆偏心率 */
   eScene: number
+  /** 轨道面倾角（相对黄道面，弧度）——真实 3D 轨道 */
+  inclinationRad: number
+  /** 升交点黄经（弧度） */
+  nodeRad: number
+  /** 轨道面内近点角距（弧度，= 近日点黄经 − 升交点） */
+  argPeriapsisRad: number
 }
 
 /** 角度归一化到 (-π, π] */
@@ -218,12 +224,59 @@ export function fitEllipseFromSamples(positions: Array<{ epoch: string; x: numbe
   const raScene = sceneRadiusFromAU(aAU * (1 + e))
   const aScene = (rpScene + raScene) / 2
   const eScene = (raScene - rpScene) / (raScene + rpScene)
-  return { aAU, e, perihelionAngle: w, perihelionEpochMs: nowMs - M / n0, periodDays, aScene, eScene }
+  // 三维轨道面：采样叉积平均求轨道面法线 → 倾角 i、升交点 Ω（与 JPL 根数交叉验证：
+  // 帕克 i=3.39°/Ω=76.5°、太阳轨道器 i=12.62°/Ω=322.3°，逐位一致）
+  let nx = 0
+  let ny = 0
+  let nz = 0
+  const nSamples = positions.length
+  for (let i = 0; i < nSamples; i += 1) {
+    const a = positions[i]
+    const b = positions[(i + 1) % nSamples]
+    // NaN 防护：坏历元/坏坐标直接跳过（与 2D 拟合一致），避免污染法线拟合
+    if (
+      !Number.isFinite(a.x) || !Number.isFinite(a.y) || !Number.isFinite(a.z) ||
+      !Number.isFinite(b.x) || !Number.isFinite(b.y) || !Number.isFinite(b.z)
+    ) continue
+    if (Math.hypot(a.x, a.y, a.z) < 1e-6 || Math.hypot(b.x, b.y, b.z) < 1e-6) continue
+    nx += a.y * b.z - a.z * b.y
+    ny += a.z * b.x - a.x * b.z
+    nz += a.x * b.y - a.y * b.x
+  }
+  let inclinationRad = 0
+  let nodeRad = 0
+  let argPeriapsisRad = w
+  const nLen = Math.hypot(nx, ny, nz)
+  if (nLen > 1e-9) {
+    nx /= nLen
+    ny /= nLen
+    nz /= nLen
+    if (nz < 0) {
+      nx = -nx
+      ny = -ny
+      nz = -nz
+    }
+    inclinationRad = Math.acos(Math.min(1, Math.max(-1, nz)))
+    nodeRad = Math.atan2(nx, -ny)
+    argPeriapsisRad = normPi(w - nodeRad) // ϖ − Ω
+  }
+  return {
+    aAU,
+    e,
+    perihelionAngle: w,
+    perihelionEpochMs: nowMs - M / n0,
+    periodDays,
+    aScene,
+    eScene,
+    inclinationRad,
+    nodeRad,
+    argPeriapsisRad,
+  }
 }
 
-/** 椭圆轨道上某时刻的位置：真实开普勒角向运动 + 场景空间椭圆径向位置。
- *  rAU = 真实日心距离（AU，信息面板），rScene = 场景椭圆半径（标记落点） */
-export function ellipsePositionAt(fit: FittedEllipse, timeMs: number): { rAU: number; rScene: number; theta: number } {
+/** 椭圆轨道上某时刻的位置：真实开普勒角向运动 + 场景椭圆径向位置。
+ *  rAU = 真实日心距离（AU，信息面板），rScene = 场景椭圆半径，nu = 真近点角 */
+export function ellipsePositionAt(fit: FittedEllipse, timeMs: number): { rAU: number; rScene: number; nu: number } {
   const n = (Math.PI * 2) / (fit.periodDays * 86400000) // 平均角速度 rad/ms
   let M = (n * (timeMs - fit.perihelionEpochMs)) % (Math.PI * 2)
   if (M < 0) M += Math.PI * 2
@@ -240,19 +293,36 @@ export function ellipsePositionAt(fit: FittedEllipse, timeMs: number): { rAU: nu
   const nu = 2 * Math.atan2(Math.sqrt(1 + fit.e) * Math.sin(E / 2), Math.sqrt(1 - fit.e) * Math.cos(E / 2))
   const rAU = (fit.aAU * (1 - fit.e * fit.e)) / (1 + fit.e * Math.cos(nu))
   const rScene = (fit.aScene * (1 - fit.eScene * fit.eScene)) / (1 + fit.eScene * Math.cos(nu))
-  return { rAU, rScene, theta: fit.perihelionAngle + nu }
+  return { rAU, rScene, nu }
 }
 
-/** 拟合椭圆采样 → 场景坐标点（**场景空间真椭圆**：太阳位于焦点，极坐标
- *  r=a·(1-e²)/(1+e·cosν)，近日/远日与压缩后一致，画面为标准椭圆） */
-export function ellipseScenePoints(fit: FittedEllipse, count = 240): Array<{ x: number; z: number }> {
+/** 轨道面内真近点角 ν 对应的三维单位方向（黄道 J2000 → 场景坐标：
+ *  黄道 X→场景 x、黄道 Y→场景 z、黄道 Z→场景 y）。用真实倾角/升交点/近点角距 */
+export function ellipseDirection3D(fit: FittedEllipse, nu: number): { x: number; y: number; z: number } {
+  const u = fit.argPeriapsisRad + nu
+  const cO = Math.cos(fit.nodeRad)
+  const sO = Math.sin(fit.nodeRad)
+  const ci = Math.cos(fit.inclinationRad)
+  const si = Math.sin(fit.inclinationRad)
+  const cu = Math.cos(u)
+  const su = Math.sin(u)
+  return {
+    x: cO * cu - sO * su * ci,
+    y: su * si,
+    z: sO * cu + cO * su * ci,
+  }
+}
+
+/** 拟合椭圆采样 → 场景坐标点（**三维标准椭圆**：太阳位于焦点，轨道面按真实倾角
+ *  倾斜，径向距离用场景椭圆半径；近日/远日与压缩后一致） */
+export function ellipseScenePoints(fit: FittedEllipse, count = 240): Array<{ x: number; y: number; z: number }> {
   const p = fit.aScene * (1 - fit.eScene * fit.eScene)
-  const points: Array<{ x: number; z: number }> = []
+  const points: Array<{ x: number; y: number; z: number }> = []
   for (let i = 0; i < count; i += 1) {
     const nu = (i / count) * Math.PI * 2
     const rScene = p / (1 + fit.eScene * Math.cos(nu))
-    const theta = fit.perihelionAngle + nu
-    points.push({ x: rScene * Math.cos(theta), z: rScene * Math.sin(theta) })
+    const dir = ellipseDirection3D(fit, nu)
+    points.push({ x: dir.x * rScene, y: dir.y * rScene, z: dir.z * rScene })
   }
   return points
 }
