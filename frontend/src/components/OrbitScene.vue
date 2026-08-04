@@ -962,7 +962,7 @@ function onPointerUp(event: PointerEvent) {
   const bounds = renderer.domElement.getBoundingClientRect()
   pointer.set(((event.clientX - bounds.left) / bounds.width) * 2 - 1, -((event.clientY - bounds.top) / bounds.height) * 2 + 1)
   raycaster.setFromCamera(pointer, camera)
-  const hits = raycaster.intersectObjects([...markerObjects.values()])
+  const hits = raycaster.intersectObjects([...markerObjects.values()], false)
   const target = hits[0]?.object.userData as { kind?: 'spacecraft' | 'site'; id?: string }
   if (target?.kind && target.id) {
     localSelection.value = { kind: target.kind, id: target.id } // 本地立即驱动面板（不依赖 App 渲染）
