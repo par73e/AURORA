@@ -443,18 +443,19 @@ function rebuildDataLayers() {
     marker.add(hit)
     hoverTargets.set(key, hit)
 
-    // 轨道线：全部飞行器都按真实 TLE 采样（显示半径压缩）；默认只显示近地轨道
-    // （LEO/SSO 贴地圆环视觉干净）；MEO/GEO/HEO 轨道在近地视角横穿或溢出画面
-    // （"错乱线"），平时隐藏——选中（悬停/点击）时临时点亮作为醒目提醒
-    const near = craft.category?.startsWith('LEO') || craft.category?.startsWith('SSO')
-    const isActive = activeKey.value === key
-    const line = new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints(cachedOrbitPoints(craft, now)),
-      new THREE.LineBasicMaterial({ color: isActive ? 0x8eeaff : 0x42b7e8, transparent: true, opacity: isActive ? 0.95 : 0.22 }),
-    )
-    line.visible = near || isActive
-    lineObjects.set(key, { line, near, isActive })
-    orbitGroup.add(line)
+    // 轨道线仅画近地轨道（LEO/SSO，如 ISS/天宫/哈勃/Terra）——近地轨道在默认视锥内
+    // 呈贴地圆环，视觉干净；MEO/GEO/HEO（GNSS 星座、气象静止星、XMM/Integral 等极端椭圆
+    // 科学星）的轨道在近地视角下横穿、溢出画面或呈开口 8 字（真实进动），不画线——
+    // 只保留真实位置标记 + 标签 + 面板；选中时点亮本已存在的轨道线
+    if (craft.category?.startsWith('LEO') || craft.category?.startsWith('SSO')) {
+      const isActive = activeKey.value === key
+      const line = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(cachedOrbitPoints(craft, now)),
+        new THREE.LineBasicMaterial({ color: isActive ? 0x8eeaff : 0x42b7e8, transparent: true, opacity: isActive ? 0.95 : 0.22 }),
+      )
+      lineObjects.set(key, { line, near: true, isActive })
+      orbitGroup.add(line)
+    }
   }
 
   for (const site of props.sites) {
