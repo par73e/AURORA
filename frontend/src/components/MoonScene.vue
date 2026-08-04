@@ -596,8 +596,8 @@ onMounted(() => {
     for (const runtime of craftRuntimes) {
       if (runtime.spec.kind !== 'orbital') continue
       const sn = runtime.spec.snapshot ?? null
-      // 快照存在时用真实公转周期（JPL 日同步，如 LRO 约 113 分钟）——之前误用静态视觉周期 300s
-      // 导致转速比真实快 22 倍；无快照时回退视觉周期
+      // 快照存在时用真实公转周期（JPL 日同步，如 LRO 约 113 分钟）；
+      // 无快照时回退静态轨道周期（迁移 030 起已改为真实周期：约 2 小时 / CAPSTONE 6.5 天）
       const periodSec = sn ? sn.periodSeconds : runtime.spec.periodSeconds
       runtime.nu += (Math.PI * 2 / periodSec) * delta
       const a = exaggeratedA(sn ? sn.aKm * MOON_SCENE_SCALE : runtime.spec.orbitA)
