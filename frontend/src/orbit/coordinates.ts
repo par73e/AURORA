@@ -118,13 +118,15 @@ export function interpolateProbeKm(probe: DeepSpaceProbe, date = new Date()): TH
   for (let i = 0; i < pos.length - 1; i += 1) {
     const a = Date.parse(pos[i].epoch)
     const b = Date.parse(pos[i + 1].epoch)
-    if (a <= t && t <= b) {
+    if (a <= t && t <= b && b - a > 0) {
       const f = (t - a) / (b - a)
-      return new THREE.Vector3(
+      const p = new THREE.Vector3(
         pos[i].x + (pos[i + 1].x - pos[i].x) * f,
         pos[i].y + (pos[i + 1].y - pos[i].y) * f,
         pos[i].z + (pos[i + 1].z - pos[i].z) * f,
       )
+      // 防御：服务端异常采样（非有限值）不流入场景
+      if (Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z)) return p
     }
   }
   return null
