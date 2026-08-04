@@ -7,10 +7,10 @@
 export const AU_KM = 149_597_870.7
 
 /** 行星锚点：[真实日心平均距离 AU, 场景轨道半径]（与 solar/data.ts 的 orbitRadius 一致）。
- *  首锚点 [0.2, 7] 为近太阳钳制：太阳半径 5.5，标记/轨迹须保持在日面之外；
- *  帕克（近日 0.046 AU）等超近日段被压缩到该圆弧，避免负半径镜像。 */
+ *  首锚点 [0.05, 7] 为近太阳端：贴近帕克真实近日点（0.046–0.048 AU），
+ *  近日弧自然弯曲而非被钳制压平（0.2 钳制会产生硬拐角）；太阳半径 5.5，轨道保持在日面外 */
 const ANCHORS: ReadonlyArray<readonly [au: number, units: number]> = [
-  [0.2, 7], // 近太阳钳制锚点
+  [0.05, 7], // 近太阳端（帕克近日点量级）
   [0.387, 14], // 水星
   [0.723, 30], // 金星
   [1.0, 46], // 地球
@@ -21,29 +21,58 @@ const ANCHORS: ReadonlyArray<readonly [au: number, units: number]> = [
   [30.07, 130], // 海王星
 ]
 
-const LOG_ANCHORS = ANCHORS.map(([au, units]) => [Math.log10(au), units] as const)
+const LOG_ANCHOR_X = ANCHORS.map(([au]) => Math.log10(au))
+const LOG_ANCHOR_Y = ANCHORS.map(([, units]) => units)
+/** 保单调切线（Fritsch–Carlson）：分段三次 Hermite 处处 C¹ 光滑——
+ *  之前的对数分段线性在每个锚点有斜率断点，探测器椭圆穿过锚点时出现拐角（坑坑洼洼） */
+const HERMITE_TANGENT = (() => {
+  const n = LOG_ANCHOR_X.length
+  const secant: number[] = []
+  for (let i = 0; i < n - 1; i += 1) {
+    secant.push((LOG_ANCHOR_Y[i + 1] - LOG_ANCHOR_Y[i]) / (LOG_ANCHOR_X[i + 1] - LOG_ANCHOR_X[i]))
+  }
+  const d: number[] = new Array(n)
+  d[0] = secant[0]
+  d[n - 1] = secant[n - 2]
+  for (let i = 1; i < n - 1; i += 1) {
+    d[i] = secant[i - 1] * secant[i] <= 0 ? 0 : 2 / (1 / secant[i - 1] + 1 / secant[i])
+  }
+  return d
+})()
 
-/** 真实日心距离（AU）→ 场景径向单位（对数空间分段线性插值 + 首尾外推）。
- *  输入先钳制到首锚点（0.2 AU），保证任何探测器的映射半径 ≥ 7，不会出现负半径 */
+/** 真实日心距离（AU）→ 场景径向单位：对数空间保单调三次 Hermite 插值 + 首尾线性外推。
+ *  曲线处处 C¹ 光滑（无锚点斜率断点）；输入钳制到首锚点（0.05 AU），映射半径 ≥ 7 */
 export function sceneRadiusFromAU(au: number): number {
   const log = Math.log10(Math.max(au, ANCHORS[0][0]))
-  const first = LOG_ANCHORS[0]
-  if (log <= first[0]) {
-    // 低于水星（帕克近日点等）：按第一段斜率延伸
-    const next = LOG_ANCHORS[1]
-    return first[1] + ((log - first[0]) * (next[1] - first[1])) / (next[0] - first[0])
+  const firstX = LOG_ANCHOR_X[0]
+  const last = LOG_ANCHOR_X.length - 1
+  if (log <= firstX) {
+    // 低于首锚点（0.05 AU）：按首段斜率线性外推（输入已被钳制，通常不触发）
+    return LOG_ANCHOR_Y[0] + (log - firstX) * HERMITE_TANGENT[0]
   }
-  for (let i = 0; i < LOG_ANCHORS.length - 1; i += 1) {
-    const a = LOG_ANCHORS[i]
-    const b = LOG_ANCHORS[i + 1]
-    if (log <= b[0]) {
-      return a[1] + ((log - a[0]) * (b[1] - a[1])) / (b[0] - a[0])
-    }
+  if (log >= LOG_ANCHOR_X[last]) {
+    // 超出海王星（旅行者等）：按末段斜率线性外推
+    return LOG_ANCHOR_Y[last] + (log - LOG_ANCHOR_X[last]) * HERMITE_TANGENT[last]
   }
-  // 超出海王星：按最后一段斜率外推
-  const a = LOG_ANCHORS[LOG_ANCHORS.length - 2]
-  const b = LOG_ANCHORS[LOG_ANCHORS.length - 1]
-  return b[1] + ((log - b[0]) * (b[1] - a[1])) / (b[0] - a[0])
+  let k = 0
+  while (k < last - 1 && log > LOG_ANCHOR_X[k + 1]) k += 1
+  const x0 = LOG_ANCHOR_X[k]
+  const x1 = LOG_ANCHOR_X[k + 1]
+  const h = x1 - x0
+  const t = (log - x0) / h
+  const t2 = t * t
+  const t3 = t2 * t
+  // 三次 Hermite 基函数
+  const h00 = 2 * t3 - 3 * t2 + 1
+  const h10 = t3 - 2 * t2 + t
+  const h01 = -2 * t3 + 3 * t2
+  const h11 = t3 - t2
+  return (
+    h00 * LOG_ANCHOR_Y[k] +
+    h10 * h * HERMITE_TANGENT[k] +
+    h01 * LOG_ANCHOR_Y[k + 1] +
+    h11 * h * HERMITE_TANGENT[k + 1]
+  )
 }
 
 /** 日心黄道矢量（km，JPL Horizons 黄道 J2000）→ 场景坐标（黄道面 XZ，+x = 春分点）：
@@ -204,8 +233,8 @@ export function ellipsePositionAt(fit: FittedEllipse, timeMs: number): { rAU: nu
 }
 
 /** 拟合椭圆采样 → 场景坐标点（太阳位于原点即焦点，极坐标 r=a(1-e²)/(1+e·cosν)）
- *  经对数径向压缩 + 黄经方向映射，生成闭合椭圆轨道 */
-export function ellipseScenePoints(fit: FittedEllipse, count = 160): Array<{ x: number; z: number }> {
+ *  经光滑径向映射 + 黄经方向映射，生成闭合椭圆轨道；240 段保证高偏心率轨道近日段也平滑 */
+export function ellipseScenePoints(fit: FittedEllipse, count = 240): Array<{ x: number; z: number }> {
   const p = fit.aAU * (1 - fit.e * fit.e)
   const points: Array<{ x: number; z: number }> = []
   for (let i = 0; i < count; i += 1) {
