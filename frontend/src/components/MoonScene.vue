@@ -865,7 +865,12 @@ function realSunDirection(): THREE.Vector3 {
   const declination = 23.44 * Math.sin(DEG * ((360 / 365) * (dayOfYear - 81)))
   const utcHours = now.getUTCHours() + now.getUTCMinutes() / 60 + now.getUTCSeconds() / 3600
   const subsolarLongitude = 180 - utcHours * 15
-  return sitePosition(declination, subsolarLongitude, 10)
+  const dir = sitePosition(declination, subsolarLongitude, 10)
+  // 月面坐标系：moonMesh 被潮汐锁定四元数旋转（+x 朝向相机）、swingPivot 带入场慢转——
+  // 太阳方向须变换到该旋转后的世界坐标，晨昏线才落在月面正确位置（否则偏 ~90° 黄经）
+  const q = new THREE.Quaternion()
+  if (moonMesh) moonMesh.getWorldQuaternion(q)
+  return dir.applyQuaternion(q)
 }
 
 watch(terminatorEnabled, (enabled) => {
