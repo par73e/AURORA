@@ -64,6 +64,7 @@ const probeNameEnById = computed(() => new Map(probes.value.map((p) => [p.id, p.
 function choosePlanet(id: string) {
   activeId.value = id
   selectedProbe.value = null
+  scene?.clearProbeSelection()
   if (id === 'earth') {
     // 地球：先在太阳系场景内放大地球，飞行到位后再由 App 切换页面
     moonFlight = false
@@ -77,6 +78,12 @@ function choosePlanet(id: string) {
   }
 }
 
+/** 点击深空探测器（3D 标记或标签）：镜头飞近 + （椭圆轨道）点亮轨道 + 打开信息面板，一个入口。
+ *  飞行中/运镜未启动时不弹面板，保持状态一致 */
+function onProbeClick(id: string) {
+  if (scene?.flyToProbe(id) === true) selectProbe(id)
+}
+
 /** 点击深空探测器：打开信息面板 + 读取当前距日（AU） */
 function selectProbe(id: string) {
   const probe = probes.value.find((p) => p.id === id) ?? null
@@ -86,6 +93,13 @@ function selectProbe(id: string) {
     const info = scene.getProbeInfo(id)
     if (info) probeDistAU.value = info.distAU
   }
+}
+
+/** 关闭探测器面板：同时熄灭其轨道高亮 */
+function closeProbePanel() {
+  selectedProbe.value = null
+  probeDistAU.value = null
+  scene?.clearProbeSelection()
 }
 
 /** 同步时间展示（UTC） */
@@ -131,7 +145,14 @@ onMounted(() => {
         // 探测器不进入 activeId（键盘导航顺序只含太阳/行星/月球）；悬停高亮由 scene 处理
         if (id && !probes.value.some((p) => p.id === id)) activeId.value = id
       },
-      onProbeSelect: (id) => selectProbe(id),
+      onProbeSelect: (id) => {
+        // 联动：镜头飞近探测器 + 点亮绕日轨道 + 弹出左下角信息面板
+        onProbeClick(id)
+      },
+      onProbeDeselect: () => {
+        selectedProbe.value = null
+        probeDistAU.value = null
+      },
       onSelect: choosePlanet,
       onFlyZoom: () => emit(moonFlight ? 'moon-fly-zoom' : 'earth-fly-zoom'),
       onFlyComplete: () => emit(moonFlight ? 'select-moon' : 'select-earth'),
@@ -253,7 +274,7 @@ defineExpose({ resetView })
         :class="{ active: selectedProbe?.id === label.id }"
         :style="planetLabelStyle(label)"
         :aria-label="`${probeNameById.get(label.id)}（${probeNameEnById.get(label.id)}）`"
-        @click="selectProbe(label.id)"
+        @click="onProbeClick(label.id)"
       >
         <strong>{{ probeNameById.get(label.id) }}</strong>
         <small>{{ probeNameEnById.get(label.id) }}</small>
@@ -300,7 +321,7 @@ defineExpose({ resetView })
     </div>
 
     <aside v-if="selectedProbe" class="probe-panel" role="dialog" aria-label="深空探测器信息">
-      <button class="probe-panel-close" type="button" aria-label="关闭信息面板" @click="selectedProbe = null">×</button>
+      <button class="probe-panel-close" type="button" aria-label="关闭信息面板" @click="closeProbePanel">×</button>
       <p class="probe-panel-kicker">{{ selectedProbe.missionType }} · 精度等级 {{ selectedProbe.precisionGrade }}</p>
       <h2>{{ selectedProbe.nameZh }} <small>{{ selectedProbe.nameEn }}</small></h2>
       <dl>

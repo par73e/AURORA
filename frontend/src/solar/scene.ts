@@ -62,6 +62,8 @@ export interface SolarSceneCallbacks {
   onSelect(id: string): void
   /** 点击深空探测器（与行星/月球选择分开处理） */
   onProbeSelect?(id: string): void
+  /** 点击空白处取消探测器选中（轨道熄灭、面板关闭） */
+  onProbeDeselect?(): void
   /** 镜头飞向地球过程中，地球放大到一定程度时触发（用于开始变暗） */
   onFlyZoom?(): void
   /** 镜头飞行结束（地球已放大到位）时触发（用于切换页面） */
@@ -200,8 +202,12 @@ export class SolarSystemScene {
   private orbitMaterials = new Map<string, THREE.LineBasicMaterial>()
   /** 键盘导航（←/→）选中的目标 id；指针悬停优先于键盘选中（hoveredId ?? selectedId） */
   private selectedId: string | null = null
+  /** 悬停粘滞选中的行星：鼠标划过即"选中"，轨道保持点亮直到悬停其他行星/键盘切换 */
+  private hoverSelectedId: string | null = null
   /** 深空探测器运行时（标记点 + 轨迹线 + 位置插值） */
   private probeRuntimes = new Map<string, ProbeRuntime>()
+  /** 点击选中的探测器（其轨道保持点亮；点击空白/关闭面板时清除） */
+  private probeSelectedId: string | null = null
   private probeMeshes: THREE.Mesh[] = []
   /** 探测器轨迹线材质（悬停该探测器时轨迹变亮） */
   private trajectoryMaterials = new Map<string, THREE.LineBasicMaterial>()
@@ -229,6 +235,14 @@ export class SolarSystemScene {
     zoomed: boolean
     /** 反向飞行（ORBIT → 太阳系）：注视点缓动取镜像（t³），保证与正向逐帧对称 */
     reverse?: boolean
+    /** 入场推镜缓动模式（flyInFromDistance 设置） */
+    easeOut?: 'linear-out' | 'cubic'
+    /** 入场推镜标志（驱动 entryFlyEased 标签淡入） */
+    entry?: boolean
+    /** 运镜完成时触发进入回调（仅 flyToEarth/flyToMoon 设置，切页白名单） */
+    enterPlanet?: boolean
+    /** 运镜结束后恢复 controls.minDistance（探测器飞行留在场景内，避免近距离钳制残留） */
+    restoreMinDistance?: boolean
   } | undefined
   private disposables: Array<{ dispose(): void }> = []
   private textures: THREE.Texture[] = []
@@ -860,7 +874,8 @@ export class SolarSystemScene {
    *  每帧按 rawDelta 指数缓动（与时间缩放无关）；reduced-motion 下直接切换（同 veil 处理） */
   private updateOrbitHighlights(rawDelta: number) {
     // 悬停优先于键盘选中：指针在某颗行星上时高亮跟随指针；指针离开后回到键盘选中的目标
-    const highlightId = this.hoveredId ?? this.selectedId
+    // 悬停粘滞优先：鼠标划过行星即选中并保持点亮；无悬停选中时回落到键盘选中
+    const highlightId = this.hoverSelectedId ?? this.selectedId
     // timeScale 为 0（系统减弱动态效果）：不做缓动，状态直接切换
     const factor = this.timeScale === 0 ? 1 : 1 - Math.exp(-rawDelta * 10)
     for (const [id, material] of this.orbitMaterials) {
@@ -869,9 +884,11 @@ export class SolarSystemScene {
       material.opacity += (targetOpacity - material.opacity) * factor
       material.color.lerp(active ? ORBIT_COLOR_HOVER : ORBIT_COLOR_DEFAULT, factor)
     }
-    // 深空探测器轨迹线：仅指针悬停高亮（键盘导航不含探测器）
+    // 深空探测器轨迹线：指针悬停点亮；点击选中（flyToProbe）仅对椭圆轨道探测器点亮
+    // （旅行者/新视野等无固定轨道，选中时轨道不点亮，只飞近+弹面板）
     for (const [id, material] of this.trajectoryMaterials) {
-      const active = id === this.hoveredId
+      const isEllipse = this.probeRuntimes.get(id)?.fit != null
+      const active = id === this.hoveredId || (id === this.probeSelectedId && isEllipse)
       const targetOpacity = active ? PROBE_TRAJECTORY_OPACITY_HOVER : PROBE_TRAJECTORY_OPACITY_DEFAULT
       material.opacity += (targetOpacity - material.opacity) * factor
     }
@@ -1262,6 +1279,46 @@ export class SolarSystemScene {
     this.controls.enabled = false
   }
 
+  /** 点击探测器：镜头沿贝塞尔路径飞近探测器（留在太阳系内，不切页）。
+   *  椭圆轨道探测器同时点亮其轨道（probeSelectedId）；旅行者/新视野等无固定轨道不点亮。
+   *  返回是否成功启动运镜（飞行中/无目标返回 false，调用方据此决定是否弹面板） */
+  flyToProbe(id: string): boolean {
+    const runtime = this.probeRuntimes.get(id)
+    if (!runtime || this.flyState) return false
+    this.probeSelectedId = id
+    const probePosition = runtime.current.clone()
+    const p0 = this.camera.position.clone()
+    // 终点：探测器外侧（远离太阳一侧）4.5 单位 + 1.5 仰角——标记居中、轨道与太阳入画
+    const probeDir = probePosition.clone().normalize()
+    const p3 = probePosition.clone().addScaledVector(probeDir, 4.5)
+    p3.y += 1.5
+    const delta = p3.clone().sub(p0)
+    const p1 = p0.clone().addScaledVector(delta, 0.3)
+    p1.y += 1.5
+    const p2 = p0.clone().addScaledVector(delta, 0.72)
+    p2.y += 0.5
+    this.controls.minDistance = 3
+    this.flyState = {
+      p0,
+      p1,
+      p2,
+      p3,
+      fromTarget: this.controls.target.clone(),
+      toTarget: probePosition.clone(),
+      startedAt: performance.now(),
+      duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 250 : 1300,
+      zoomed: true, // 探测器运镜不触发变暗/切页事件
+      restoreMinDistance: true, // 飞完恢复最近距离钳制（留在太阳系内，便于再贴近行星）
+    }
+    this.controls.enabled = false
+    return true
+  }
+
+  /** 清除探测器选中（面板关闭时调用，轨道熄灭） */
+  clearProbeSelection() {
+    this.probeSelectedId = null
+  }
+
   /** 反向飞行（月球 → 太阳系）：从月球近景拉回默认构图 */
   flyFromMoon() {
     if (this.flyState) return
@@ -1425,6 +1482,8 @@ export class SolarSystemScene {
       this.flyState = undefined
       this.entryFlyEased = null
       this.controls.enabled = true
+      // 探测器飞行留在场景内：恢复最近距离钳制（飞行中 minDistance=3，否则残留影响贴近观察行星）
+      if (fly.restoreMinDistance) this.controls.minDistance = VIEW.minDistance
       // 白名单：仅 flyToEarth/flyToMoon（enterPlanet）完成时触发进入回调——
       // 入场推镜/模式切换构图飞行/返回运镜一律不得触发（否则自动进入地球）
       if (fly.enterPlanet) this.callbacks.onFlyComplete?.()
@@ -1497,6 +1556,10 @@ export class SolarSystemScene {
     if (id) {
       if (this.probeRuntimes.has(id)) this.callbacks.onProbeSelect?.(id)
       else this.callbacks.onSelect(id)
+    } else if (!this.flyState && this.probeSelectedId !== null) {
+      // 点击空白（非飞行中）：取消探测器选中（轨道熄灭 + 面板关闭）
+      this.probeSelectedId = null
+      this.callbacks.onProbeDeselect?.()
     }
   }
 
@@ -1508,6 +1571,8 @@ export class SolarSystemScene {
       this.hoveredId = id
       this.callbacks.onHover(id)
     }
+    // 悬停即选中（行星）：轨道保持点亮，直到悬停其他行星或键盘切换
+    if (id && this.orbitMaterials.has(id)) this.hoverSelectedId = id
   }
 
   private onPointerLeave = () => {
@@ -1518,9 +1583,10 @@ export class SolarSystemScene {
     }
   }
 
-  /** 设置键盘导航选中的目标（←/→ 切换时由组件调用）；仅作为高亮来源，不改指针状态 */
+  /** 设置键盘导航选中的目标（←/→ 切换时由组件调用）；键盘切换后以其为准（清除悬停粘滞） */
   setSelected(id: string | null) {
     this.selectedId = id
+    this.hoverSelectedId = null
   }
 
   private onMotionChange = (event: MediaQueryListEvent) => {
