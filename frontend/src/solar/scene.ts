@@ -511,6 +511,23 @@ export class SolarSystemScene {
     return (nu + spec.perihelionLongitudeDeg * DEG) % (Math.PI * 2)
   }
 
+  /** 月球当前显示角对应的世界位置：直接由地球位置 + 当前月相角计算，并同步
+   *  moonAnchor 网格位置（不依赖每帧 tick 的更新时机——flyTo/flyFrom 在 onMounted
+   *  同步调用时 tick 可能还没跑过，moonAnchor 位置仍是初始值） */
+  private moonWorldPosition(out: THREE.Vector3): THREE.Vector3 | null {
+    const earthRuntime = this.planetRuntimes.get('earth')
+    if (!earthRuntime || !this.moonAnchor) return null
+    const earthPos = earthRuntime.axial.getWorldPosition(this.tempWorld)
+    const angle = this.currentMoonDisplayAngle()
+    out.set(
+      earthPos.x + Math.cos(angle) * MOON.distance,
+      earthPos.y,
+      earthPos.z + Math.sin(angle) * MOON.distance,
+    )
+    this.moonAnchor.position.copy(out)
+    return out
+  }
+
   /** 当前时刻的月球真实黄经（Meeus 低精度公式前三项：平黄经 + 摄动主项，~0.1° 精度），
    *  映射到场景角度（+x = 春分点，与行星 realOrbitalAngle 同系） */
   private realMoonAngle(): number {
@@ -574,6 +591,7 @@ export class SolarSystemScene {
       this.applyPlanetAngle(spec.id)
     }
     this.moonAngle = this.realMoonAngle() // 月球同步到当前真实月相（此前保持 0，固定位置）
+    this.moonWorldPosition(this.tempWorldB) // 立即把 moonAnchor 摆到位（不等首帧 tick）
     this.angleAnimation = null
     const host = this.host
     const aspect = host.clientWidth / host.clientHeight
@@ -1274,7 +1292,7 @@ export class SolarSystemScene {
   /** 点击月球：镜头沿抬升的三次贝塞尔路径推近月球（终点在月球近旁） */
   flyToMoon() {
     if (this.flyState) return
-    const moonPosition = this.moonAnchor?.getWorldPosition(this.tempWorldB)
+    const moonPosition = this.moonWorldPosition(this.tempWorldB)
     if (!moonPosition) return
     const p0 = this.camera.position.clone()
     const moonDir = moonPosition.clone().normalize()
@@ -1346,7 +1364,7 @@ export class SolarSystemScene {
   /** 反向飞行（月球 → 太阳系）：从月球近景拉回默认构图 */
   flyFromMoon() {
     if (this.flyState) return
-    const moonPosition = this.moonAnchor?.getWorldPosition(this.tempWorldB)
+    const moonPosition = this.moonWorldPosition(this.tempWorldB)
     if (!moonPosition) return
     // 终点：按当前模式构图（排布 = 小行星带锚定；真实位置 = 太阳居中）
     const aspect = this.host.clientWidth / this.host.clientHeight
