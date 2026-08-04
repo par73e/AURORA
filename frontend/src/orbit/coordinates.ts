@@ -67,6 +67,9 @@ export function sampleOrbit(spacecraft: Spacecraft, center: Date) {
     const point = spacecraftPoint(spacecraft, new Date(center.getTime() + offsetMinutes * 60_000))
     if (point) points.push(point.position)
   }
+  // 强制闭合：真实 SGP4 含 J2 进动（一个周期内轨道面/拱线漂移），±半周期两个端点
+  // 不在同一位置，直接连线会留下开口；补首点使轨道环首尾相连（视觉闭合，开口极小）
+  if (points.length > 2) points.push(points[0].clone())
   return points
 }
 
