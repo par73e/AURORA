@@ -17,6 +17,7 @@ import { spacecraftPoint } from './orbit/coordinates'
 import { moonHdReady, orbitTexturesReady, preloadMoonHdTexture, preloadOrbitTextures, preloadSolarTextures } from './preload'
 import { solarTexturesReady } from './solar/textures'
 import type { LaunchEvent, LaunchSite, OrbitOverview, SceneLayers, Selection } from './types'
+import { primaryOperator } from './operators'
 
 type ObserverLocationStatus = 'locating' | 'located' | 'fallback'
 
@@ -279,7 +280,7 @@ const selectedEvent = computed(() => selection.value?.kind === 'event'
   : undefined)
 const upcomingEvents = computed(() => overview.value?.events.filter((item) => new Date(item.net) >= now.value) ?? [])
 const dataHealthy = computed(() => overview.value?.freshness.every((item) => item.success) ?? false)
-const operators = computed(() => [...new Set(overview.value?.spacecraft.map((item) => item.operatorName) ?? [])].sort())
+const operators = computed(() => [...new Set((overview.value?.spacecraft ?? []).map((item) => primaryOperator(item.operatorName)))].sort())
 
 const catalogResult = computed(() => {
   const raw = objectQuery.value.trim()
@@ -306,14 +307,14 @@ const catalogResult = computed(() => {
   }
 
   const items = (overview.value?.spacecraft ?? []).filter((item) => {
-    if (operatorFilter.value !== 'all' && item.operatorName !== operatorFilter.value) return false
+    if (operatorFilter.value !== 'all' && primaryOperator(item.operatorName) !== operatorFilter.value) return false
     if (!matcher) return !raw && !queryError
     return matcher([item.nameZh, item.nameEn, item.noradCatalogId, item.operatorName, item.category].join(' '))
   })
 
   items.sort((left, right) => {
     if (objectSort.value === 'norad') return left.noradCatalogId - right.noradCatalogId
-    if (objectSort.value === 'operator') return left.operatorName.localeCompare(right.operatorName, 'zh-CN')
+    if (objectSort.value === 'operator') return primaryOperator(left.operatorName).localeCompare(primaryOperator(right.operatorName), 'zh-CN')
     return left.nameZh.localeCompare(right.nameZh, 'zh-CN')
   })
   return { items, error: queryError }

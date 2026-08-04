@@ -169,6 +169,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { MOON_HD } from '../solar/data'
 import { solarTexture } from '../solar/textures'
 import type { MoonLandingSite, MoonSpacecraft } from '../types'
+import { primaryOperator } from '../operators'
 
 const props = defineProps<{ revealTick?: number; enterFromSolar?: boolean; leaving?: boolean; headerExpanded?: boolean }>()
 const emit = defineEmits<{
@@ -199,7 +200,7 @@ const craftQuery = ref('')
 /** 航天器目录：运营方筛选 + 排序（与地球页一致） */
 const craftOperatorFilter = ref('all')
 const craftSort = ref('name')
-const craftOperators = computed(() => [...new Set(crafts.value.map((c) => c.operatorName))].sort())
+const craftOperators = computed(() => [...new Set(crafts.value.map((c) => primaryOperator(c.operatorName)))].sort())
 const siteQuery = ref('')
 const craftLabels = ref<Array<{ id: string; x: number; y: number; visible: boolean }>>([])
 const siteLabels = ref<Array<{ id: string; x: number; y: number; visible: boolean }>>([])
@@ -340,7 +341,7 @@ function formatEpochUTC(iso?: string) {
 const filteredCrafts = computed(() => {
   let items = crafts.value
   if (craftOperatorFilter.value !== 'all') {
-    items = items.filter((c) => c.operatorName === craftOperatorFilter.value)
+    items = items.filter((c) => primaryOperator(c.operatorName) === craftOperatorFilter.value)
   }
   const q = craftQuery.value.trim().toLowerCase()
   if (q) {
@@ -352,7 +353,7 @@ const filteredCrafts = computed(() => {
     )
   }
   const sorted = [...items]
-  if (craftSort.value === 'operator') sorted.sort((a, b) => a.operatorName.localeCompare(b.operatorName, 'zh-CN'))
+  if (craftSort.value === 'operator') sorted.sort((a, b) => primaryOperator(a.operatorName).localeCompare(primaryOperator(b.operatorName), 'zh-CN'))
   else if (craftSort.value === 'type') sorted.sort((a, b) => (a.type ?? '').localeCompare(b.type ?? '', 'zh-CN'))
   else sorted.sort((a, b) => a.nameZh.localeCompare(b.nameZh, 'zh-CN'))
   return sorted
