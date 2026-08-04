@@ -14,7 +14,7 @@ import SolarSystemItem from './components/SolarSystemItem.vue'
 import MoonScene from './components/MoonScene.vue'
 import { fetchDeepSpaceProbes, fetchOrbitOverview } from './api'
 import * as THREE from 'three'
-import { AU_KM, earthHeliocentricEclipticKm, interpolateProbeKm, spacecraftPoint, sunSceneDirection } from './orbit/coordinates'
+import { AU_KM, EARTH_TILT_QUATERNION, earthHeliocentricEclipticKm, interpolateProbeKm, spacecraftPoint, sunSceneDirection } from './orbit/coordinates'
 import { moonHdReady, orbitTexturesReady, preloadMoonHdTexture, preloadOrbitTextures, preloadSolarTextures } from './preload'
 import { solarTexturesReady } from './solar/textures'
 import type { LaunchEvent, LaunchSite, Observatory, OrbitOverview, SceneLayers, Selection } from './types'
@@ -366,11 +366,14 @@ const focusTarget = computed(() => {
     return { latitude: selectedSite.value.latitude, longitude: selectedSite.value.longitude, distance: 6.3, key: `site:${selectedSite.value.id}` }
   }
   if (selectedObservatory.value) {
+    // 天文台标记在场景级（方向已含轴倾）；beginFocus 会把 lat/lon 当地球局部系并再施加轴倾，
+    // 故此处先反轴倾得到局部系坐标，聚焦方向才能精确对准标记
     const p = selectedObservatory.value.position
-    const r = Math.hypot(p.x, p.y, p.z) || 1
+    const local = new THREE.Vector3(p.x, p.y, p.z).applyQuaternion(EARTH_TILT_QUATERNION.clone().invert())
+    const r = local.length() || 1
     return {
-      latitude: Math.asin(p.y / r) * (180 / Math.PI),
-      longitude: Math.atan2(-p.z, p.x) * (180 / Math.PI),
+      latitude: Math.asin(local.y / r) * (180 / Math.PI),
+      longitude: Math.atan2(-local.z, local.x) * (180 / Math.PI),
       distance: 7.5,
       key: `observatory:${selectedObservatory.value.id}`,
     }
