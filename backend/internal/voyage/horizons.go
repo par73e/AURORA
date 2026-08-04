@@ -45,7 +45,8 @@ func FetchProbeSamples(ctx context.Context, client *http.Client, naifID string, 
 			return samples, nil
 		}
 		end := parseEphemerisEnd(body)
-		if end.IsZero() {
+		if end.IsZero() || end.Before(startTime) || attempt >= 1 {
+			// end 早于窗口起点（星历早已停止）时无法通过钳制修复，返回原始错误
 			return nil, err
 		}
 		// 窗口超出星历截止：钳制 STOP_TIME 重试（保留完整前窗，截止前一日为界）

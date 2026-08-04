@@ -34,25 +34,29 @@ func openTestDB(t *testing.T) (context.Context, *pgxpool.Pool) {
 	return ctx, pool
 }
 
+// parseEpoch 解析后端序列化的 RFC3339 历元（如 2026-08-04T00:00:00Z）；失败返回零值
+func parseEpoch(s string) time.Time {
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
+
 // probeAtNow 在采样窗口内线性插值"当前时刻"位置；窗口未覆盖 now 时返回 ok=false
 func probeAtNow(p *Probe, now time.Time) (x, y, z float64, ok bool) {
 	pts := p.Positions
 	if len(pts) < 2 {
 		return 0, 0, 0, false
 	}
-	parse := func(i int) time.Time {
-		t, err := time.Parse(time.RFC3339, pts[i].Epoch)
-		if err != nil {
-			// 后端序列化 epoch 为 RFC3339（如 2026-08-04T00:00:00Z）
-			t, _ = time.Parse("2006-01-02T15:04:05Z07:00", pts[i].Epoch)
-		}
-		return t
-	}
-	if now.Before(parse(0)) || now.After(parse(len(pts)-1)) {
+	if now.Before(parseEpoch(pts[0].Epoch)) || now.After(parseEpoch(pts[len(pts)-1].Epoch)) {
 		return 0, 0, 0, false
 	}
 	for i := 0; i < len(pts)-1; i++ {
-		t0, t1 := parse(i), parse(i+1)
+		t0, t1 := parseEpoch(pts[i].Epoch), parseEpoch(pts[i+1].Epoch)
+		if !t1.After(t0) {
+			continue // 重复/乱序历元，跳过该段
+		}
 		if !now.Before(t0) && !now.After(t1) {
 			f := float64(now.Sub(t0)) / float64(t1.Sub(t0))
 			lerp := func(a, b float64) float64 { return a + (b-a)*f }
@@ -101,9 +105,14 @@ func TestProbeCatalogSanity(t *testing.T) {
 		if p.Color == "" {
 			t.Errorf("%s: 颜色缺失", p.ID)
 		}
-		// 采样数：正常窗口 181（±90 天日采样）；STEREO-A/隼鸟2 星历截止被钳制，下限 140
-		if len(p.Positions) < 140 {
-			t.Errorf("%s: 采样过少 %d（窗口钳制下限 140）", p.ID, len(p.Positions))
+		// 采样数：日采样应约等于窗口跨度天数（正常 ±90 天 ≈ 181）；STEREO-A/隼鸟2
+		// 星历截止时窗口被钳制、跨度随之变短——下限相对窗口跨度计算，避免 2026 年
+		// 9–10 月后窗口收缩导致误报（允许 ±3 条松弛）
+		if len(p.Positions) >= 2 {
+			spanDays := int(parseEpoch(p.Positions[len(p.Positions)-1].Epoch).Sub(parseEpoch(p.Positions[0].Epoch)).Hours()/24) + 1
+			if len(p.Positions) < spanDays-3 {
+				t.Errorf("%s: 采样数 %d 少于窗口跨度 %d 天（日采样）", p.ID, len(p.Positions), spanDays)
+			}
 		}
 		if _, _, _, ok := probeAtNow(p, now); !ok {
 			t.Errorf("%s: 采样窗口未覆盖当前时刻（前端标记将处于外推状态）", p.ID)
