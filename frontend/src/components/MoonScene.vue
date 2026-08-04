@@ -90,7 +90,7 @@
             <div><dt>偏心率</dt><dd>{{ craftById(selectedCraft)?.displayEccentricity }}</dd></div>
             <div><dt>轨道周期</dt><dd>{{ craftById(selectedCraft)?.displayPeriod }}</dd></div>
           </dl>
-          <p class="source-caption"><template v-if="selectedCraftInfo?.snapshot">轨道历元 {{ formatEpochUTC(selectedCraftInfo.snapshot.epoch) }} · </template>数据来源：{{ selectedCraftInfo?.sourceName }}</p>
+          <p class="source-caption"><template v-if="selectedCraftInfo?.snapshot">轨道历元 {{ formatEpochUTC(selectedCraftInfo.snapshot.epoch) }}<br></template>数据来源：{{ selectedCraftInfo?.sourceName }}</p>
         </aside>
       </div>
     </div>
