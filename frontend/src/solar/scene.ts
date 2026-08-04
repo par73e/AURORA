@@ -34,7 +34,7 @@ export interface ProbeData {
   color: string
   /** 最近一次同步时间（无采样时为空，与 API 类型一致） */
   syncedAt?: string
-  /** 轨道绘制方式：ellipse = 拟合椭圆（太阳在焦点）；track = 真实采样折线 */
+  /** 轨道绘制方式：ellipse = 拟合椭圆轨道（太阳在焦点）；track = 不绘制轨迹（仅标记） */
   orbitKind: string
   positions: Array<{ epoch: string; x: number; y: number; z: number }>
 }
