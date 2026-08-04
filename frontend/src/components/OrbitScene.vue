@@ -225,7 +225,7 @@ const markerObjects = new Map<string, THREE.Object3D>()
 const lineObjects = new Map<string, { line: THREE.Line; near: boolean; isActive: boolean }>()
 /** 悬停命中球（不可见放大版，标记的子节点）：让"鼠标放上去"更易触发高亮预览 */
 const hoverTargets = new Map<string, THREE.Mesh>()
-/** 轨道采样缓存（15 分钟桶）：选中重建时免重复 SGP4 采样（24 颗 × 121 次传播→缓存命中一次） */
+/** 轨道采样缓存（1 分钟桶）：选中重建时免重复 SGP4 采样（24 颗 × 121 次传播→缓存命中一次） */
 const orbitSampleCache = new Map<string, { at: number; points: THREE.Vector3[] }>()
 const raycaster = new THREE.Raycaster()
 /** 标记点距离补偿临时向量（每帧复用，避免分配） */
@@ -1155,7 +1155,7 @@ function animate(time = 0) {
 }
 
 watch(() => [props.spacecraft, props.sites, props.observatories], async () => {
-  orbitSampleCache.clear() // TLE 刷新（同 id 新 omm）时清轨道采样缓存，避免 15 分钟桶内旧轨道
+  orbitSampleCache.clear() // TLE 刷新（同 id 新 omm）时清轨道采样缓存，避免 1 分钟桶内旧轨道
   await nextTick()
   rebuildDataLayers()
 }, { deep: true })
