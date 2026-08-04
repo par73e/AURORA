@@ -288,6 +288,21 @@ const upcomingEvents = computed(() => overview.value?.events.filter((item) => ne
 const dataHealthy = computed(() => overview.value?.freshness.every((item) => item.success) ?? false)
 const operators = computed(() => [...new Set((overview.value?.spacecraft ?? []).map((item) => primaryOperator(item.operatorName)))].sort())
 
+/** 目录条目：TLE 航天器 + 空间天文台（韦布/斯皮策）合并，统一筛选/排序/渲染 */
+const catalogItems = computed(() => [
+  ...(overview.value?.spacecraft ?? []).map((s) => ({ kind: 'spacecraft' as const, ...s })),
+  ...observatories.value.map((obs) => ({
+    kind: 'observatory' as const,
+    id: obs.id,
+    nameZh: obs.nameZh,
+    nameEn: obs.nameEn,
+    noradCatalogId: null as number | null,
+    category: '空间天文台（非地球轨道）',
+    operatorName: obs.operatorName,
+    orbitEpoch: obs.syncedAt ?? '',
+  })),
+])
+
 const catalogResult = computed(() => {
   const raw = objectQuery.value.trim()
   let matcher: ((value: string) => boolean) | undefined
@@ -312,14 +327,14 @@ const catalogResult = computed(() => {
     }
   }
 
-  const items = (overview.value?.spacecraft ?? []).filter((item) => {
+  const items = catalogItems.value.filter((item) => {
     if (operatorFilter.value !== 'all' && primaryOperator(item.operatorName) !== operatorFilter.value) return false
     if (!matcher) return !raw && !queryError
-    return matcher([item.nameZh, item.nameEn, item.noradCatalogId, item.operatorName, item.category].join(' '))
+    return matcher([item.nameZh, item.nameEn, item.noradCatalogId ?? '', item.operatorName, item.category].join(' '))
   })
 
   items.sort((left, right) => {
-    if (objectSort.value === 'norad') return left.noradCatalogId - right.noradCatalogId
+    if (objectSort.value === 'norad') return (left.noradCatalogId ?? Number.MAX_SAFE_INTEGER) - (right.noradCatalogId ?? Number.MAX_SAFE_INTEGER)
     if (objectSort.value === 'operator') return primaryOperator(left.operatorName).localeCompare(primaryOperator(right.operatorName), 'zh-CN')
     return left.nameZh.localeCompare(right.nameZh, 'zh-CN')
   })
@@ -1192,8 +1207,8 @@ onBeforeUnmount(() => {
             <div class="catalog-meta"><span>找到 {{ catalogResult.items.length }} 个对象</span><span>支持 JavaScript 正则语法</span></div>
             <div class="object-table" role="table" aria-label="航天器查询结果">
               <div class="object-table-head" role="row"><span>NORAD</span><span>对象</span><span>运营方</span><span>类型</span><span>轨道历元</span></div>
-              <button v-for="craft in pagedCatalogItems" :key="craft.id" class="object-row" role="row" @click="selectAndFocus({ kind: 'spacecraft', id: craft.id })">
-                <span>{{ craft.noradCatalogId }}</span>
+              <button v-for="craft in pagedCatalogItems" :key="craft.id" class="object-row" role="row" @click="selectAndFocus({ kind: craft.kind, id: craft.id })">
+                <span>{{ craft.noradCatalogId ?? '—' }}</span>
                 <span><strong>{{ craft.nameZh }}</strong><small>{{ craft.nameEn }}</small></span>
                 <span>{{ craft.operatorName }}</span>
                 <span>{{ craft.category }}</span>
