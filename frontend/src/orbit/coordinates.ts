@@ -113,8 +113,9 @@ export function interpolateProbeKm(probe: DeepSpaceProbe, date = new Date()): TH
   const t = date.getTime()
   const first = pos[0]
   const last = pos[pos.length - 1]
-  if (t <= Date.parse(first.epoch)) return new THREE.Vector3(first.x, first.y, first.z)
-  if (t >= Date.parse(last.epoch)) return new THREE.Vector3(last.x, last.y, last.z)
+  const finite = (v: { x: number; y: number; z: number }) => Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z)
+  if (t <= Date.parse(first.epoch) && finite(first)) return new THREE.Vector3(first.x, first.y, first.z)
+  if (t >= Date.parse(last.epoch) && finite(last)) return new THREE.Vector3(last.x, last.y, last.z)
   for (let i = 0; i < pos.length - 1; i += 1) {
     const a = Date.parse(pos[i].epoch)
     const b = Date.parse(pos[i + 1].epoch)
