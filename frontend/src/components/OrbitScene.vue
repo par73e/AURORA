@@ -1076,6 +1076,7 @@ function animate(time = 0) {
 }
 
 watch(() => [props.spacecraft, props.sites], async () => {
+  orbitSampleCache.clear() // TLE 刷新（同 id 新 omm）时清轨道采样缓存，避免 15 分钟桶内旧轨道
   await nextTick()
   rebuildDataLayers()
 }, { deep: true })
