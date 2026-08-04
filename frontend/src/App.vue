@@ -953,9 +953,9 @@ async function loadObservatories() {
       // 方位角偏移相对"反日方向"（= 地球黄经）测量：relLon − sunLon − 180，归一化到 (-180, 180]
       let azOffsetDeg = (((relLonDeg - sunLonDeg - 180) % 360) + 360) % 360
       if (azOffsetDeg > 180) azOffsetDeg -= 360
-      // 场景中的黄道法线（太阳方向已含一次轴倾；绕黄道轴旋转使方位角落在同一黄道面内）
-      const eclipticNormal = new THREE.Vector3(Math.sin(23.44 * (Math.PI / 180)), Math.cos(23.44 * (Math.PI / 180)), 0)
-      const dir = antiSun.clone().applyAxisAngle(eclipticNormal, THREE.MathUtils.degToRad(azOffsetDeg))
+      // 绕黄道轴（场景 Z 轴）旋转：EARTH_TILT 为绕 Z 的旋转，与 Z 轴旋转交换，
+      // 黄道面内的方位角经轴倾映射后保持不变（精确复现 JPL 黄经方位差）
+      const dir = antiSun.clone().applyAxisAngle(new THREE.Vector3(0, 0, 1), THREE.MathUtils.degToRad(azOffsetDeg))
       return {
         ...def,
         distanceAU,
