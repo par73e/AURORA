@@ -936,9 +936,10 @@ export class SolarSystemScene {
       this.probeMeshes.push(marker)
 
       let trajectory: THREE.Line | null = null
-      // 绕日任务：拟合"太阳在焦点"的椭圆（一个完整轨道圈）——帕克周期约 89 天，
-      // ±90 天采样折线会绕两圈、视觉弯弯绕绕；线性最小二乘拟合 a/e/近日点方向
-      // （与 JPL 根数交叉验证），并按当前真实方向锚定近日点时刻
+      // 仅"绕日闭环"探测器绘制轨道：拟合"太阳在焦点"的椭圆（一个完整轨道圈）——
+      // 帕克周期约 89 天，±90 天采样折线会绕两圈、视觉弯弯绕绕；线性最小二乘拟合
+      // a/e/近日点方向（与 JPL 根数交叉验证），并按当前真实方向锚定近日点时刻。
+      // 其余探测器（逃逸/巡航/采样任务）不绘制轨迹线，仅显示位置标记。
       const fit = data.orbitKind === 'ellipse' ? fitEllipseFromSamples(data.positions, Date.now()) : null
       const orbitPoints = fit ? ellipseScenePoints(fit) : null
       if (orbitPoints && orbitPoints.length >= 3) {
@@ -951,15 +952,6 @@ export class SolarSystemScene {
           new THREE.BufferGeometry().setFromPoints(orbitPoints.map((q) => new THREE.Vector3(q.x, q.y, q.z))),
           material,
         )
-        this.scene.add(trajectory)
-        this.trajectoryMaterials.set(data.id, material)
-      } else if (points.length >= 2) {
-        const material = new THREE.LineBasicMaterial({
-          color: data.color,
-          transparent: true,
-          opacity: PROBE_TRAJECTORY_OPACITY_DEFAULT,
-        })
-        trajectory = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), material)
         this.scene.add(trajectory)
         this.trajectoryMaterials.set(data.id, material)
       }
