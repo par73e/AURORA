@@ -319,6 +319,21 @@ const catalogResult = computed(() => {
   return { items, error: queryError }
 })
 
+/** 航天器目录分页（每页 12 条；查询/筛选/排序变化时回到第 1 页） */
+const CATALOG_PAGE_SIZE = 12
+const catalogPage = ref(1)
+const catalogPageCount = computed(() => Math.max(1, Math.ceil(catalogResult.value.items.length / CATALOG_PAGE_SIZE)))
+const pagedCatalogItems = computed(() => {
+  const start = (catalogPage.value - 1) * CATALOG_PAGE_SIZE
+  return catalogResult.value.items.slice(start, start + CATALOG_PAGE_SIZE)
+})
+watch([objectQuery, operatorFilter, objectSort], () => {
+  catalogPage.value = 1
+})
+function catalogGotoPage(delta: number) {
+  catalogPage.value = Math.min(catalogPageCount.value, Math.max(1, catalogPage.value + delta))
+}
+
 
 
 const focusTarget = computed(() => {
@@ -1104,7 +1119,7 @@ onBeforeUnmount(() => {
             <div class="catalog-meta"><span>找到 {{ catalogResult.items.length }} 个对象</span><span>支持 JavaScript 正则语法</span></div>
             <div class="object-table" role="table" aria-label="航天器查询结果">
               <div class="object-table-head" role="row"><span>NORAD</span><span>对象</span><span>运营方</span><span>类型</span><span>轨道历元</span></div>
-              <button v-for="craft in catalogResult.items" :key="craft.id" class="object-row" role="row" @click="selectAndFocus({ kind: 'spacecraft', id: craft.id })">
+              <button v-for="craft in pagedCatalogItems" :key="craft.id" class="object-row" role="row" @click="selectAndFocus({ kind: 'spacecraft', id: craft.id })">
                 <span>{{ craft.noradCatalogId }}</span>
                 <span><strong>{{ craft.nameZh }}</strong><small>{{ craft.nameEn }}</small></span>
                 <span>{{ craft.operatorName }}</span>
@@ -1113,7 +1128,7 @@ onBeforeUnmount(() => {
               </button>
               <div v-if="!catalogResult.items.length" class="catalog-empty">没有符合当前条件的航天器。请修改搜索词或筛选条件。</div>
             </div>
-            <div class="pagination-space"><span>第 1 页 · 已载入 {{ overview?.spacecraft.length ?? 0 }} 个对象</span><div><button disabled>上一页</button><button disabled>下一页</button></div></div>
+            <div class="pagination-space"><span>第 {{ catalogPage }} / {{ catalogPageCount }} 页 · 共 {{ catalogResult.items.length }} 个对象</span><div><button :disabled="catalogPage <= 1" @click="catalogGotoPage(-1)">上一页</button><button :disabled="catalogPage >= catalogPageCount" @click="catalogGotoPage(1)">下一页</button></div></div>
           </div>
         </div>
       </section>
