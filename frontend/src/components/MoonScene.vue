@@ -90,7 +90,7 @@
             <div><dt>偏心率</dt><dd>{{ craftById(selectedCraft)?.displayEccentricity }}</dd></div>
             <div><dt>轨道周期</dt><dd>{{ craftById(selectedCraft)?.displayPeriod }}</dd></div>
           </dl>
-          <p class="source-caption">数据来源：{{ craftById(selectedCraft)?.sourceName }}</p>
+          <p class="source-caption"><template v-if="selectedCraftInfo?.snapshot">轨道历元 {{ formatEpochUTC(selectedCraftInfo.snapshot.epoch) }} · </template>数据来源：{{ selectedCraftInfo?.sourceName }}</p>
         </aside>
       </div>
     </div>
@@ -320,6 +320,16 @@ watch(sceneRevealed, (revealed) => {
 /** 月球飞行器列表（API 数据驱动，镜像地球 fetch overview 模式） */
 const crafts = ref<MoonSpacecraft[]>([])
 const craftById = (id: string) => crafts.value.find((c) => c.id === id)
+/** 当前选中飞行器（模板多次取用） */
+const selectedCraftInfo = computed(() => (selectedCraft.value ? craftById(selectedCraft.value) : undefined))
+
+/** 轨道历元统一 UTC 显示（与探测器面板同步时间格式一致，避免本地/UTC 混用） */
+function formatEpochUTC(iso?: string) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC`
+}
 
 const filteredCrafts = computed(() => {
   const q = craftQuery.value.trim().toLowerCase()

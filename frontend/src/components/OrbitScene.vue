@@ -136,6 +136,14 @@ function nearestSite(event: LaunchEvent): LaunchSite | undefined {
   }
   return best
 }
+/** 轨道历元统一 UTC 显示（与探测器面板同步时间格式一致，避免本地/UTC 混用） */
+function formatEpochUTC(iso: string) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC`
+}
+
 function orbitPeriodText(meanMotion: string) {
   const mm = Number(meanMotion)
   if (!Number.isFinite(mm) || mm <= 0) return '—'
@@ -1077,7 +1085,7 @@ onBeforeUnmount(() => {
           <div><dt>偏心率</dt><dd>{{ Number(selectedSpacecraft.omm.ECCENTRICITY).toFixed(6) }}</dd></div>
           <div><dt>轨道周期</dt><dd>{{ orbitPeriodText(selectedSpacecraft.omm.MEAN_MOTION) }}</dd></div>
         </dl>
-        <p class="source-caption">轨道历元 {{ new Date(selectedSpacecraft.orbitEpoch).toLocaleString('zh-CN', { hour12: false }) }}<br>{{ selectedSpacecraft.sourceName }}</p>
+        <p class="source-caption">轨道历元 {{ formatEpochUTC(selectedSpacecraft.orbitEpoch) }}<br>{{ selectedSpacecraft.sourceName }}</p>
       </template>
 
       <template v-else-if="selectedSite">

@@ -359,7 +359,7 @@ defineExpose({ resetView })
         <div v-if="probeDistAU !== null"><dt>当前距日</dt><dd>{{ probeDistAU.toFixed(2) }} AU</dd></div>
       </dl>
       <p class="probe-panel-desc">{{ selectedProbe.description }}</p>
-      <p class="probe-panel-note">数据来源：JPL Horizons · {{ formatSyncTime(selectedProbe.syncedAt) }}</p>
+      <p class="probe-panel-note">数据来源：JPL Horizons · 同步于 {{ formatSyncTime(selectedProbe.syncedAt) }}</p>
     </aside>
 
     <button class="reset-view" type="button" @click="resetView">重置</button>

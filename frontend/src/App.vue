@@ -341,6 +341,22 @@ const focusTarget = computed(() => {
   return null
 })
 
+/** 轨道历元/同步时间统一 UTC 显示（与探测器面板一致，避免本地/UTC 混用） */
+function formatUTCDateTime(iso: string) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC`
+}
+
+/** UTC 日期（目录表列宽紧凑用） */
+function formatUTCDate(iso: string) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`
+}
+
 function observerFallback(): Omit<ObserverLocation, 'status'> {
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
   if (timezone === 'Asia/Shanghai' || timezone === 'Asia/Chongqing') {
@@ -1093,7 +1109,7 @@ onBeforeUnmount(() => {
                 <span><strong>{{ craft.nameZh }}</strong><small>{{ craft.nameEn }}</small></span>
                 <span>{{ craft.operatorName }}</span>
                 <span>{{ craft.category }}</span>
-                <span>{{ new Date(craft.orbitEpoch).toLocaleDateString('zh-CN') }}</span>
+                <span>{{ formatUTCDate(craft.orbitEpoch) }}</span>
               </button>
               <div v-if="!catalogResult.items.length" class="catalog-empty">没有符合当前条件的航天器。请修改搜索词或筛选条件。</div>
             </div>
@@ -1143,7 +1159,7 @@ onBeforeUnmount(() => {
       <footer class="site-footer">
         <div class="page-frame footer-inner">
           <div><strong>AURORA / ORBIT</strong></div>
-          <div class="source-list"><span v-for="source in overview?.freshness" :key="source.sourceCode"><i :class="{ healthy: source.success }" />{{ source.sourceName }} · {{ new Date(source.lastFinishedAt).toLocaleString('zh-CN', { hour12: false }) }}</span></div>
+          <div class="source-list"><span v-for="source in overview?.freshness" :key="source.sourceCode"><i :class="{ healthy: source.success }" />{{ source.sourceName }} · {{ formatUTCDateTime(source.lastFinishedAt) }}</span></div>
         </div>
       </footer>
       </template>
