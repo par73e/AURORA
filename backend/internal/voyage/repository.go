@@ -21,7 +21,7 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 func (r *Repository) ListProbes(ctx context.Context) ([]Probe, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT id, name_zh, name_en, operator_name, launch_date, mission_type,
-		       target, description, precision_grade, color, sort_order
+		       target, description, precision_grade, color, orbit_kind, sort_order
 		FROM deep_space_probes
 		ORDER BY sort_order, id`)
 	if err != nil {
@@ -35,7 +35,7 @@ func (r *Repository) ListProbes(ctx context.Context) ([]Probe, error) {
 		if err := rows.Scan(
 			&item.ID, &item.NameZH, &item.NameEN, &item.OperatorName, &item.LaunchDate,
 			&item.MissionType, &item.Target, &item.Description, &item.PrecisionGrade,
-			&item.Color, &item.SortOrder,
+			&item.Color, &item.OrbitKind, &item.SortOrder,
 		); err != nil {
 			return nil, fmt.Errorf("scan deep space probe: %w", err)
 		}

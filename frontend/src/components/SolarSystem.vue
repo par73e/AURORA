@@ -311,7 +311,7 @@ defineExpose({ resetView })
         <div><dt>数据</dt><dd>JPL Horizons · {{ formatSyncTime(selectedProbe.syncedAt) }}</dd></div>
       </dl>
       <p class="probe-panel-desc">{{ selectedProbe.description }}</p>
-      <p class="probe-panel-note">位置来自 JPL Horizons 星历；距离与尺度为示意压缩</p>
+      <p class="probe-panel-note">位置来自 JPL Horizons 星历；距离与尺度为示意压缩{{ selectedProbe.orbitKind === 'ellipse' ? '，轨道线为拟合椭圆' : '' }}</p>
     </aside>
 
     <button class="position-toggle" type="button" @click="togglePositions">

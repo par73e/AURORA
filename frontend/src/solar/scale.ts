@@ -62,3 +62,48 @@ export function heliocentricToScene(xKm: number, yKm: number, zKm: number, out: 
 export function distanceAU(xKm: number, yKm: number, zKm: number): number {
   return Math.sqrt(xKm * xKm + yKm * yKm + zKm * zKm) / AU_KM
 }
+
+/** 拟合椭圆（太阳位于焦点）：由真实采样求近日/远日距离与近日点方向 */
+export interface FittedEllipse {
+  /** 半长轴（AU） */
+  aAU: number
+  /** 偏心率 */
+  e: number
+  /** 近日点方向角（黄道面内，与场景 +x 春分点一致） */
+  perihelionAngle: number
+}
+
+/** 从日心黄道采样拟合轨道椭圆（仅用黄道面投影 r=hypot(x,y)、θ=atan2(y,x)）。
+ *  偏心 e≥1（双曲线逃逸轨道）或采样不足时返回 null */
+export function fitEllipseFromSamples(positions: Array<{ x: number; y: number; z: number }>): FittedEllipse | null {
+  let rp = Infinity
+  let ra = 0
+  let thetaP = 0
+  for (const p of positions) {
+    const r = Math.hypot(p.x, p.y)
+    if (r < rp) {
+      rp = r
+      thetaP = Math.atan2(p.y, p.x)
+    }
+    if (r > ra) ra = r
+  }
+  if (!Number.isFinite(rp) || rp <= 0 || ra <= rp) return null
+  const e = (ra - rp) / (ra + rp)
+  if (e >= 1) return null
+  return { aAU: ((ra + rp) / 2) / AU_KM, e, perihelionAngle: thetaP }
+}
+
+/** 拟合椭圆采样 → 场景坐标点（太阳位于原点即焦点，极坐标 r=a(1-e²)/(1+e·cosν)）
+ *  经对数径向压缩 + 黄经方向映射，生成闭合椭圆轨道 */
+export function ellipseScenePoints(fit: FittedEllipse, count = 160): Array<{ x: number; z: number }> {
+  const p = fit.aAU * (1 - fit.e * fit.e)
+  const points: Array<{ x: number; z: number }> = []
+  for (let i = 0; i < count; i += 1) {
+    const nu = (i / count) * Math.PI * 2
+    const rAU = p / (1 + fit.e * Math.cos(nu))
+    const theta = fit.perihelionAngle + nu
+    const radius = sceneRadiusFromAU(rAU)
+    points.push({ x: radius * Math.cos(theta), z: radius * Math.sin(theta) })
+  }
+  return points
+}

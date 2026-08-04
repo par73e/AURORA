@@ -153,6 +153,8 @@ export interface DeepSpaceProbe {
   sortOrder: number
   /** 最近一次 JPL Horizons 同步时间（无采样时为空） */
   syncedAt?: string
+  /** 轨道绘制方式：ellipse = 拟合椭圆（太阳在焦点）；track = 真实采样折线 */
+  orbitKind: string
   /** 日心黄道位置采样（km，按时间升序，±90 天窗口） */
   positions: Array<{ epoch: string; x: number; y: number; z: number }>
 }

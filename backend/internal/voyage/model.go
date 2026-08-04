@@ -15,6 +15,8 @@ type Probe struct {
 	PrecisionGrade string          `json:"precisionGrade"`
 	Color          string          `json:"color"`
 	SortOrder      int             `json:"sortOrder"`
+	// 轨道绘制方式：ellipse = 拟合椭圆（太阳在焦点）；track = 真实采样折线
+	OrbitKind string `json:"orbitKind"`
 	// 最近一次同步时间（所有采样中最新 synced_at）；无采样时为空
 	SyncedAt  string          `json:"syncedAt,omitempty"`
 	Positions []PositionPoint `json:"positions"`

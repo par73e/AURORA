@@ -19,7 +19,7 @@ import {
   type PlanetSpec,
 } from './data'
 import { solarTexture } from './textures'
-import { distanceAU, heliocentricToScene } from './scale'
+import { distanceAU, ellipseScenePoints, fitEllipseFromSamples, heliocentricToScene } from './scale'
 
 /** 深空探测器数据（来自 /api/v1/voyage/probes；位置为 JPL Horizons 日心黄道坐标 km） */
 export interface ProbeData {
@@ -34,14 +34,18 @@ export interface ProbeData {
   color: string
   /** 最近一次同步时间（无采样时为空，与 API 类型一致） */
   syncedAt?: string
+  /** 轨道绘制方式：ellipse = 拟合椭圆（太阳在焦点）；track = 真实采样折线 */
+  orbitKind: string
   positions: Array<{ epoch: string; x: number; y: number; z: number }>
 }
 
 /** 探测器轨迹线样式：默认暗淡，指针悬停时变亮 */
 const PROBE_TRAJECTORY_OPACITY_DEFAULT = 0.3
 const PROBE_TRAJECTORY_OPACITY_HOVER = 0.85
-/** 探测器标记半径（场景单位） */
-const PROBE_MARKER_RADIUS = 0.55
+/** 探测器标记基础半径（场景单位，与地球/月球标记同款部分透视补偿：scale=(d/基准)^0.6） */
+const PROBE_MARKER_RADIUS = 0.35
+/** 标记部分透视补偿基准距离：scale=1 的相机距离（默认构图下探测器多在此附近） */
+const PROBE_MARKER_REF_DISTANCE = 150
 
 export interface SolarLabel {
   kind: 'planet' | 'sun' | 'belt' | 'probe'
@@ -913,7 +917,23 @@ export class SolarSystemScene {
       this.probeMeshes.push(marker)
 
       let trajectory: THREE.Line | null = null
-      if (points.length >= 2) {
+      // 绕日任务：拟合"太阳在焦点"的椭圆（一个完整轨道圈）——帕克周期约 89 天，
+      // ±90 天采样折线会绕两圈、视觉弯弯绕绕；拟合椭圆取真实近日/远日与近日点方向，自然美观
+      const fit = data.orbitKind === 'ellipse' ? fitEllipseFromSamples(data.positions) : null
+      const orbitPoints = fit ? ellipseScenePoints(fit) : null
+      if (orbitPoints && orbitPoints.length >= 3) {
+        const material = new THREE.LineBasicMaterial({
+          color: data.color,
+          transparent: true,
+          opacity: PROBE_TRAJECTORY_OPACITY_DEFAULT,
+        })
+        trajectory = new THREE.LineLoop(
+          new THREE.BufferGeometry().setFromPoints(orbitPoints.map((q) => new THREE.Vector3(q.x, 0, q.z))),
+          material,
+        )
+        this.scene.add(trajectory)
+        this.trajectoryMaterials.set(data.id, material)
+      } else if (points.length >= 2) {
         const material = new THREE.LineBasicMaterial({
           color: data.color,
           transparent: true,
@@ -967,6 +987,9 @@ export class SolarSystemScene {
       runtime.currentAU = aus[lo] + (hi === lo ? 0 : (aus[hi] - aus[lo]) * t)
       runtime.currentEpochMs = epochsMs[lo]
       runtime.marker.position.copy(runtime.current)
+      // 标记部分透视补偿（同地球/月球标记）：scale=(d/基准)^0.6，远小近大但不过度，
+      // 与行星比例保持一致——远处是点、贴脸放大也不胀成巨球
+      runtime.marker.scale.setScalar(Math.pow(runtime.current.distanceTo(this.camera.position) / PROBE_MARKER_REF_DISTANCE, 0.6))
     }
   }
 
@@ -1025,7 +1048,10 @@ export class SolarSystemScene {
     }
 
     for (const runtime of this.probeRuntimes.values()) {
-      labels.push(this.projectLabel('probe', runtime.data.id, runtime.current, PROBE_MARKER_RADIUS, width, height, halfFovTan))
+      // 标签偏移按其实际屏幕半径（标记为部分透视补偿，world 半径随相机距离缩放）
+      const d = runtime.current.distanceTo(this.camera.position)
+      const scaledRadius = PROBE_MARKER_RADIUS * Math.pow(d / PROBE_MARKER_REF_DISTANCE, 0.6)
+      labels.push(this.projectLabel('probe', runtime.data.id, runtime.current, scaledRadius, width, height, halfFovTan))
     }
 
     for (const anchor of this.beltAnchors) {
