@@ -743,7 +743,7 @@ function buildCraft(spec: MoonSpacecraft) {
     }
     line = new THREE.Line(
       new THREE.BufferGeometry().setFromPoints(linePoints),
-      new THREE.LineBasicMaterial({ color: 0xb9c4cf, transparent: true, opacity: 0.5 }),
+      new THREE.LineBasicMaterial({ color: 0x5c6670, transparent: true, opacity: 0.55 }),
     )
     line.rotation.z = argp * DEG
     plane.add(line)
