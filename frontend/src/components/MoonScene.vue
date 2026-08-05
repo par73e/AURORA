@@ -652,7 +652,7 @@ onMounted(() => {
       const dotChild = runtime.dot.children[0] as THREE.Mesh | undefined
       const dotMat = dotChild?.material as THREE.MeshBasicMaterial | undefined
       if (dotMat) dotMat.opacity = elementsFadeNow
-      if (runtime.line) (runtime.line.material as THREE.LineBasicMaterial).opacity = 0.5 * elementsFadeNow
+      if (runtime.line) (runtime.line.material as THREE.LineBasicMaterial).opacity = 0.55 * elementsFadeNow
       // 部分透视补偿（远小近大、不过度）：scale = (d/基准)^0.6；
       // 距离透明度：远处 70% 半透明、放大后实色（与地球统一）；隐藏期不渲染（visible 兜底）
       const d = runtime.dot.getWorldPosition(focusTmp).distanceTo(camera.position)
