@@ -21,6 +21,8 @@
           :style="craftLabelStyle(label)"
           :aria-label="`${craftById(label.id)?.nameZh}（${craftById(label.id)?.nameEn}）`"
           @click="selectedCraft = label.id"
+          @pointerenter="hoveredCraftId = label.id"
+          @pointerleave="hoveredCraftId = null"
         >
           <strong>{{ craftById(label.id)?.nameZh }}</strong>
           <small>{{ craftById(label.id)?.nameEn }}</small>
@@ -196,6 +198,8 @@ const spacecraftEnabled = ref(true)
 const orbitsEnabled = ref(true)
 const sitesEnabled = ref(true)
 const selectedCraft = ref<string | null>(null)
+/** 悬停预览的飞行器（不运镜，仅驱动高亮：标记放大/实色 + 轨道线点亮；悬停优先于选中） */
+const hoveredCraftId = ref<string | null>(null)
 const craftQuery = ref('')
 /** 航天器目录：运营方筛选 + 排序（与地球页一致） */
 const craftOperatorFilter = ref('all')
@@ -502,6 +506,8 @@ onMounted(() => {
   renderer.domElement.addEventListener('wheel', onSceneWheel, { passive: false })
   renderer.domElement.addEventListener('pointerdown', onPointerDown)
   renderer.domElement.addEventListener('pointerup', onPointerUp)
+  renderer.domElement.addEventListener('pointermove', onPointerMove)
+  renderer.domElement.addEventListener('pointerleave', onPointerLeave)
 
   // 无自动自转：拖拽旋转；滚轮由 onSceneWheel 按区域接管（月球上缩放、边缘滚动页面）
   controls = new OrbitControls(camera, renderer.domElement)
@@ -651,13 +657,15 @@ onMounted(() => {
     for (const runtime of craftRuntimes) {
       const dotChild = runtime.dot.children[0] as THREE.Mesh | undefined
       const dotMat = dotChild?.material as THREE.MeshBasicMaterial | undefined
+      // 高亮：悬停 > 选中（与地球页语义一致）；仅点亮不运镜
+      const active = runtime.spec.id === (hoveredCraftId.value ?? selectedCraft.value)
       if (dotMat) dotMat.opacity = elementsFadeNow
-      if (runtime.line) (runtime.line.material as THREE.LineBasicMaterial).opacity = 0.55 * elementsFadeNow
-      // 部分透视补偿（远小近大、不过度）：scale = (d/基准)^0.6；
+      if (runtime.line) (runtime.line.material as THREE.LineBasicMaterial).opacity = (active ? 0.95 : 0.55) * elementsFadeNow
+      // 部分透视补偿（远小近大、不过度）：scale = (d/基准)^0.6；高亮时放大 35%
       // 距离透明度：远处 70% 半透明、放大后实色（与地球统一）；隐藏期不渲染（visible 兜底）
       const d = runtime.dot.getWorldPosition(focusTmp).distanceTo(camera.position)
-      runtime.dot.scale.setScalar(Math.pow(d / MOON_MARKER_REF_DISTANCE, 0.6))
-      if (dotMat) dotMat.opacity = distOpacity(d) * elementsFadeNow
+      runtime.dot.scale.setScalar(Math.pow(d / MOON_MARKER_REF_DISTANCE, 0.6) * (active ? 1.35 : 1))
+      if (dotMat) dotMat.opacity = (active ? 1 : distOpacity(d)) * elementsFadeNow
       runtime.dot.visible = spacecraftEnabled.value && elementsFadeNow > 0.001
       if (runtime.line) runtime.line.visible = orbitsEnabled.value && elementsFadeNow > 0.001
     }
@@ -948,10 +956,34 @@ const moonPointerStart = new THREE.Vector2()
 /** 按下瞬间：在月球表面 → 立即收起页头并清除选中（与地球一致） */
 function onPointerDown(event: PointerEvent) {
   moonPointerStart.set(event.clientX, event.clientY)
+  hoveredCraftId.value = null // 按下即清悬停：拖拽期间不残留点亮；点击选中由 selectedCraft 继续驱动高亮
   if (isNearMoon(event.clientX, event.clientY)) {
     selectedCraft.value = null
     emit('blank-click')
   }
+}
+
+/** 悬停预览：不拖拽时射线拾取飞行器 → 点亮（标记放大+实色、轨道线变亮）；航天器图层关闭不触发 */
+function onPointerMove(event: PointerEvent) {
+  if (!renderer || !camera || !spacecraftEnabled.value) return
+  if (event.buttons !== 0) {
+    hoveredCraftId.value = null
+    return
+  }
+  const bounds = renderer.domElement.getBoundingClientRect()
+  pointerNDC.set(((event.clientX - bounds.left) / bounds.width) * 2 - 1, -((event.clientY - bounds.top) / bounds.height) * 2 + 1)
+  raycaster.setFromCamera(pointerNDC, camera)
+  const hits = raycaster.intersectObjects(craftHitMeshes)
+  const hit = hits.find((h) => {
+    const world = h.object.getWorldPosition(focusTmp)
+    return !isCraftOccluded(world)
+  })
+  hoveredCraftId.value = hit?.object.userData.craftId ? String(hit.object.userData.craftId) : null
+}
+
+/** 指针离开画布：清除悬停 */
+function onPointerLeave() {
+  hoveredCraftId.value = null
 }
 
 /** 松开：未拖拽（点按）→ 射线拾取飞行器（点击圆点选中）或清除；四周拖拽保持展开 */
@@ -1108,6 +1140,8 @@ onBeforeUnmount(() => {
   renderer?.domElement.removeEventListener('wheel', onSceneWheel)
   renderer?.domElement.removeEventListener('pointerdown', onPointerDown)
   renderer?.domElement.removeEventListener('pointerup', onPointerUp)
+  renderer?.domElement.removeEventListener('pointermove', onPointerMove)
+  renderer?.domElement.removeEventListener('pointerleave', onPointerLeave)
   controls?.dispose()
   moonMaterial?.dispose()
   moonMesh?.geometry.dispose()
