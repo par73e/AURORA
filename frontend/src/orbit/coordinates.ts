@@ -72,8 +72,55 @@ export function sampleOrbit(spacecraft: Spacecraft, center: Date) {
     const point = spacecraftPoint(spacecraft, new Date(center.getTime() + offsetMinutes * 60_000), referenceGmst)
     if (point) points.push(point.position)
   }
-  if (points.length > 2) points.push(points[0].clone())
-  return points
+  // 严格圆形化：真实轨道含偏心率（如先锋1号 e≈0.18 是椭圆）与进动接缝，
+  // 按用户要求统一成"严格圆 + 平滑 + 首尾精确闭合"：拟合圆心/轨道面法线/平均半径，
+  // 再均匀生成圆周点（参数化 2πk/N，k=0 与 k=N 重合 → 无接缝）
+  return fitCirclePoints(points, samples)
+}
+
+/** 对采样点做圆拟合，输出严格圆形、均匀、精确闭合的圆周点（保持真实圆心/轨道面/平均半径） */
+export function fitCirclePoints(points: THREE.Vector3[], segments: number): THREE.Vector3[] {
+  if (points.length < 3) return points
+  const tmp = new THREE.Vector3()
+  // 圆心 = 采样点质心
+  const centerPoint = new THREE.Vector3()
+  for (const p of points) centerPoint.add(p)
+  centerPoint.divideScalar(points.length)
+  // 轨道面法线 = 相邻差向量叉积之和（对近平面点集稳健）
+  const normal = new THREE.Vector3()
+  for (let i = 0; i < points.length - 1; i += 1) {
+    normal.add(tmp.copy(points[i]).sub(centerPoint).cross(tmp.copy(points[i + 1]).sub(centerPoint)))
+  }
+  if (normal.lengthSq() < 1e-12) return points
+  normal.normalize()
+  // 平面内基：u 沿第一个采样点的面内方向，v = n×u
+  const toFirst = tmp.copy(points[0]).sub(centerPoint)
+  const alongNormal = normal.clone().multiplyScalar(toFirst.dot(normal))
+  const u = toFirst.sub(alongNormal)
+  if (u.lengthSq() < 1e-12) return points
+  u.normalize()
+  const v = new THREE.Vector3().crossVectors(normal, u)
+  // 平均面内半径
+  let radiusSum = 0
+  let radiusCount = 0
+  for (const p of points) {
+    const radial = tmp.copy(p).sub(centerPoint).sub(normal.clone().multiplyScalar(tmp.copy(p).sub(centerPoint).dot(normal)))
+    radiusSum += radial.length()
+    radiusCount += 1
+  }
+  const radius = radiusSum / Math.max(1, radiusCount)
+  // 均匀圆周点：2πk/N，k=N 与 k=0 重合 → 精确闭合、平滑
+  const ring: THREE.Vector3[] = []
+  for (let k = 0; k <= segments; k += 1) {
+    const theta = (Math.PI * 2 * k) / segments
+    ring.push(
+      centerPoint
+        .clone()
+        .addScaledVector(u, Math.cos(theta) * radius)
+        .addScaledVector(v, Math.sin(theta) * radius),
+    )
+  }
+  return ring
 }
 
 // ---------------------------------------------------------------------------
