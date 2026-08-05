@@ -1020,8 +1020,8 @@ onBeforeUnmount(() => {
           <!-- 数据健康灯（只保留一个）：移到太阳系页——深空探测器数据源（CelesTrak/Launch Library/JPL Horizons）
                最近一次同步成败的 3 合 1 聚合；地球/月球页保持身份标签 -->
           <div v-if="surface === 'solar-system'" class="live-status">
-            <span class="status-dot" :class="{ healthy: dataHealthy }" />
-            <span>{{ dataHealthy ? '数据正常' : '检查数据' }}</span>
+            <span class="status-dot" :class="{ healthy: dataHealthy && !!overview, syncing: loading || !overview }" />
+            <span>{{ loading || !overview ? '同步中' : dataHealthy ? '数据正常' : '检查数据' }}</span>
             <strong>{{ timeOnly(now) }} UTC+8</strong>
           </div>
           <div v-else class="live-status solar-clock">

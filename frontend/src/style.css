@@ -136,6 +136,7 @@ button { cursor: pointer; }
 .live-status strong { margin-left: 7px; color: var(--ink); font-weight: 500; }
 .status-dot { width: 6px; height: 6px; border-radius: 50%; background: #d06b62; }
 .status-dot.healthy { background: #79e3bd; }
+.status-dot.syncing { background: #5e7582; }
 
 .orbit-section { position: relative; height: 150dvh; min-height: 990px; padding: 0; background: radial-gradient(circle at 60% 34%, #0a2338 0, #05111d 34%, #03070c 72%); }
 .orbit-section > .page-frame { width: 100%; max-width: none; height: 100%; }
