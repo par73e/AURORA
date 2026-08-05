@@ -1338,8 +1338,9 @@ export class SolarSystemScene {
     const marsPosition = marsRuntime.axial.getWorldPosition(this.tempWorldB)
     const p0 = this.camera.position.clone()
     const marsDir = marsPosition.clone().normalize()
-    // 终点：太阳→火星连线上、距火星中心 7（视半径约 16.6°，占画面 ~60%——变黑衔接自然）
-    const p3 = marsPosition.clone().addScaledVector(marsDir, -7)
+    // 终点：太阳→火星连线上、距火星中心 10（太阳系场景中火星半径 2.0 → 视半径 ~11.5°，
+    // 占 42° 视场约 55%——完整入画不溢出，末端行星明显小于月球飞入（半径 2.6/距 5.2））
+    const p3 = marsPosition.clone().addScaledVector(marsDir, -10)
     p3.y += 1.2
     const delta = p3.clone().sub(p0)
     const p1 = p0.clone().addScaledVector(delta, 0.3)

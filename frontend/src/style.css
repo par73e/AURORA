@@ -370,6 +370,86 @@ button { cursor: pointer; }
 .desktop-app.mars .site-header nav a:focus-visible { color: #ecd9c8; }
 .desktop-app.moon .source-caption { color: #7c8791; }
 
+/* 火星页：场景工具栏（与地球同结构，仅颜色陶土红）——无任何浅蓝元素 */
+.desktop-app.mars .scene-toolbar {
+  border-color: rgba(224, 168, 120, .22);
+  background: rgba(14, 9, 6, .8);
+}
+.desktop-app.mars .scene-toolbar > span { color: #a89078; }
+.desktop-app.mars .scene-toolbar label { color: #c09070; }
+.desktop-app.mars .scene-toolbar i { background: #6e4a30; }
+.desktop-app.mars .scene-toolbar input:checked + i {
+  background: #e0a878;
+  box-shadow: 0 0 6px rgba(224, 168, 120, .55);
+}
+
+/* 火星页：返回首页徽标（brand）+ 太阳系图标，陶土红、无蓝色元素 */
+.desktop-app.mars .brand small { color: #a89078; }
+.desktop-app.mars .brand:hover small,
+.desktop-app.mars .brand:focus-visible small { color: #e0a878; }
+.desktop-app.mars .brand-mark {
+  border-color: rgba(224, 168, 120, .45);
+}
+.desktop-app.mars .brand-mark i:first-child { background: #e0a878; }
+.desktop-app.mars .brand-mark i:nth-child(2) { background: rgba(224, 168, 120, .4); }
+.desktop-app.mars .brand-mark i:nth-child(3) { border-color: rgba(224, 168, 120, .28); }
+.desktop-app.mars .brand:hover .brand-mark,
+.desktop-app.mars .brand:focus-visible .brand-mark {
+  border-color: rgba(240, 190, 150, .9);
+  box-shadow: 0 0 0 1px rgba(224, 168, 120, .22), 0 0 20px rgba(224, 168, 120, .35), inset 0 0 12px rgba(224, 168, 120, .18);
+  transform: translateY(-1px) scale(1.05);
+}
+.desktop-app.mars .brand:hover .brand-mark i:first-child,
+.desktop-app.mars .brand:focus-visible .brand-mark i:first-child { background: #f0be96; }
+.desktop-app.mars .brand:hover .brand-mark i:nth-child(3),
+.desktop-app.mars .brand:focus-visible .brand-mark i:nth-child(3) { background: #e0a878; }
+.desktop-app.mars .brand:hover .brand-mark i:nth-child(2),
+.desktop-app.mars .brand:focus-visible .brand-mark i:nth-child(2) { background: rgba(240, 190, 150, .95); }
+.desktop-app.mars .brand:hover .brand-mark i:nth-child(3),
+.desktop-app.mars .brand:focus-visible .brand-mark i:nth-child(3) { border-color: rgba(240, 190, 150, .72); }
+.desktop-app.mars .brand:hover strong,
+.desktop-app.mars .brand:focus-visible strong { color: #f6e6d4; text-shadow: 0 0 14px rgba(224, 168, 120, .4); }
+.desktop-app.mars .brand:hover small,
+.desktop-app.mars .brand:focus-visible small { color: #e0a878; }
+
+/* 火星页：太阳系图标（SolarSystemItem）蓝色元素 → 陶土红 */
+.desktop-app.mars .solar-system-item {
+  --orbit-blue: rgba(224, 168, 120, .85);
+  --orbit-cyan: rgba(224, 168, 120, .5);
+  --orbit-gold: rgba(255, 189, 81, .42);
+}
+.desktop-app.mars .solar-system-item .planet-blue {
+  background: radial-gradient(circle at 32% 28%, #f0be96, #e0a878 45%, #a87850 100%);
+  box-shadow: 0 0 3px rgba(224, 168, 120, .55), 0 0 5px rgba(224, 168, 120, .28);
+}
+.desktop-app.mars .solar-system-item .planet-cyan {
+  background: radial-gradient(circle at 32% 28%, #f0be96, #e0a878 48%, #a89078 100%);
+  box-shadow: 0 0 4px rgba(224, 168, 120, .5), 0 0 8px rgba(224, 168, 120, .22);
+}
+.desktop-app.mars .solar-system-item .orbit-outer::after {
+  border-top-color: rgba(240, 190, 150, .8);
+  filter: drop-shadow(0 0 3px rgba(224, 168, 120, .2));
+}
+.desktop-app.mars .solar-system-item .star-dot {
+  background: #e0a878;
+  box-shadow: 0 0 5px rgba(224, 168, 120, .4);
+}
+
+/* 火星页：飞行器信息面板（context-panel 内层元素）陶土红，无浅蓝 */
+.desktop-app.mars .context-panel {
+  border-color: rgba(224, 168, 120, .18);
+  background: rgba(18, 12, 8, .92);
+}
+.desktop-app.mars .context-panel .context-type { color: #d0a080; }
+.desktop-app.mars .context-panel .context-subtitle { color: #a89078; }
+.desktop-app.mars .context-panel .context-description { color: #c0a080; }
+.desktop-app.mars .context-panel dt { color: #a89078; }
+.desktop-app.mars .context-panel dd { color: #ecd9c8; }
+.desktop-app.mars .context-panel dl div { border-top-color: rgba(224, 168, 120, .12); }
+.desktop-app.mars .context-panel .panel-close { color: #a89078; }
+.desktop-app.mars .context-panel .panel-close:hover { color: #ecd9c8; }
+.desktop-app.mars .source-caption { color: #a89078; }
+
 /* 月球页：场景工具栏（与地球同结构，仅颜色银灰） */
 .desktop-app.moon .scene-toolbar {
   border-color: rgba(200, 208, 216, .22);

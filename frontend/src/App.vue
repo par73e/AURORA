@@ -1131,7 +1131,7 @@ onBeforeUnmount(() => {
               <span class="brand-mark"><i /><i /><i /></span>
               <span><strong>AURORA</strong><small>ORBITAL OBSERVATORY</small></span>
             </a>
-            <SolarSystemItem v-if="surface === 'orbit' || surface === 'moon'" title="太阳系" :icon-size="30" :animated="true" @click="enterSolarSystem" />
+            <SolarSystemItem v-if="surface === 'orbit' || surface === 'moon' || surface === 'mars'" title="太阳系" :icon-size="30" :animated="true" @click="enterSolarSystem" />
           </div>
           <nav v-if="surface === 'orbit'" aria-label="页面导航">
             <a href="#earth"><i class="nav-num">Ⅰ</i>地球</a>
@@ -1143,6 +1143,11 @@ onBeforeUnmount(() => {
             <a href="#moon-scene"><i class="nav-num">Ⅰ</i>月球观测</a>
             <a href="#moon-objects"><i class="nav-num">Ⅱ</i>航天器</a>
             <a href="#moon-sites"><i class="nav-num">Ⅲ</i>着陆点</a>
+          </nav>
+          <nav v-else-if="surface === 'mars'" aria-label="页面导航">
+            <a href="#mars-scene"><i class="nav-num">Ⅰ</i>火星观测</a>
+            <a href="#mars-objects"><i class="nav-num">Ⅱ</i>航天器</a>
+            <a href="#mars-sites"><i class="nav-num">Ⅲ</i>着陆点</a>
           </nav>
           <nav v-else-if="surface === 'solar-system'" aria-label="当前位置">
             <SolarSystemItem title="太阳系" :icon-size="30" :active="true" :animated="true" @click="solarSystemRef?.resetView?.()" />

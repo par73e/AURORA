@@ -2,7 +2,7 @@
   <section class="mars-section" aria-labelledby="mars-title">
     <div id="mars-scene" class="mars-scene-frame">
       <div ref="canvasHost" class="mars-scene-host" :class="{ revealed: sceneRevealed }" role="group" aria-label="火星三维视图，左上角可返回太阳系">
-        <!-- 工具栏：与地球页同一套 scene-toolbar 结构（仅颜色走银灰覆盖） -->
+        <!-- 工具栏：与地球页同一套 scene-toolbar 结构（仅颜色走陶土红覆盖） -->
         <div ref="sceneToolbarRef" class="scene-toolbar" :class="{ 'leaving-fade': leaving }" aria-label="场景图层">
           <span>图层</span>
           <label><input v-model="spacecraftEnabled" type="checkbox"><i />航天器</label>
@@ -101,7 +101,7 @@
   <section id="mars-objects" class="content-section mars-objects-section">
     <div class="page-frame">
       <div class="section-heading">
-        <div><p class="section-kicker">MARS SPACECRAFT</p><h2><i class="sec-num">Ⅰ</i>火星航天器</h2></div>
+        <div><p class="section-kicker">MARS SPACECRAFT</p><h2><i class="sec-num">Ⅰ</i>航天器</h2></div>
       </div>
       <div class="catalog-workspace">
         <div class="catalog-controls">
@@ -250,12 +250,11 @@ const elementsVisible = ref(!props.enterFromSolar)
  *  直接加载/刷新默认全亮（无时间轴）。 */
 let elementsFade = props.enterFromSolar ? 0 : 1
 let elementsAnim: { from: number; to: number; startedAt: number; duration: number } | null = null
-/** 火星自转：真实周期 24.6h，场景中做慢速可见旋转（非潮汐锁定，纯视觉） */
-const MARS_SPIN_SPEED = THREE.MathUtils.degToRad(1.6) // ≈1.6°/s，约 3.8 分钟一圈（可见但不过度）
+/** 火星自转（已移除持续自转）：火星页面静止展示，保留初始姿态角 */
 /** 元素弹出延迟 = 星球渐入（0.3s）+ 缓冲 */
 const MARS_ELEMENTS_DELAY_MS = 900
-/** 标记点距离补偿基准（默认相机距离 ≈ 17）：部分透视补偿（远小近大不过度） */
-const MARS_MARKER_REF_DISTANCE = 17
+/** 标记点距离补偿基准（默认相机距离 ≈ 13）：部分透视补偿（远小近大不过度） */
+const MARS_MARKER_REF_DISTANCE = 13
 /** 距离透明度（与地球统一）：远处（默认视角及更远）70% 半透明，放大到极限后渐变为实色 */
 function distOpacity(d: number): number {
   return 0.7 + 0.3 * THREE.MathUtils.clamp((MARS_MARKER_REF_DISTANCE - d) / (MARS_MARKER_REF_DISTANCE - 2.85), 0, 1)
@@ -280,14 +279,8 @@ watch(
 )
 function startMarsSpin() {
   if (!swingPivot) return
-  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  swingPivot.rotation.y = reduced ? 0 : -THREE.MathUtils.degToRad(15)
-}
-/** 自转推进：匀速（自西向东 = 火星真实自转方向） */
-function updateMarsSpin(delta: number) {
-  if (!swingPivot) return
-  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  swingPivot.rotation.y += (reduced ? 0 : MARS_SPIN_SPEED) * delta
+  // 静止展示：仅设初始姿态角（自西向东方向），不做持续旋转
+  swingPivot.rotation.y = -THREE.MathUtils.degToRad(15)
 }
 // 进入：裸火星先 0.3s 渐入（scene-host），随后所有元素（着陆点+飞行器+轨道+标签）一次性淡入
 let elementsRevealTimer: number | undefined
@@ -464,8 +457,9 @@ onMounted(() => {
 
   scene = new THREE.Scene()
   camera = new THREE.PerspectiveCamera(MARS_FOV, initialWidth / initialHeight, 0.1, 2000)
-  // 初始视角：距火星中心 17（视半径 ~10.1°）——火星比月球大，轨道也更宽，视野相应拉远
-  camera.position.set(0, 1.8, 17)
+  // 初始视角：距火星中心 13（视半径 ~13.3°）——比月球页（~11°）略大、比地球页（~15.8°）略小，
+  // 体现"地球 > 火星 > 月球"的观感
+  camera.position.set(0, 1.8, 13)
 
   resizeObserver = new ResizeObserver(() => {
     const width = host.clientWidth
@@ -622,7 +616,6 @@ onMounted(() => {
     }
     // 统一元素淡入淡出：进入时星球渐入完成后一次性浮现；退出时全部一起消失（只留裸火星）
     const elementsFadeNow = updateElementsFade()
-    updateMarsSpin(delta)
     for (const runtime of craftRuntimes) {
       const dotChild = runtime.dot.children[0] as THREE.Mesh | undefined
       const dotMat = dotChild?.material as THREE.MeshBasicMaterial | undefined
@@ -1246,7 +1239,7 @@ onBeforeUnmount(() => {
 .craft-label:hover,
 .craft-label.selected {
   border-color: rgba(224, 168, 120, .65);
-  background: rgba(16, 22, 28, .85);
+  background: rgba(28, 20, 14, .85);
 }
 
 /* 着陆点板块行：图标 + 名称两行 */
@@ -1294,8 +1287,8 @@ onBeforeUnmount(() => {
   padding: 22px 24px;
   border: 1px solid rgba(224, 168, 120, .1); /* 四边统一弱描边 */
   border-radius: 10px;
-  /* 低对比深色底：右上略深 → 左下微亮，幅度极小，面板边缘与背景无色差 */
-  background: linear-gradient(200deg, rgba(9, 13, 18, .97) 0%, rgba(20, 27, 34, .95) 100%);
+  /* 低对比深色底：右上略深 → 左下微亮，幅度极小，面板边缘与背景无色差（暖褐底，无蓝色元素） */
+  background: linear-gradient(200deg, rgba(18, 12, 8, .97) 0%, rgba(32, 22, 14, .95) 100%);
   /* 外投影浮起 + 顶部极微弱光（无底部高光/黑线） */
   box-shadow: 0 24px 70px rgba(0, 0, 0, .5), inset 0 1px 0 rgba(255, 255, 255, .04);
   backdrop-filter: blur(18px);
