@@ -194,7 +194,7 @@ func (r *Repository) SaveLaunchEvent(ctx context.Context, event LaunchEvent, raw
 			net,window_start,window_end,pad_name,pad_name_zh,location_name,location_name_zh,
 			latitude,longitude,mission_name,mission_name_zh,mission_type,mission_type_zh,
 			mission_description,mission_description_zh,provider_name,launch_site_id,source_url,raw_payload,has_original)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,NULLIF($23,''),$24,$25,$26)
 		ON CONFLICT(external_id) DO UPDATE SET
 		name=EXCLUDED.name,name_zh=EXCLUDED.name_zh,
 		status_name=EXCLUDED.status_name,status_name_zh=EXCLUDED.status_name_zh,status_abbrev=EXCLUDED.status_abbrev,
@@ -205,7 +205,7 @@ func (r *Repository) SaveLaunchEvent(ctx context.Context, event LaunchEvent, raw
 		mission_name=EXCLUDED.mission_name,mission_name_zh=EXCLUDED.mission_name_zh,
 		mission_type=EXCLUDED.mission_type,mission_type_zh=EXCLUDED.mission_type_zh,
 		mission_description=EXCLUDED.mission_description,mission_description_zh=EXCLUDED.mission_description_zh,
-		provider_name=EXCLUDED.provider_name,launch_site_id=EXCLUDED.launch_site_id,
+		provider_name=EXCLUDED.provider_name,launch_site_id=NULLIF(EXCLUDED.launch_site_id,''),
 		source_url=EXCLUDED.source_url,raw_payload=EXCLUDED.raw_payload,
 		has_original=EXCLUDED.has_original,synced_at=now()`,
 		event.ExternalID, event.Name, event.NameZH,
