@@ -39,7 +39,6 @@ const now = ref(new Date())
 const selection = ref<Selection | null>(null)
 const layers = reactive<SceneLayers>({ spacecraft: true, orbits: true, sites: true })
 const objectQuery = ref('')
-const sitesExpanded = ref(false)
 const operatorFilter = ref('all')
 const objectSort = ref<'name' | 'norad' | 'operator'>('name')
 const observerLocation = ref<ObserverLocation>({ ...fallbackObserver, status: 'locating' })
@@ -272,12 +271,6 @@ function surfaceFromHash(): AppSurface {
   if (['#earth', '#objects', '#sites', '#launches'].includes(window.location.hash)) return 'orbit'
   return 'cover'
 }
-
-// 发射场两级：第一层常显，第二层展开后显示（列表与 3D 标记同步）；tier 缺省按第一层处理
-const visibleSites = computed(() =>
-  (overview.value?.launchSites ?? []).filter((site) => (site.tier ?? 1) === 1 || sitesExpanded.value),
-)
-const tier2SiteCount = computed(() => (overview.value?.launchSites ?? []).filter((site) => (site.tier ?? 1) === 2).length)
 
 const selectedSpacecraft = computed(() => selection.value?.kind === 'spacecraft'
   ? overview.value?.spacecraft.find((item) => item.id === selection.value?.id)
@@ -1143,7 +1136,7 @@ onBeforeUnmount(() => {
             <OrbitScene
               v-if="overview"
               :spacecraft="overview.spacecraft"
-              :sites="visibleSites"
+              :sites="overview.launchSites"
               :events="overview.events"
               :observatories="observatories"
               :header-expanded="headerExpanded"
@@ -1235,18 +1228,9 @@ onBeforeUnmount(() => {
         <div class="page-frame">
           <div class="section-heading">
             <div><p class="section-kicker launch-kicker">GROUND NETWORK</p><h2><i class="sec-num">Ⅲ</i>发射场</h2></div>
-            <button
-              v-if="tier2SiteCount > 0"
-              class="sites-toggle"
-              type="button"
-              :aria-expanded="sitesExpanded"
-              @click="sitesExpanded = !sitesExpanded"
-            >
-              {{ sitesExpanded ? '收起' : `展开第二层（${tier2SiteCount}）` }}
-            </button>
           </div>
           <div class="site-directory">
-            <button v-for="site in visibleSites" :key="site.id" @click="selectAndFocus({ kind: 'site', id: site.id })">
+            <button v-for="site in overview?.launchSites" :key="site.id" @click="selectAndFocus({ kind: 'site', id: site.id })">
               <span class="site-code">{{ site.countryCode }}</span>
               <span><strong>{{ site.nameZh }}</strong><small>{{ site.nameEn }}</small></span>
               <p>{{ site.description }}</p>

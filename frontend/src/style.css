@@ -293,16 +293,6 @@ button { cursor: pointer; }
 .launch-time small { display: block; margin-top: 4px; color: #5e7582; font-size: 8px; }
 
 .sites-section { background: var(--bg); }
-.sites-toggle { grid-column: 8 / span 5; justify-self: end; padding: 8px 14px;
-  border: 1px solid var(--line-strong);
-  border-radius: 4px;
-  background: transparent;
-  color: #91a5af;
-  font-size: 12px;
-  cursor: pointer;
-  transition: color .2s, border-color .2s;
-}
-.sites-toggle:hover, .sites-toggle:focus-visible { color: var(--amber); border-color: var(--amber); outline: none; }
 .site-directory { display: grid; grid-template-columns: 1fr 1fr; column-gap: 64px; border-top: 1px solid var(--line-strong); }
 .site-directory button { display: grid; grid-template-columns: 46px minmax(180px, .8fr) minmax(250px, 1.2fr) 120px; gap: 18px; align-items: start; min-height: 132px; padding: 28px 0; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: #91a5af; text-align: left; }
 .site-directory button:hover strong, .site-directory button:focus-visible strong { color: var(--amber); }
