@@ -171,6 +171,13 @@ func (s *Syncer) SyncLaunches(ctx context.Context) error {
 			event.ProviderName = source.LSP.Name
 		}
 		orbit.LocalizeLaunchEvent(&event)
+		// 坐标单源：能匹配到库内发射场则记录 launch_site_id（查询时坐标以站点为准），否则回退事件自带坐标
+		siteID, err := s.repository.MatchLaunchSite(ctx, event.LocationName, event.PadName)
+		if err != nil {
+			syncErr = err
+			return err
+		}
+		event.LaunchSiteID = siteID
 		if err := s.repository.SaveLaunchEvent(ctx, event, raw); err != nil {
 			syncErr = err
 			return err

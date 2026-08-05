@@ -59,6 +59,7 @@ type LaunchEvent struct {
 	MissionDescription   string     `json:"missionDescription,omitempty"`
 	MissionDescriptionZH string     `json:"missionDescriptionZh,omitempty"`
 	ProviderName         string     `json:"providerName,omitempty"`
+	LaunchSiteID         string     `json:"launchSiteId,omitempty"`
 	SourceURL            string     `json:"sourceUrl"`
 	SyncedAt             time.Time  `json:"syncedAt"`
 	HasOriginal          bool       `json:"hasOriginal"`

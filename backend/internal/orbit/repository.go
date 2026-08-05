@@ -3,7 +3,9 @@ package orbit
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -92,17 +94,19 @@ func (r *Repository) listLaunchSites(ctx context.Context) ([]LaunchSite, error) 
 
 func (r *Repository) listLaunchEvents(ctx context.Context) ([]LaunchEvent, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT external_id, name, name_zh, status_name, status_name_zh, status_abbrev,
-		       net, window_start, window_end,
-		       COALESCE(pad_name,''), pad_name_zh, COALESCE(location_name,''), location_name_zh,
-		       latitude, longitude,
-		       COALESCE(mission_name,''), mission_name_zh,
-		       COALESCE(mission_type,''), mission_type_zh,
-		       COALESCE(mission_description,''), mission_description_zh,
-		       COALESCE(provider_name,''), source_url, synced_at, has_original
-		FROM launch_events
-		WHERE net >= now() AND net <= now() + interval '30 days'
-		ORDER BY net
+		SELECT e.external_id, e.name, e.name_zh, e.status_name, e.status_name_zh, e.status_abbrev,
+		       e.net, e.window_start, e.window_end,
+		       COALESCE(e.pad_name,''), e.pad_name_zh, COALESCE(e.location_name,''), e.location_name_zh,
+		       COALESCE(ls.latitude, e.latitude), COALESCE(ls.longitude, e.longitude),
+		       COALESCE(e.mission_name,''), e.mission_name_zh,
+		       COALESCE(e.mission_type,''), e.mission_type_zh,
+		       COALESCE(e.mission_description,''), e.mission_description_zh,
+		       COALESCE(e.provider_name,''), e.source_url, e.synced_at, e.has_original,
+		       COALESCE(ls.id, '') AS launch_site_id
+		FROM launch_events e
+		LEFT JOIN launch_sites ls ON ls.id = e.launch_site_id
+		WHERE e.net >= now() AND e.net <= now() + interval '30 days'
+		ORDER BY e.net
 		LIMIT 20`)
 	if err != nil {
 		return nil, fmt.Errorf("list launch events: %w", err)
@@ -121,6 +125,7 @@ func (r *Repository) listLaunchEvents(ctx context.Context) ([]LaunchEvent, error
 			&item.MissionType, &item.MissionTypeZH,
 			&item.MissionDescription, &item.MissionDescriptionZH,
 			&item.ProviderName, &item.SourceURL, &item.SyncedAt, &item.HasOriginal,
+			&item.LaunchSiteID,
 		); err != nil {
 			return nil, fmt.Errorf("scan launch event: %w", err)
 		}
@@ -188,8 +193,8 @@ func (r *Repository) SaveLaunchEvent(ctx context.Context, event LaunchEvent, raw
 			external_id,name,name_zh,status_name,status_name_zh,status_abbrev,
 			net,window_start,window_end,pad_name,pad_name_zh,location_name,location_name_zh,
 			latitude,longitude,mission_name,mission_name_zh,mission_type,mission_type_zh,
-			mission_description,mission_description_zh,provider_name,source_url,raw_payload,has_original)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
+			mission_description,mission_description_zh,provider_name,launch_site_id,source_url,raw_payload,has_original)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
 		ON CONFLICT(external_id) DO UPDATE SET
 		name=EXCLUDED.name,name_zh=EXCLUDED.name_zh,
 		status_name=EXCLUDED.status_name,status_name_zh=EXCLUDED.status_name_zh,status_abbrev=EXCLUDED.status_abbrev,
@@ -200,7 +205,8 @@ func (r *Repository) SaveLaunchEvent(ctx context.Context, event LaunchEvent, raw
 		mission_name=EXCLUDED.mission_name,mission_name_zh=EXCLUDED.mission_name_zh,
 		mission_type=EXCLUDED.mission_type,mission_type_zh=EXCLUDED.mission_type_zh,
 		mission_description=EXCLUDED.mission_description,mission_description_zh=EXCLUDED.mission_description_zh,
-		provider_name=EXCLUDED.provider_name,source_url=EXCLUDED.source_url,raw_payload=EXCLUDED.raw_payload,
+		provider_name=EXCLUDED.provider_name,launch_site_id=EXCLUDED.launch_site_id,
+		source_url=EXCLUDED.source_url,raw_payload=EXCLUDED.raw_payload,
 		has_original=EXCLUDED.has_original,synced_at=now()`,
 		event.ExternalID, event.Name, event.NameZH,
 		event.StatusName, event.StatusNameZH, event.StatusAbbrev,
@@ -209,8 +215,136 @@ func (r *Repository) SaveLaunchEvent(ctx context.Context, event LaunchEvent, raw
 		event.Latitude, event.Longitude,
 		event.MissionName, event.MissionNameZH, event.MissionType, event.MissionTypeZH,
 		event.MissionDescription, event.MissionDescriptionZH,
-		event.ProviderName, event.SourceURL, raw, event.HasOriginal)
+		event.ProviderName, event.LaunchSiteID, event.SourceURL, raw, event.HasOriginal)
 	return err
+}
+
+// normalizeSiteName 规范化地点名称用于匹配：小写、去变音符、去非字母数字字符、折叠空白。
+func normalizeSiteName(s string) string {
+	var b strings.Builder
+	prevSpace := true
+	for _, r := range strings.ToLower(s) {
+		if r >= 'à' && r <= 'ÿ' {
+			r = foldDiacritic(r)
+		}
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			prevSpace = false
+		} else if !prevSpace {
+			b.WriteByte(' ')
+			prevSpace = true
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// foldDiacritic 将带变音符的拉丁字母折叠为 ASCII 基础字母（覆盖常见西欧字符）。
+func foldDiacritic(r rune) rune {
+	switch r {
+	case 'à', 'á', 'â', 'ä', 'ã', 'å':
+		return 'a'
+	case 'ç':
+		return 'c'
+	case 'è', 'é', 'ê', 'ë':
+		return 'e'
+	case 'ì', 'í', 'î', 'ï':
+		return 'i'
+	case 'ñ':
+		return 'n'
+	case 'ò', 'ó', 'ô', 'ö', 'õ':
+		return 'o'
+	case 'ù', 'ú', 'û', 'ü':
+		return 'u'
+	case 'ý', 'ÿ':
+		return 'y'
+	default:
+		return r
+	}
+}
+
+// launchSiteAliases：Launch Library 常用简称 → 发射场 id（规范化键，词边界前缀匹配，取最长者）。
+var launchSiteAliases = map[string]string{
+	"vandenberg sfb":     "vandenberg",
+	"cape canaveral sfs": "cape-canaveral",
+	"cape canaveral":     "cape-canaveral",
+	"sriharikota":        "satish-dhawan",
+	"mahia":              "rocket-lab",
+	"kourou":             "guiana",
+	"woomera":            "woomera",
+	"alcantara":          "alcantara",
+	"naro":               "naro",
+	"baikonur":           "baikonur",
+}
+
+// matchLaunchSiteAlias 在别名表中做最长词边界匹配，取最长命中。
+// contained=false（位置名前缀语义）："cape canaveral sfs, fl usa" 以 "cape canaveral sfs" 开头；
+// contained=true（工位名包含语义）："lc 39a kennedy space center" 包含 "kennedy space center"。
+func matchLaunchSiteAlias(key string, contained bool) string {
+	best, bestLen := "", 0
+	for alias, id := range launchSiteAliases {
+		hit := key == alias ||
+			strings.HasPrefix(key, alias+" ") ||
+			(contained && (strings.HasSuffix(key, " "+alias) || strings.Contains(key, " "+alias+" ")))
+		if hit && len(alias) > bestLen {
+			best, bestLen = id, len(alias)
+		}
+	}
+	return best
+}
+
+// siteNamePrefixMatch：位置名 key 是否以站点全名开头（词边界）。如
+// "wenchang space launch site people s republic of china" → "wenchang space launch site " 开头。
+func siteNamePrefixMatch(key, siteNorm string) bool {
+	return key == siteNorm || strings.HasPrefix(key, siteNorm+" ")
+}
+
+// siteNameContainedMatch：工位名 key 是否包含站点全名（词边界）。如
+// "lc 39a kennedy space center" 包含 "kennedy space center"。
+func siteNameContainedMatch(key, siteNorm string) bool {
+	return key == siteNorm ||
+		strings.HasPrefix(key, siteNorm+" ") ||
+		strings.HasSuffix(key, " "+siteNorm) ||
+		strings.Contains(key, " "+siteNorm+" ")
+}
+
+// MatchLaunchSite 将事件地点解析到 launch_sites 的 id（空串表示无匹配，回退事件自带坐标）。
+// 工位名（padName）归属更精确（如 "LC-39A, Kennedy Space Center" → kennedy），先于区域名（locationName）尝试。
+func (r *Repository) MatchLaunchSite(ctx context.Context, locationName, padName string) (string, error) {
+	// 1) 工位名：包含语义（站点名通常在 pad 名中部/末尾）
+	if id, err := r.matchLaunchSite(ctx, normalizeSiteName(padName), true); err != nil || id != "" {
+		return id, err
+	}
+	// 2) 位置名：前缀语义（"Wenchang Space Launch Site, PRC" 以站点全名开头）
+	return r.matchLaunchSite(ctx, normalizeSiteName(locationName), false)
+}
+
+func (r *Repository) matchLaunchSite(ctx context.Context, key string, contained bool) (string, error) {
+	if key == "" {
+		return "", nil
+	}
+	if id := matchLaunchSiteAlias(key, contained); id != "" {
+		return id, nil
+	}
+	siteNorm := `lower(regexp_replace(s.name_en, '[^a-zA-Z0-9]', ' ', 'g'))`
+	predicate := `($1 = ` + siteNorm +
+		` OR left($1, length(` + siteNorm + `)+1) = ` + siteNorm + ` || ' ')`
+	if contained {
+		predicate = `($1 = ` + siteNorm +
+			` OR $1 LIKE ` + siteNorm + ` || ' %' OR $1 LIKE '% ' || ` + siteNorm +
+			` OR $1 LIKE '% ' || ` + siteNorm + ` || ' %')`
+	}
+	var id string
+	err := r.pool.QueryRow(ctx, `
+		SELECT s.id FROM launch_sites s
+		WHERE length(`+siteNorm+`) >= 8 AND `+predicate+`
+		LIMIT 1`, key).Scan(&id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return "", fmt.Errorf("match launch site: %w", err)
+	}
+	return id, nil
 }
 
 func (r *Repository) StartSync(ctx context.Context, sourceCode string) (int64, error) {
