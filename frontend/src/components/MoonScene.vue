@@ -965,7 +965,10 @@ function onPointerDown(event: PointerEvent) {
 
 /** 悬停预览：不拖拽时射线拾取飞行器 → 点亮（标记放大+实色、轨道线变亮）；航天器图层关闭不触发 */
 function onPointerMove(event: PointerEvent) {
-  if (!renderer || !camera || !spacecraftEnabled.value) return
+  if (!renderer || !camera || !spacecraftEnabled.value) {
+    hoveredCraftId.value = null // 图层关闭时清悬停：避免轨道线残留点亮
+    return
+  }
   if (event.buttons !== 0) {
     hoveredCraftId.value = null
     return
@@ -975,6 +978,8 @@ function onPointerMove(event: PointerEvent) {
   raycaster.setFromCamera(pointerNDC, camera)
   const hits = raycaster.intersectObjects(craftHitMeshes)
   const hit = hits.find((h) => {
+    // Raycaster 不检查 visible：淡出期/图层关闭时命中球仍可被拾取——显式过滤
+    if (!h.object.visible) return false
     const world = h.object.getWorldPosition(focusTmp)
     return !isCraftOccluded(world)
   })
