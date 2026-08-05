@@ -1017,13 +1017,15 @@ onBeforeUnmount(() => {
             <SolarSystemItem title="太阳系" :icon-size="30" :active="true" :animated="true" @click="solarSystemRef?.resetView?.()" />
           </nav>
           <!-- 月球页无中心导航，返回入口在页头左侧（与地球页一致） -->
-          <div v-if="surface === 'orbit'" class="live-status">
+          <!-- 数据健康灯（只保留一个）：移到太阳系页——深空探测器数据源（CelesTrak/Launch Library/JPL Horizons）
+               最近一次同步成败的 3 合 1 聚合；地球/月球页保持身份标签 -->
+          <div v-if="surface === 'solar-system'" class="live-status">
             <span class="status-dot" :class="{ healthy: dataHealthy }" />
             <span>{{ dataHealthy ? '数据正常' : '检查数据' }}</span>
             <strong>{{ timeOnly(now) }} UTC+8</strong>
           </div>
           <div v-else class="live-status solar-clock">
-            <span>{{ surface === 'moon' ? '月球 · MOON' : 'SOLAR SYSTEM' }}</span>
+            <span>{{ surface === 'moon' ? '月球 · MOON' : '地球 · ORBIT' }}</span>
           </div>
         </div>
       </header>
