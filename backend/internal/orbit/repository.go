@@ -74,7 +74,7 @@ func (r *Repository) listSpacecraft(ctx context.Context) ([]Spacecraft, error) {
 }
 
 func (r *Repository) listLaunchSites(ctx context.Context) ([]LaunchSite, error) {
-	rows, err := r.pool.Query(ctx, `SELECT id, name_zh, name_en, country_code, country_name_zh, latitude, longitude, description, source_url, tier FROM launch_sites ORDER BY sort_order, id`)
+	rows, err := r.pool.Query(ctx, `SELECT id, name_zh, name_en, country_code, country_name_zh, latitude, longitude, description, source_url, tier FROM launch_sites ORDER BY tier, sort_order, id`)
 	if err != nil {
 		return nil, fmt.Errorf("list launch sites: %w", err)
 	}
