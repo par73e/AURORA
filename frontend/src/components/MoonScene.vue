@@ -908,9 +908,10 @@ watch(terminatorEnabled, (enabled) => {
   }
 })
 
-// 航天器开关：显示/隐藏飞行器圆点（标签由 v-show 联动）
+// 航天器开关：显示/隐藏飞行器圆点（标签由 v-show 联动）；关闭时清悬停避免轨道线残留点亮
 watch(spacecraftEnabled, (enabled) => {
   for (const runtime of craftRuntimes) runtime.dot.visible = enabled
+  if (!enabled) hoveredCraftId.value = null
 })
 // 轨道开关：显示/隐藏轨道线
 watch(orbitsEnabled, (enabled) => {
@@ -978,8 +979,8 @@ function onPointerMove(event: PointerEvent) {
   raycaster.setFromCamera(pointerNDC, camera)
   const hits = raycaster.intersectObjects(craftHitMeshes)
   const hit = hits.find((h) => {
-    // Raycaster 不检查 visible：淡出期/图层关闭时命中球仍可被拾取——显式过滤
-    if (!h.object.visible) return false
+    // Raycaster 不检查 visible 且不继承父级：命中球本身 visible 恒 true，需查父级（dot）
+    if (h.object.parent && !h.object.parent.visible) return false
     const world = h.object.getWorldPosition(focusTmp)
     return !isCraftOccluded(world)
   })
