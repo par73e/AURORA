@@ -33,6 +33,7 @@ type LaunchSite struct {
 	Longitude     float64 `json:"longitude"`
 	Description   string  `json:"description"`
 	SourceURL     string  `json:"sourceUrl"`
+	Tier          int     `json:"tier"`
 }
 
 type LaunchEvent struct {

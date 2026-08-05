@@ -27,6 +27,7 @@ export interface LaunchSite {
   longitude: number
   description: string
   sourceUrl: string
+  tier: number
 }
 
 export interface LaunchEvent {

@@ -74,15 +74,15 @@ func (r *Repository) listSpacecraft(ctx context.Context) ([]Spacecraft, error) {
 }
 
 func (r *Repository) listLaunchSites(ctx context.Context) ([]LaunchSite, error) {
-	rows, err := r.pool.Query(ctx, `SELECT id, name_zh, name_en, country_code, country_name_zh, latitude, longitude, description, source_url FROM launch_sites ORDER BY country_code, name_en`)
+	rows, err := r.pool.Query(ctx, `SELECT id, name_zh, name_en, country_code, country_name_zh, latitude, longitude, description, source_url, tier FROM launch_sites ORDER BY sort_order, id`)
 	if err != nil {
 		return nil, fmt.Errorf("list launch sites: %w", err)
 	}
 	defer rows.Close()
-	items := make([]LaunchSite, 0, 6)
+	items := make([]LaunchSite, 0, 16)
 	for rows.Next() {
 		var item LaunchSite
-		if err := rows.Scan(&item.ID, &item.NameZH, &item.NameEN, &item.CountryCode, &item.CountryNameZH, &item.Latitude, &item.Longitude, &item.Description, &item.SourceURL); err != nil {
+		if err := rows.Scan(&item.ID, &item.NameZH, &item.NameEN, &item.CountryCode, &item.CountryNameZH, &item.Latitude, &item.Longitude, &item.Description, &item.SourceURL, &item.Tier); err != nil {
 			return nil, fmt.Errorf("scan launch site: %w", err)
 		}
 		items = append(items, item)
