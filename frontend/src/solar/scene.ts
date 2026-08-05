@@ -44,6 +44,9 @@ const PROBE_TRAJECTORY_OPACITY_DEFAULT = 0.3
 const PROBE_TRAJECTORY_OPACITY_HOVER = 0.85
 /** 探测器标记基础半径（场景单位，与地球/月球标记同款部分透视补偿：scale=(d/基准)^0.6） */
 const PROBE_MARKER_RADIUS = 0.35
+// JWST 最小显示半径：地球轨道（46，data.ts earth.orbitRadius）+ 地球球体（2.5，radius）+ 余量。
+// 真实日地 L2 距地球仅 ~0.01 AU，映射后落在地球球体内部被遮挡——径向抬到球体外缘（方向仍真实）。
+const JWST_MIN_SCENE_RADIUS = 46 + 2.5 + 0.6
 /** 标记部分透视补偿基准距离：scale=1 的相机距离（默认构图下探测器多在此附近） */
 const PROBE_MARKER_REF_DISTANCE = 150
 
@@ -1050,6 +1053,12 @@ export class SolarSystemScene {
       if (hi !== lo) runtime.current.lerp(points[hi], t)
       runtime.currentAU = aus[lo] + (hi === lo ? 0 : (aus[hi] - aus[lo]) * t)
       runtime.currentEpochMs = epochsMs[lo]
+      // JWST（日地 L2）：真实位置距地球仅 ~0.01 AU，映射后在地球球体内被遮挡——
+      // 保持真实黄经/纬度方向，仅把径向显示半径抬到地球球体外缘（面板距离仍显示真实 AU）
+      if (runtime.data.id === 'jwst') {
+        const r = runtime.current.length()
+        if (r > 0 && r < JWST_MIN_SCENE_RADIUS) runtime.current.multiplyScalar(JWST_MIN_SCENE_RADIUS / r)
+      }
       runtime.marker.position.copy(runtime.current)
       // 标记部分透视补偿（同地球/月球标记）：scale=(d/基准)^0.6，远小近大但不过度，
       // 与行星比例保持一致——远处是点、贴脸放大也不胀成巨球

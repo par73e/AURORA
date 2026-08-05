@@ -136,26 +136,6 @@ export type Selection =
   | { kind: 'spacecraft'; id: string }
   | { kind: 'site'; id: string }
   | { kind: 'event'; id: string }
-  | { kind: 'observatory'; id: string }
-
-/** 空间天文台（非地球轨道：日地 L2 / 日心轨道）——地球页外圈示意条目，位置方向来自真实 JPL 数据 */
-export interface Observatory {
-  id: string
-  nameZh: string
-  nameEn: string
-  operatorName: string
-  description: string
-  /** 当前距地球距离（AU，真实 JPL 数据） */
-  distanceAU: number
-  /** 相对反日方向的黄道方位角偏移（度；JWST≈0 即 L2） */
-  azOffsetDeg: number
-  /** 场景显示方向 × 外圈半径（单位：场景单位） */
-  position: { x: number; y: number; z: number }
-  /** 位置说明文案（如实标注方向/距离非等比） */
-  note: string
-  color: number
-  syncedAt?: string
-}
 
 export interface SceneLayers {
   spacecraft: boolean

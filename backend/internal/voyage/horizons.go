@@ -33,10 +33,10 @@ type PositionSample struct {
 }
 
 // FetchProbeSamples 拉取指定探测器从 now-windowDays 到 now+windowDays 的日心黄道位置采样。
-// 返回按时间升序的采样点（约 181 条）；失败返回 error（由调用方降级保留旧数据）。
+// 返回按时间升序的采样点（约 2*windowDays+1 条）；失败返回 error（由调用方降级保留旧数据）。
 // 部分探测器星历有明确截止（如 STEREO-A 至 2026-10、隼鸟 2 号至 2026-10-02），
 // 请求超出会被 Horizons 拒绝：检测 "No ephemeris ... after" 并钳制 STOP_TIME 重试一次。
-func FetchProbeSamples(ctx context.Context, client *http.Client, naifID string, now time.Time) ([]PositionSample, error) {
+func FetchProbeSamples(ctx context.Context, client *http.Client, naifID string, now time.Time, windowDays int) ([]PositionSample, error) {
 	startTime := now.AddDate(0, 0, -windowDays)
 	stopTime := now.AddDate(0, 0, windowDays)
 	for attempt := 0; attempt < 2; attempt++ {

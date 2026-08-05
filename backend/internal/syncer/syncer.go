@@ -187,7 +187,17 @@ func (s *Syncer) SyncLaunches(ctx context.Context) error {
 	return nil
 }
 
-// SyncDeepSpaceProbes 从 JPL Horizons 拉取深空探测器日心位置采样（±90 天、日采样），
+// probeSampleWindowDays 返回探测器的采样窗口天数（±N 天）。
+// 默认 ±90（日同步，前端轨迹插值用）；斯皮策（-79）真实轨道周期约 377 天，
+// ±90 仅覆盖约 48% 轨道、椭圆拟合（u=1/r 最小二乘）需要完整一圈——用 ±200 覆盖 400 天（>377，留余量）。
+func probeSampleWindowDays(id string) int {
+	if id == "spitzer" {
+		return 200
+	}
+	return 90
+}
+
+// SyncDeepSpaceProbes 从 JPL Horizons 拉取深空探测器日心位置采样（默认 ±90 天、日采样），
 // 整窗替换每个目标的位置采样表（同步失败保留旧数据，前端仍可展示）。
 func (s *Syncer) SyncDeepSpaceProbes(ctx context.Context) error {
 	if s.voyageRepo == nil {
@@ -208,7 +218,7 @@ func (s *Syncer) SyncDeepSpaceProbes(ctx context.Context) error {
 	}
 	now := time.Now().UTC()
 	for _, item := range catalog {
-		samples, err := voyage.FetchProbeSamples(ctx, s.client, item.NaifID, now)
+		samples, err := voyage.FetchProbeSamples(ctx, s.client, item.NaifID, now, probeSampleWindowDays(item.ID))
 		if err != nil {
 			// 单个目标失败不 abort 整轮：记日志继续，其余目标照常刷新
 			slog.Warn("deep space probe sync skipped", "probe", item.ID, "error", err)
