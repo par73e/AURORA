@@ -80,47 +80,59 @@ export function sampleOrbit(spacecraft: Spacecraft, center: Date) {
 
 /** 对采样点做圆拟合，输出严格圆形、均匀、精确闭合的圆周点（保持真实圆心/轨道面/平均半径） */
 export function fitCirclePoints(points: THREE.Vector3[], segments: number): THREE.Vector3[] {
-  if (points.length < 3) return points
-  const tmp = new THREE.Vector3()
+  if (points.length < 3) return closeRing(points)
   // 圆心 = 采样点质心
   const centerPoint = new THREE.Vector3()
   for (const p of points) centerPoint.add(p)
   centerPoint.divideScalar(points.length)
-  // 轨道面法线 = 相邻差向量叉积之和（对近平面点集稳健）
+  // 轨道面法线 = 相邻差向量叉积之和（必须用独立临时量：cross 就地写 this，别名会叉出零向量）
   const normal = new THREE.Vector3()
+  const a = new THREE.Vector3()
+  const b = new THREE.Vector3()
+  const cross = new THREE.Vector3()
   for (let i = 0; i < points.length - 1; i += 1) {
-    normal.add(tmp.copy(points[i]).sub(centerPoint).cross(tmp.copy(points[i + 1]).sub(centerPoint)))
+    a.copy(points[i]).sub(centerPoint)
+    b.copy(points[i + 1]).sub(centerPoint)
+    cross.crossVectors(a, b)
+    normal.add(cross)
   }
-  if (normal.lengthSq() < 1e-12) return points
+  if (normal.lengthSq() < 1e-12) return closeRing(points)
   normal.normalize()
   // 平面内基：u 沿第一个采样点的面内方向，v = n×u
-  const toFirst = tmp.copy(points[0]).sub(centerPoint)
+  const toFirst = new THREE.Vector3().copy(points[0]).sub(centerPoint)
   const alongNormal = normal.clone().multiplyScalar(toFirst.dot(normal))
   const u = toFirst.sub(alongNormal)
-  if (u.lengthSq() < 1e-12) return points
+  if (u.lengthSq() < 1e-12) return closeRing(points)
   u.normalize()
   const v = new THREE.Vector3().crossVectors(normal, u)
   // 平均面内半径
+  const radial = new THREE.Vector3()
   let radiusSum = 0
-  let radiusCount = 0
   for (const p of points) {
-    const radial = tmp.copy(p).sub(centerPoint).sub(normal.clone().multiplyScalar(tmp.copy(p).sub(centerPoint).dot(normal)))
+    radial.copy(p).sub(centerPoint)
+    radial.sub(normal.clone().multiplyScalar(radial.dot(normal)))
     radiusSum += radial.length()
-    radiusCount += 1
   }
-  const radius = radiusSum / Math.max(1, radiusCount)
+  const radius = radiusSum / points.length
   // 均匀圆周点：2πk/N，k=N 与 k=0 重合 → 精确闭合、平滑
   const ring: THREE.Vector3[] = []
   for (let k = 0; k <= segments; k += 1) {
     const theta = (Math.PI * 2 * k) / segments
     ring.push(
-      centerPoint
-        .clone()
+      new THREE.Vector3()
+        .copy(centerPoint)
         .addScaledVector(u, Math.cos(theta) * radius)
         .addScaledVector(v, Math.sin(theta) * radius),
     )
   }
   return ring
+}
+
+/** 回退：不满足拟合条件时原样返回并补首点闭合（避免留缝） */
+function closeRing(points: THREE.Vector3[]): THREE.Vector3[] {
+  const out = points.map((p) => p.clone())
+  if (out.length > 2) out.push(out[0].clone())
+  return out
 }
 
 // ---------------------------------------------------------------------------
