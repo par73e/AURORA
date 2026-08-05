@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"aurora/backend/internal/mars"
 	"aurora/backend/internal/moon"
 	"aurora/backend/internal/orbit"
 	"aurora/backend/internal/voyage"
@@ -12,7 +13,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-func Router(repository *orbit.Repository, moonRepository *moon.Repository, voyageRepository *voyage.Repository) http.Handler {
+func Router(repository *orbit.Repository, moonRepository *moon.Repository, marsRepository *mars.Repository, voyageRepository *voyage.Repository) http.Handler {
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer)
 	router.Get("/api/health", func(w http.ResponseWriter, _ *http.Request) {
@@ -41,6 +42,24 @@ func Router(repository *orbit.Repository, moonRepository *moon.Repository, voyag
 		if err != nil {
 			slog.Error("load moon landing sites", "error", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "暂时无法读取月球着陆点数据"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"landingSites": items})
+	})
+	router.Get("/api/v1/mars/spacecraft", func(w http.ResponseWriter, r *http.Request) {
+		items, err := marsRepository.ListSpacecraft(r.Context())
+		if err != nil {
+			slog.Error("load mars spacecraft", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "暂时无法读取火星飞行器数据"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"spacecraft": items})
+	})
+	router.Get("/api/v1/mars/landing-sites", func(w http.ResponseWriter, r *http.Request) {
+		items, err := marsRepository.ListLandingSites(r.Context())
+		if err != nil {
+			slog.Error("load mars landing sites", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "暂时无法读取火星着陆点数据"})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"landingSites": items})

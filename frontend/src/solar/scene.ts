@@ -1330,6 +1330,38 @@ export class SolarSystemScene {
     this.controls.enabled = false
   }
 
+  /** 点击火星：镜头沿抬升的三次贝塞尔路径推近火星（终点在火星近旁；行星本体为 2.0 半径） */
+  flyToMars() {
+    if (this.flyState) return
+    const marsRuntime = this.planetRuntimes.get('mars')
+    if (!marsRuntime) return
+    const marsPosition = marsRuntime.axial.getWorldPosition(this.tempWorldB)
+    const p0 = this.camera.position.clone()
+    const marsDir = marsPosition.clone().normalize()
+    // 终点：太阳→火星连线上、距火星中心 7（视半径约 16.6°，占画面 ~60%——变黑衔接自然）
+    const p3 = marsPosition.clone().addScaledVector(marsDir, -7)
+    p3.y += 1.2
+    const delta = p3.clone().sub(p0)
+    const p1 = p0.clone().addScaledVector(delta, 0.3)
+    p1.y += 2
+    const p2 = p0.clone().addScaledVector(delta, 0.72)
+    p2.y += 0.8
+    this.controls.minDistance = 3
+    this.flyState = {
+      p0,
+      p1,
+      p2,
+      p3,
+      fromTarget: this.controls.target.clone(),
+      toTarget: marsPosition.clone(),
+      startedAt: performance.now(),
+      duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 250 : 1300,
+      zoomed: false,
+      enterPlanet: true, // 仅此运镜完成时触发进入回调（onFlyComplete）
+    }
+    this.controls.enabled = false
+  }
+
   /** 点击探测器：镜头沿贝塞尔路径飞近探测器（留在太阳系内，不切页）。
    *  椭圆轨道探测器同时点亮其轨道（probeSelectedId）；旅行者/新视野等无固定轨道不点亮。
    *  返回是否成功启动运镜（飞行中/无目标返回 false，调用方据此决定是否弹面板） */
@@ -1405,6 +1437,51 @@ export class SolarSystemScene {
       p2,
       p3,
       fromTarget: moonPosition.clone(),
+      toTarget,
+      startedAt: performance.now(),
+      duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 250 : 1300,
+      zoomed: true,
+      reverse: true,
+    }
+    this.controls.enabled = false
+  }
+
+  /** 反向飞行（火星 → 太阳系）：从火星近景拉回默认构图（镜像 flyFromMoon） */
+  flyFromMars() {
+    if (this.flyState) return
+    const marsRuntime = this.planetRuntimes.get('mars')
+    if (!marsRuntime) return
+    const marsPosition = marsRuntime.axial.getWorldPosition(this.tempWorldB)
+    // 终点：按当前模式构图（排布 = 小行星带锚定；真实位置 = 太阳居中）
+    const aspect = this.host.clientWidth / this.host.clientHeight
+    const { target, distance } = this.computeModeComposition(aspect)
+    this.fitDistance = distance
+    this.lookAt.copy(target)
+    this.camera.position.copy(this.lookAt).addScaledVector(this.dir, distance)
+    this.camera.lookAt(this.lookAt)
+    this.camera.updateMatrixWorld(true)
+    this.controls.target.copy(this.lookAt)
+    const p3 = this.camera.position.clone()
+    const toTarget = this.lookAt.clone()
+    // 起点：从火星沿"朝向默认视角"的水平方向外移 8 单位、带 1.2 单位仰角
+    const viewerDir = new THREE.Vector3(p3.x - marsPosition.x, 0, p3.z - marsPosition.z).normalize()
+    const p0 = marsPosition.clone().addScaledVector(viewerDir, 8)
+    p0.y += 1.2
+    this.camera.position.copy(p0)
+    this.camera.lookAt(marsPosition)
+    this.controls.target.copy(marsPosition)
+    this.controls.minDistance = 3
+    const delta = p3.clone().sub(p0)
+    const p1 = p0.clone().addScaledVector(delta, 0.3)
+    p1.y += 2
+    const p2 = p0.clone().addScaledVector(delta, 0.72)
+    p2.y += 0.8
+    this.flyState = {
+      p0,
+      p1,
+      p2,
+      p3,
+      fromTarget: marsPosition.clone(),
       toTarget,
       startedAt: performance.now(),
       duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 250 : 1300,

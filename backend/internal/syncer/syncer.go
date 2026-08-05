@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"time"
 
+	"aurora/backend/internal/mars"
 	"aurora/backend/internal/moon"
 	"aurora/backend/internal/orbit"
 	"aurora/backend/internal/voyage"
@@ -19,6 +20,7 @@ import (
 type Syncer struct {
 	repository *orbit.Repository
 	moonRepo   *moon.Repository
+	marsRepo   *mars.Repository
 	voyageRepo *voyage.Repository
 	client     *http.Client
 }
@@ -32,9 +34,9 @@ func NewWithMoon(repository *orbit.Repository, moonRepo *moon.Repository) *Synce
 	return &Syncer{repository: repository, moonRepo: moonRepo, client: &http.Client{Timeout: 30 * time.Second}}
 }
 
-// NewWithMoonVoyage 附带月球与深空探测器仓库（两者同步都需要）
-func NewWithMoonVoyage(repository *orbit.Repository, moonRepo *moon.Repository, voyageRepo *voyage.Repository) *Syncer {
-	return &Syncer{repository: repository, moonRepo: moonRepo, voyageRepo: voyageRepo, client: &http.Client{Timeout: 60 * time.Second}}
+// NewWithMoonVoyageMars 附带月球、火星与深空探测器仓库（同步都需要）
+func NewWithMoonVoyageMars(repository *orbit.Repository, moonRepo *moon.Repository, marsRepo *mars.Repository, voyageRepo *voyage.Repository) *Syncer {
+	return &Syncer{repository: repository, moonRepo: moonRepo, marsRepo: marsRepo, voyageRepo: voyageRepo, client: &http.Client{Timeout: 60 * time.Second}}
 }
 
 func (s *Syncer) SyncCelesTrak(ctx context.Context) error {
@@ -292,6 +294,43 @@ func (s *Syncer) SyncMoonSpacecraft(ctx context.Context) error {
 		}
 		records++
 		slog.Info("moon orbit synced", "craft", craft.ID, "epoch", result.Epoch.UTC().Format(time.RFC3339),
+			"a_km", fmt.Sprintf("%.1f", result.Elements.A), "period", fmt.Sprintf("%.0fs", result.Elements.PeriodSeconds))
+	}
+	return nil
+}
+
+// SyncMarsSpacecraft 火星绕行器实时轨道根数同步（镜像 SyncMoonSpacecraft；CENTER=500@499 火心）
+func (s *Syncer) SyncMarsSpacecraft(ctx context.Context) error {
+	if s.marsRepo == nil {
+		return errors.New("mars repository 未配置")
+	}
+	runID, err := s.repository.StartSync(ctx, "jpl_horizons")
+	if err != nil {
+		return err
+	}
+	records := 0
+	var syncErr error
+	defer func() { _ = s.repository.FinishSync(context.Background(), runID, records, syncErr) }()
+
+	catalog, err := s.marsRepo.ListSpacecraft(ctx)
+	if err != nil {
+		syncErr = err
+		return err
+	}
+	for _, craft := range catalog {
+		result, err := mars.FetchMarsSpacecraftElements(ctx, s.client, craft.ID)
+		if err != nil {
+			// 单个飞行器失败（未支持/星历结束/临时错误）不 abort 整轮：
+			// 记录日志继续，其余飞行器照常同步，前端回退静态参数
+			slog.Warn("mars orbit sync skipped", "craft", craft.ID, "error", err)
+			continue
+		}
+		if err := s.marsRepo.SaveMarsSnapshot(ctx, craft.ID, result.Epoch.UTC().Format(time.RFC3339), result.Elements, result.Raw); err != nil {
+			syncErr = err
+			return err
+		}
+		records++
+		slog.Info("mars orbit synced", "craft", craft.ID, "epoch", result.Epoch.UTC().Format(time.RFC3339),
 			"a_km", fmt.Sprintf("%.1f", result.Elements.A), "period", fmt.Sprintf("%.0fs", result.Elements.PeriodSeconds))
 	}
 	return nil

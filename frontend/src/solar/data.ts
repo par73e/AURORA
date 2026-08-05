@@ -13,6 +13,7 @@ import saturnRingUrl from '../assets/solar/8k_saturn_ring_alpha.png'
 import uranusUrl from '../assets/solar/2k_uranus.jpg'
 import neptuneUrl from '../assets/solar/2k_neptune.jpg'
 import moonUrl from '../assets/solar/2k_moon.jpg'
+import mars8kUrl from '../assets/solar/8k_mars.jpg'
 import moon8kUrl from '../assets/solar/8k_moon.jpg'
 import sunUrl from '../assets/solar/8k_sun.jpg'
 
@@ -63,6 +64,9 @@ export const MOON = {
 
 /** 月球高清贴图（8k，月球独立页面使用） */
 export const MOON_HD = { textureUrl: moon8kUrl }
+
+/** 火星高清贴图（8k，火星独立页面使用） */
+export const MARS_HD = { textureUrl: mars8kUrl }
 
 export const SUN_RADIUS = 5.5
 export const SUN_ROTATION_SECONDS = 240

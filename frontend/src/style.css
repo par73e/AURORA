@@ -360,6 +360,14 @@ button { cursor: pointer; }
 .desktop-app.moon .context-panel dt { color: #8b959f; }
 .desktop-app.moon .context-panel dd { color: #d5dce3; }
 .desktop-app.moon .context-panel dl div { border-top-color: rgba(200, 208, 216, .12); }
+
+/* 火星页：页头状态文字、导航数字与导航链接陶土暖色主题 */
+.desktop-app.mars .live-status,
+.desktop-app.mars .solar-clock { color: #a89078; }
+.desktop-app.mars .nav-num { color: #b09070; }
+.desktop-app.mars .site-header nav a { color: #b09070; }
+.desktop-app.mars .site-header nav a:hover,
+.desktop-app.mars .site-header nav a:focus-visible { color: #ecd9c8; }
 .desktop-app.moon .source-caption { color: #7c8791; }
 
 /* 月球页：场景工具栏（与地球同结构，仅颜色银灰） */

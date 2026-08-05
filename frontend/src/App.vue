@@ -12,9 +12,10 @@ import OrbitScene from './components/OrbitScene.vue'
 import SolarSystem from './components/SolarSystem.vue'
 import SolarSystemItem from './components/SolarSystemItem.vue'
 import MoonScene from './components/MoonScene.vue'
+import MarsScene from './components/MarsScene.vue'
 import { fetchOrbitOverview } from './api'
 import { spacecraftPoint } from './orbit/coordinates'
-import { moonHdReady, orbitTexturesReady, preloadMoonHdTexture, preloadOrbitTextures, preloadSolarTextures } from './preload'
+import { marsHdReady, moonHdReady, orbitTexturesReady, preloadMarsHdTexture, preloadMoonHdTexture, preloadOrbitTextures, preloadSolarTextures } from './preload'
 import { solarTexturesReady } from './solar/textures'
 import type { LaunchEvent, LaunchSite, OrbitOverview, SceneLayers, Selection } from './types'
 import { primaryOperator } from './operators'
@@ -42,7 +43,7 @@ const observerLocation = ref<ObserverLocation>({ ...fallbackObserver, status: 'l
 const observerFocusRevision = ref(0)
 const observerViewActive = ref(false)
 const dayNightEnabled = ref(false)
-type AppSurface = 'cover' | 'solar-system' | 'orbit' | 'moon'
+type AppSurface = 'cover' | 'solar-system' | 'orbit' | 'moon' | 'mars'
 
 // 初始页面：纯 hash 决定（无 hash = 首页；#earth/#moon/#solar-system = 对应页）。
 // 不用 sessionStorage 恢复——打开网站应总是首页（上次会话的页面残留会导致"打开就是 #solar-system"）
@@ -76,11 +77,13 @@ function animateToolbarShift(expanded: boolean) {
 watch(headerExpanded, animateToolbarShift, { immediate: true })
 const orbitPageActive = ref(true)
 const moonPageActive = ref(true)
+const marsPageActive = ref(true)
 
-/** 页头可收起逻辑当前是否生效（地球主视图 / 月球页） */
+/** 页头可收起逻辑当前是否生效（地球主视图 / 月球页 / 火星页） */
 function collapsibleHeaderActive() {
   if (surface.value === 'orbit') return orbitPageActive.value
   if (surface.value === 'moon') return moonPageActive.value
+  if (surface.value === 'mars') return marsPageActive.value
   return false
 }
 const orbitSectionLeaving = ref(false)
@@ -102,12 +105,19 @@ watch(orbitRevealTick, (tick) => {
 /** 是否从 ORBIT 返回太阳系（太阳系场景挂载后从地球近景拉回默认构图） */
 const solarEnterFromOrbit = ref(false)
 const solarEnterFromMoon = ref(false)
+const solarEnterFromMars = ref(false)
 /** 月球页面"进入边界"信号：遮罩开始淡出时递增，MoonScene 据此渐亮 */
 const moonRevealTick = ref(0)
 /** 从太阳系进入月球：true 时月球页从"纯月球"开始分阶段揭示 */
 const moonEnterFromSolar = ref(false)
 /** 返回太阳系：true 时月球页清空月球以外元素（只留球体） */
 const moonLeaving = ref(false)
+/** 火星页面"进入边界"信号：遮罩开始淡出时递增，MarsScene 据此渐亮 */
+const marsRevealTick = ref(0)
+/** 从太阳系进入火星：true 时火星页从"纯火星"开始分阶段揭示 */
+const marsEnterFromSolar = ref(false)
+/** 返回太阳系：true 时火星页清空火星以外元素（只留球体） */
+const marsLeaving = ref(false)
 const siteHeader = ref<HTMLElement | null>(null)
 const orbitSection = ref<HTMLElement | null>(null)
 const orbitSceneFrame = ref<HTMLElement | null>(null)
@@ -167,12 +177,14 @@ function waitUntilFullBlack(cb: () => void) {
 const coverLingering = ref(false)
 /** 太阳系入场推镜延迟：封面路径 = 变暗时长（全黑开始时起飞）；直接加载 = 0 */
 const solarFlyDelay = ref(0)
-/** OrbitScene/MoonScene 首帧贴图上传完成信号（textures-ready） */
+/** OrbitScene/MoonScene/MarsScene 首帧贴图上传完成信号（textures-ready） */
 const orbitSceneReadyFlag = ref(false)
 const moonSceneReadyFlag = ref(false)
-/** 等待组件就绪后再渐亮的回调（onEarthSelect/onMoonSelect 注册，组件信号或超时触发） */
+const marsSceneReadyFlag = ref(false)
+/** 等待组件就绪后再渐亮的回调（onEarthSelect/onMoonSelect/onMarsSelect 注册，组件信号或超时触发） */
 let pendingOrbitReveal: (() => void) | null = null
 let pendingMoonReveal: (() => void) | null = null
+let pendingMarsReveal: (() => void) | null = null
 /** 封面路径进入时播放入场推镜；刷新/直接加载不播（静态恢复现场） */
 const solarEntryFly = ref(false)
 const shellZoom = ref(1)
@@ -213,6 +225,7 @@ function cancelPendingTransition() {
   // 离开标志复位：过渡中止时页面不切换，若 leaving 仍为 true 会触发场景元素永久隐藏
   orbitSectionLeaving.value = false
   moonLeaving.value = false
+  marsLeaving.value = false
   suppressHeaderReveal = false // 中止返回：页头恢复可 hover 唤回（保持收起态，与正常 orbit 行为一致）
 }
 
@@ -265,6 +278,7 @@ function transitionTo(nextSurface: AppSurface, zoom = 1, origin = '50% 50%', tim
 function surfaceFromHash(): AppSurface {
   if (window.location.hash === '#solar-system') return 'solar-system'
   if (['#moon', '#moon-scene', '#moon-objects', '#moon-sites'].includes(window.location.hash)) return 'moon'
+  if (['#mars', '#mars-scene', '#mars-objects', '#mars-sites'].includes(window.location.hash)) return 'mars'
   if (['#earth', '#objects', '#sites', '#launches'].includes(window.location.hash)) return 'orbit'
   return 'cover'
 }
@@ -452,7 +466,8 @@ async function setSurface(nextSurface: AppSurface) {
   document.title = nextSurface === 'cover'
     ? 'AURORA'
     : nextSurface === 'solar-system' ? 'AURORA · 太阳系'
-    : nextSurface === 'moon' ? 'AURORA · 月球' : 'AURORA · ORBIT'
+    : nextSurface === 'moon' ? 'AURORA · 月球'
+    : nextSurface === 'mars' ? 'AURORA · 火星' : 'AURORA · ORBIT'
   if (nextSurface === 'orbit') {
     orbitPageActive.value = true
     headerExpanded.value = false // 进入 ORBIT 默认收起页头（悬停屏幕顶部可展开）
@@ -462,6 +477,9 @@ async function setSurface(nextSurface: AppSurface) {
   } else if (nextSurface === 'moon') {
     moonPageActive.value = true
     headerExpanded.value = false // 月球页同样默认收起页头
+  } else if (nextSurface === 'mars') {
+    marsPageActive.value = true
+    headerExpanded.value = false // 火星页同样默认收起页头
   } else {
     headerExpanded.value = true
     suppressHeaderReveal = false // 切到太阳系/封面：页头恢复正常唤回
@@ -469,7 +487,7 @@ async function setSurface(nextSurface: AppSurface) {
   await nextTick()
   window.scrollTo({ top: 0, behavior: 'instant' })
   updateActivePage()
-  if (nextSurface === 'orbit' || nextSurface === 'moon') scheduleHeaderCollapse()
+  if (nextSurface === 'orbit' || nextSurface === 'moon' || nextSurface === 'mars') scheduleHeaderCollapse()
   else clearHeaderIdleTimer()
 }
 
@@ -482,8 +500,13 @@ function enterSolarSystem() {
     enterSolarSystemFromMoon()
     return
   }
+  if (surface.value === 'mars') {
+    enterSolarSystemFromMars()
+    return
+  }
   solarEnterFromOrbit.value = false
   solarEnterFromMoon.value = false // 封面进入：两个来源标志都清空
+  solarEnterFromMars.value = false // 封面进入：火星来源标志同样清空
   window.history.pushState(null, '', '#solar-system')
   preloadOrbitTextures() // 提前预热地球纹理，为下一步进入 ORBIT 做准备
   // 封面进入太阳系：星野页面（星空插图）渐入 → 停留（对应原黑屏时间）→ 渐亮揭示推镜
@@ -536,6 +559,7 @@ function enterSolarSystem() {
 function returnToSolarSystem(skipPush = false) {
   if (surface.value === 'orbit') enterSolarSystemFromOrbit(skipPush)
   else if (surface.value === 'moon') enterSolarSystemFromMoon(skipPush)
+  else if (surface.value === 'mars') enterSolarSystemFromMars(skipPush)
 }
 
 /** ORBIT → 太阳系（skipPush = 浏览器返回路径，hash 已是目标不重复入栈） */
@@ -552,6 +576,7 @@ function enterSolarSystemFromOrbit(skipPush = false) {
   suppressHeaderReveal = true
   solarEnterFromOrbit.value = true
   solarEnterFromMoon.value = false // 关键：清空月球来源遗留——否则 SolarSystem 误执行 flyFromMoon（起点=放大月球）
+  solarEnterFromMars.value = false // 清空火星来源遗留（同理）
   // 阶段 2：变暗，盖住地球界面
   transitionTimer = window.setTimeout(() => {
     if (surfaceFromHash() !== 'solar-system') {
@@ -586,7 +611,7 @@ function enterOrbit() {
 }
 
 function returnToCover(skipPush = false) {
-  if (surface.value === 'orbit' || surface.value === 'moon') {
+  if (surface.value === 'orbit' || surface.value === 'moon' || surface.value === 'mars') {
     exitPlanetToCover(skipPush) // 行星界面：完整退出动画（栏目淡出 → 裸星球 → 渐暗 → 封面）
     return
   }
@@ -736,6 +761,92 @@ function onMoonSceneReady() {
   if (pendingMoonReveal) pendingMoonReveal()
 }
 
+/** 点击火星瞬间：URL 切到 #mars，预热 8k 火星纹理 */
+function onMarsFlyStart() {
+  window.history.pushState(null, '', '#mars')
+  cancelPendingTransition()
+  preloadMarsHdTexture() // 预热 8k 火星贴图（本地资源，提前解码避免切换后卡顿）
+  marsEnterFromSolar.value = true // 入场路径：火星页分阶段揭示（每次进入都从纯火星开始）
+  marsLeaving.value = false // 重置返回清空状态（否则第二次进入残留 true，清空流程失效）
+}
+
+/** 火星放大到一定程度：遮罩快速变暗 */
+function onMarsFlyZoom() {
+  if (surface.value === 'mars') return // 已切页（幂等保护）
+  veilDuration.value = '0.22s'
+  veilActive.value = true
+  window.setTimeout(() => {
+    marsHdReady().then(() => onMarsSelect())
+    window.setTimeout(() => onMarsSelect(), 3000)
+  }, 800)
+}
+
+/** 火星放大完成（遮罩已黑）：换页，等首帧贴图 GPU 上传完成再渐亮 */
+function onMarsSelect() {
+  if (surface.value === 'mars') return // 已切页（幂等保护）
+  veilActive.value = true
+  solarEnterFromMars.value = false
+  void setSurface('mars')
+  let revealDone = false
+  const reveal = () => {
+    if (revealDone) return // 防止兜底超时与信号重复触发
+    revealDone = true
+    pendingMarsReveal = null
+    requestAnimationFrame(() => {
+      veilDuration.value = '0.3s'
+      veilActive.value = false
+      // 进入边界：遮罩开始淡出的同一帧递增信号，火星场景据此 0.5s 渐亮（与地球一致）
+      marsRevealTick.value += 1
+    })
+  }
+  if (marsSceneReadyFlag.value) reveal()
+  else {
+    pendingMarsReveal = reveal
+    window.setTimeout(reveal, 3000) // 兜底
+  }
+}
+
+/** MarsScene 首帧贴图上传完成 */
+function onMarsSceneReady() {
+  marsSceneReadyFlag.value = true
+  if (pendingMarsReveal) pendingMarsReveal()
+}
+
+/** 火星 → 太阳系（skipPush = 浏览器返回路径） */
+function enterSolarSystemFromMars(skipPush = false) {
+  if (!skipPush) window.history.pushState(null, '', '#solar-system')
+  preloadSolarTextures()
+  cancelPendingTransition()
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  solarEnterFromMars.value = true
+  solarEnterFromOrbit.value = false // 清空地球来源遗留
+  solarEnterFromMoon.value = false // 清空月球来源遗留
+  // 阶段 1：滚回火星主视图 + 清空火星以外的所有元素（标记/飞行器/标签），只留火星球体；
+  // 页头若展开则随之上滑消失（与地球/月球返回一致），过渡期间 hover 不唤回
+  window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' })
+  marsLeaving.value = true
+  headerExpanded.value = false
+  suppressHeaderReveal = true
+  // 阶段 2（清空效果可见后才变暗）：变暗 300ms
+  transitionTimer = window.setTimeout(() => {
+    veilDuration.value = reduced ? '0.01s' : '0.3s'
+    veilActive.value = true
+    // 阶段 3：等 veil 真正全黑再切页（同地球/月球返回——避免新旧场景首帧透过遮罩叠影）
+    waitUntilFullBlack(() => {
+      if (surfaceFromHash() !== 'solar-system') {
+        cancelPendingTransition()
+        return
+      }
+      void setSurface('solar-system')
+      requestAnimationFrame(() => {
+        veilDuration.value = reduced ? '0.01s' : '0.3s' // 渐亮 300ms
+        veilActive.value = false
+      })
+      transitionTimer = undefined
+    })
+  }, reduced ? 20 : 450)
+}
+
 /** 月球 → 太阳系：渐暗 → 切页（太阳系从月球近景拉回）→ 渐亮 */
 /** 月球 → 太阳系（skipPush = 浏览器返回路径） */
 function enterSolarSystemFromMoon(skipPush = false) {
@@ -745,6 +856,7 @@ function enterSolarSystemFromMoon(skipPush = false) {
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   solarEnterFromMoon.value = true
   solarEnterFromOrbit.value = false // 清空地球来源遗留
+  solarEnterFromMars.value = false // 清空火星来源遗留
   // 阶段 1：滚回月球主视图 + 清空月球以外的所有元素（标记/飞行器/标签），只留月球球体；
   // 页头若展开则随之上滑消失（与地球返回一致），过渡期间 hover 不唤回
   window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' })
@@ -847,6 +959,21 @@ function updateActivePage() {
     if (moonPageActive.value && headerExpanded.value) scheduleHeaderCollapse()
     return
   }
+  if (surface.value === 'mars') {
+    // 主视图 = #mars-objects（第一个板块）顶部仍在视口下半区；滑到第一个板块即展开页头
+    const marsObjects = document.getElementById('mars-objects')
+    const objectsTop = marsObjects?.getBoundingClientRect().top ?? window.innerHeight
+    const nextMarsPageActive = objectsTop > window.innerHeight / 2
+    if (nextMarsPageActive === marsPageActive.value) {
+      if (marsPageActive.value && headerExpanded.value) scheduleHeaderCollapse()
+      return
+    }
+    marsPageActive.value = nextMarsPageActive
+    clearHeaderIdleTimer()
+    headerExpanded.value = !nextMarsPageActive
+    if (marsPageActive.value && headerExpanded.value) scheduleHeaderCollapse()
+    return
+  }
   if (surface.value !== 'orbit') {
     orbitPageActive.value = false
     headerExpanded.value = true
@@ -911,6 +1038,7 @@ function onPopState() {
   if (target === 'solar-system') {
     if (surface.value === 'orbit') enterSolarSystemFromOrbit(true)
     else if (surface.value === 'moon') enterSolarSystemFromMoon(true)
+    else if (surface.value === 'mars') enterSolarSystemFromMars(true)
   } else if (target === 'cover') {
     returnToCover(true)
   } else if (target === 'orbit') {
@@ -919,6 +1047,9 @@ function onPopState() {
   } else if (target === 'moon') {
     cancelPendingTransition()
     void setSurface('moon')
+  } else if (target === 'mars') {
+    cancelPendingTransition()
+    void setSurface('mars')
   }
 }
 
@@ -927,7 +1058,7 @@ function onGlobalKeydown(event: KeyboardEvent) {
   if (event.key !== 'Escape') return
   const target = event.target as HTMLElement | null
   if (target && ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName)) return
-  if (surface.value === 'orbit' || surface.value === 'moon') {
+  if (surface.value === 'orbit' || surface.value === 'moon' || surface.value === 'mars') {
     event.preventDefault()
     returnToSolarSystem()
   }
@@ -982,7 +1113,7 @@ onBeforeUnmount(() => {
       @explore="enterSolarSystem"
     />
 
-    <div v-show="surface !== 'cover' || coverLingering" class="desktop-app" :class="{ 'header-collapsed': !headerExpanded, moon: surface === 'moon' }">
+    <div v-show="surface !== 'cover' || coverLingering" class="desktop-app" :class="{ 'header-collapsed': !headerExpanded, moon: surface === 'moon', mars: surface === 'mars' }">
       <header
         ref="siteHeader"
         class="site-header"
@@ -1025,18 +1156,21 @@ onBeforeUnmount(() => {
             <strong>{{ timeOnly(now) }} UTC+8</strong>
           </div>
           <div v-else class="live-status solar-clock">
-            <span>{{ surface === 'moon' ? '月球 · MOON' : '地球 · ORBIT' }}</span>
+            <span>{{ surface === 'moon' ? '月球 · MOON' : surface === 'mars' ? '火星 · MARS' : '地球 · ORBIT' }}</span>
           </div>
         </div>
       </header>
 
       <MoonScene v-if="surface === 'moon'" :reveal-tick="moonRevealTick" :enter-from-solar="moonEnterFromSolar" :leaving="moonLeaving" :header-expanded="headerExpanded" @blank-click="collapseHeaderFromScene" @textures-ready="onMoonSceneReady" />
 
+      <MarsScene v-if="surface === 'mars'" :reveal-tick="marsRevealTick" :enter-from-solar="marsEnterFromSolar" :leaving="marsLeaving" :header-expanded="headerExpanded" @blank-click="collapseHeaderFromScene" @textures-ready="onMarsSceneReady" />
+
       <SolarSystem
         ref="solarSystemRef"
         v-if="surface === 'solar-system'"
         :enter-from-orbit="solarEnterFromOrbit"
         :enter-from-moon="solarEnterFromMoon"
+        :enter-from-mars="solarEnterFromMars"
         :fly-delay="solarFlyDelay"
         :play-entry-fly="solarEntryFly"
         @select-earth="onEarthSelect"
@@ -1045,6 +1179,9 @@ onBeforeUnmount(() => {
         @moon-fly-start="onMoonFlyStart"
         @moon-fly-zoom="onMoonFlyZoom"
         @select-moon="onMoonSelect"
+        @mars-fly-start="onMarsFlyStart"
+        @mars-fly-zoom="onMarsFlyZoom"
+        @select-mars="onMarsSelect"
       />
 
       <template v-else-if="surface === 'orbit'">

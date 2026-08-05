@@ -8,7 +8,7 @@ import { fetchDeepSpaceProbes } from '../api'
 import type { DeepSpaceProbe } from '../types'
 import type { ProbeData } from '../solar/scene'
 
-const props = defineProps<{ enterFromOrbit?: boolean; enterFromMoon?: boolean; flyDelay?: number; playEntryFly?: boolean }>()
+const props = defineProps<{ enterFromOrbit?: boolean; enterFromMoon?: boolean; enterFromMars?: boolean; flyDelay?: number; playEntryFly?: boolean }>()
 
 const emit = defineEmits<{
   'select-earth': []
@@ -17,15 +17,19 @@ const emit = defineEmits<{
   'select-moon': []
   'moon-fly-start': []
   'moon-fly-zoom': []
+  'select-mars': []
+  'mars-fly-start': []
+  'mars-fly-zoom': []
 }>()
 
 const canvasHost = ref<HTMLDivElement | null>(null)
 // 选中光标：默认地球；从地球/月球返回时恢复对应星球（组件重新挂载，props 决定初始选中）
-const activeId = ref(props.enterFromMoon ? 'moon' : props.enterFromOrbit ? 'earth' : 'earth')
+const activeId = ref(props.enterFromMars ? 'mars' : props.enterFromMoon ? 'moon' : props.enterFromOrbit ? 'earth' : 'earth')
 const labels = ref<SolarLabel[]>([])
 let scene: SolarSystemScene | undefined
-/** 当前飞行动画的目标：true = 月球（事件回调据此分发） */
+/** 当前飞行动画的目标：moon = 月球 / mars = 火星（事件回调据此分发）；其余 = 地球 */
 let moonFlight = false
+let marsFlight = false
 /** 组件已卸载标记（fetch 回调守卫，避免向已 dispose 的 scene 写数据） */
 let unmounted = false
 /** 深空探测器（JPL Horizons 日同步，/api/v1/voyage/probes） */
@@ -81,8 +85,15 @@ function choosePlanet(id: string) {
   } else if (id === 'moon') {
     // 月球：镜像地球流程——太阳系内推近月球 → 渐暗 → 切到月球页面
     moonFlight = true
+    marsFlight = false
     scene?.flyToMoon()
     emit('moon-fly-start')
+  } else if (id === 'mars') {
+    // 火星：镜像月球流程——太阳系内推近火星 → 渐暗 → 切到火星页面
+    marsFlight = true
+    moonFlight = false
+    scene?.flyToMars()
+    emit('mars-fly-start')
   }
 }
 
@@ -173,10 +184,12 @@ onMounted(() => {
       onSelect: choosePlanet,
       onFlyZoom: () => {
         if (moonFlight) emit('moon-fly-zoom')
+        else if (marsFlight) emit('mars-fly-zoom')
         else emit('earth-fly-zoom')
       },
       onFlyComplete: () => {
         if (moonFlight) emit('select-moon')
+        else if (marsFlight) emit('select-mars')
         else emit('select-earth')
       },
     },
@@ -186,7 +199,10 @@ onMounted(() => {
   )
   // 会话记忆：上次是"真实公转位置"模式则直接恢复（无动画）；刷新/首次访问为默认排布
   if (!alignedPositions.value) scene.setRealPositions()
-  if (props.enterFromMoon) {
+  if (props.enterFromMars) {
+    // 从火星页面返回：镜头从火星近景拉回默认构图（火星缩回太阳系）
+    scene.flyFromMars()
+  } else if (props.enterFromMoon) {
     // 从月球页面返回：镜头从月球近景拉回默认构图（月球缩回太阳系）
     scene.flyFromMoon()
   } else if (props.enterFromOrbit) {
@@ -253,6 +269,7 @@ function onKeydown(event: KeyboardEvent) {
   } else if (event.key === 'Enter') {
     if (activeId.value === 'earth') choosePlanet('earth')
     else if (activeId.value === 'moon') choosePlanet('moon')
+    else if (activeId.value === 'mars') choosePlanet('mars')
   }
 }
 

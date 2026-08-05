@@ -132,6 +132,65 @@ export interface MoonSpacecraft {
   } | null
 }
 
+/** 火星着陆点（来自 /api/v1/mars/landing-sites，镜像 MoonLandingSite） */
+export interface MarsLandingSite {
+  id: string
+  nameZh: string
+  nameEn: string
+  program: string
+  operatorName: string
+  landingDate: string
+  latitude: number
+  longitude: number
+  region: string
+  description: string
+  sortOrder: number
+  siteName: string
+  officialName: string
+  missionName: string
+  hardware: string[]
+  side: 'NEAR_SIDE' | 'FAR_SIDE'
+  category: string
+  icon: 'astronaut' | 'lander' | 'rover' | 'sample'
+  track: number[][]
+}
+
+/** 火星绕行器（来自 /api/v1/mars/spacecraft，镜像 MoonSpacecraft） */
+export interface MarsSpacecraft {
+  id: string
+  nameZh: string
+  nameEn: string
+  type: string
+  operatorName: string
+  description: string
+  launchDate: string
+  launchSite: string
+  launchVehicle: string
+  sourceName: string
+  displayInclination: string
+  displayEccentricity: string
+  displayPeriod: string
+  kind: 'orbital' | 'stationary'
+  orbitA: number
+  orbitE: number
+  inclinationDeg: number
+  raanDeg: number
+  argPeriapsisDeg: number
+  periodSeconds: number
+  stationaryOffset: [number, number, number]
+  sortOrder: number
+  snapshot?: {
+    epoch: string
+    aKm: number
+    eccentricity: number
+    inclinationDeg: number
+    raanDeg: number
+    argPeriapsisDeg: number
+    meanAnomalyDeg: number
+    periodSeconds: number
+  } | null
+}
+
 export type Selection =
   | { kind: 'spacecraft'; id: string }
   | { kind: 'site'; id: string }

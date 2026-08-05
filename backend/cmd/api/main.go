@@ -12,6 +12,7 @@ import (
 	"aurora/backend/internal/config"
 	"aurora/backend/internal/database"
 	"aurora/backend/internal/httpapi"
+	"aurora/backend/internal/mars"
 	"aurora/backend/internal/moon"
 	"aurora/backend/internal/orbit"
 	"aurora/backend/internal/syncer"
@@ -36,8 +37,9 @@ func main() {
 
 	repository := orbit.NewRepository(pool)
 	moonRepository := moon.NewRepository(pool)
+	marsRepository := mars.NewRepository(pool)
 	voyageRepository := voyage.NewRepository(pool)
-	dataSyncer := syncer.NewWithMoonVoyage(repository, moonRepository, voyageRepository)
+	dataSyncer := syncer.NewWithMoonVoyageMars(repository, moonRepository, marsRepository, voyageRepository)
 	initialSyncContext, cancelInitialSync := context.WithTimeout(ctx, 120*time.Second)
 	if err := dataSyncer.SyncCelesTrak(initialSyncContext); err != nil {
 		slog.Warn("CelesTrak startup sync failed; cached data remains available", "error", err)
@@ -48,6 +50,9 @@ func main() {
 	if err := dataSyncer.SyncMoonSpacecraft(initialSyncContext); err != nil {
 		slog.Warn("JPL Horizons startup sync failed; static moon data remains available", "error", err)
 	}
+	if err := dataSyncer.SyncMarsSpacecraft(initialSyncContext); err != nil {
+		slog.Warn("JPL Horizons startup sync failed; static mars data remains available", "error", err)
+	}
 	if err := dataSyncer.SyncDeepSpaceProbes(initialSyncContext); err != nil {
 		slog.Warn("JPL Horizons probe sync failed; no deep-space positions available", "error", err)
 	}
@@ -56,9 +61,10 @@ func main() {
 	go schedule(ctx, 2*time.Hour, 45*time.Second, dataSyncer.SyncCelesTrak)
 	go schedule(ctx, 30*time.Minute, 45*time.Second, dataSyncer.SyncLaunches)
 	go schedule(ctx, 24*time.Hour, 45*time.Second, dataSyncer.SyncMoonSpacecraft)   // 月球轨道：每日 JPL Horizons 同步
+	go schedule(ctx, 24*time.Hour, 45*time.Second, dataSyncer.SyncMarsSpacecraft)   // 火星轨道：每日 JPL Horizons 同步
 	go schedule(ctx, 24*time.Hour, 120*time.Second, dataSyncer.SyncDeepSpaceProbes) // 深空探测器：每日同步（9 个顺序查询，预算放宽）
 
-	server := &http.Server{Addr: ":" + cfg.Port, Handler: httpapi.Router(repository, moonRepository, voyageRepository), ReadHeaderTimeout: 5 * time.Second}
+	server := &http.Server{Addr: ":" + cfg.Port, Handler: httpapi.Router(repository, moonRepository, marsRepository, voyageRepository), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		slog.Info("AURORA API started", "address", "http://localhost:"+cfg.Port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {

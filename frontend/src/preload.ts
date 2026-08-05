@@ -2,7 +2,7 @@
 // 避免切换后出现"建模加载"式的卡顿（尤其远端的地球纹理）。
 
 import { EARTH_DAY_TEXTURE_URL, EARTH_NIGHT_TEXTURE_URL } from './orbit/coordinates'
-import { MOON_HD } from './solar/data'
+import { MARS_HD, MOON_HD } from './solar/data'
 import { preloadSolarTextures as preloadSolarTextureObjects } from './solar/textures'
 
 const preloaded = new Set<string>()
@@ -61,4 +61,14 @@ export function preloadMoonHdTexture() {
 /** 月球 16k 纹理解码就绪（黑幕期间等待） */
 export function moonHdReady(): Promise<void> {
   return warmAndDecode(MOON_HD.textureUrl)
+}
+
+/** 预热火星高清贴图（本地 8k，提前下载避免切换后卡顿） */
+export function preloadMarsHdTexture() {
+  warm(MARS_HD.textureUrl)
+}
+
+/** 火星 8k 纹理解码就绪（黑幕期间等待） */
+export function marsHdReady(): Promise<void> {
+  return warmAndDecode(MARS_HD.textureUrl)
 }
