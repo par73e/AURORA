@@ -7,7 +7,7 @@ FORM: progressive observatory, the assigned seventh Operate structure; dense dat
 -->
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { CATALOG_PAGE_SIZE } from './catalog'
+import { CATALOG_PAGE_SIZE, LAUNCH_SITE_PAGE_SIZE } from './catalog'
 import { bilingualName } from './bilingual'
 import AuroraCover from './components/AuroraCover.vue'
 import OrbitScene from './components/OrbitScene.vue'
@@ -344,7 +344,7 @@ const catalogResult = computed(() => {
   return { items, error: queryError }
 })
 
-/** 航天器目录分页（每页 12 条；查询/筛选/排序变化时回到第 1 页） */
+/** 航天器目录分页（每页 CATALOG_PAGE_SIZE 条；查询/筛选/排序变化时回到第 1 页） */
 const catalogPage = ref(1)
 const catalogPageCount = computed(() => Math.max(1, Math.ceil(catalogResult.value.items.length / CATALOG_PAGE_SIZE)))
 const pagedCatalogItems = computed(() => {
@@ -356,6 +356,19 @@ watch([objectQuery, operatorFilter, objectSort], () => {
 })
 function catalogGotoPage(delta: number) {
   catalogPage.value = Math.min(catalogPageCount.value, Math.max(1, catalogPage.value + delta))
+}
+
+/** 发射场分页（每页 4 行；无筛选，纯翻页） */
+const launchSitePage = ref(1)
+const launchSitePageCount = computed(() => Math.max(1, Math.ceil((overview.value?.launchSites.length ?? 0) / LAUNCH_SITE_PAGE_SIZE)))
+const pagedLaunchSites = computed(() =>
+  (overview.value?.launchSites ?? []).slice(
+    (launchSitePage.value - 1) * LAUNCH_SITE_PAGE_SIZE,
+    launchSitePage.value * LAUNCH_SITE_PAGE_SIZE,
+  ),
+)
+const launchSiteGotoPage = (delta: number) => {
+  launchSitePage.value = Math.min(launchSitePageCount.value, Math.max(1, launchSitePage.value + delta))
 }
 
 /** 双语名称（统一规则）：全部中文主，外国对象附英文注释 */
@@ -1307,13 +1320,14 @@ onBeforeUnmount(() => {
             <div><p class="section-kicker launch-kicker">GROUND NETWORK</p><h2><i class="sec-num">Ⅲ</i>发射场</h2></div>
           </div>
           <div class="site-directory">
-            <button v-for="site in overview?.launchSites" :key="site.id" @click="selectAndFocus({ kind: 'site', id: site.id })">
+            <button v-for="site in pagedLaunchSites" :key="site.id" @click="selectAndFocus({ kind: 'site', id: site.id })">
               <span class="site-code">{{ site.countryCode }}</span>
               <span><strong>{{ bilingualName(site.nameZh, site.nameEn).primary }}</strong><small v-if="bilingualName(site.nameZh, site.nameEn).secondary">（{{ bilingualName(site.nameZh, site.nameEn).secondary }}）</small></span>
               <p>{{ site.description }}</p>
               <span class="site-coordinate">{{ formatCoordinate(site.latitude, 'N', 'S') }}<br>{{ formatCoordinate(site.longitude, 'E', 'W') }}</span>
             </button>
           </div>
+          <div class="pagination-space"><span>第 {{ launchSitePage }} / {{ launchSitePageCount }} 页 · 共 {{ overview?.launchSites.length ?? 0 }} 个发射场</span><div><button :disabled="launchSitePage <= 1" @click="launchSiteGotoPage(-1)">上一页</button><button :disabled="launchSitePage >= launchSitePageCount" @click="launchSiteGotoPage(1)">下一页</button></div></div>
         </div>
       </section>
 
