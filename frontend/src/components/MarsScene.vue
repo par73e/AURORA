@@ -253,8 +253,8 @@ let elementsAnim: { from: number; to: number; startedAt: number; duration: numbe
 /** 火星自转（已移除持续自转）：火星页面静止展示，保留初始姿态角 */
 /** 元素弹出延迟 = 星球渐入（0.3s）+ 缓冲 */
 const MARS_ELEMENTS_DELAY_MS = 900
-/** 标记点距离补偿基准（默认相机距离 ≈ 13）：部分透视补偿（远小近大不过度） */
-const MARS_MARKER_REF_DISTANCE = 13
+/** 标记点距离补偿基准（默认相机距离 ≈ 11.6）：部分透视补偿（远小近大不过度） */
+const MARS_MARKER_REF_DISTANCE = 11.6
 /** 距离透明度（与地球统一）：远处（默认视角及更远）70% 半透明，放大到极限后渐变为实色 */
 function distOpacity(d: number): number {
   return 0.7 + 0.3 * THREE.MathUtils.clamp((MARS_MARKER_REF_DISTANCE - d) / (MARS_MARKER_REF_DISTANCE - 2.85), 0, 1)
@@ -461,9 +461,9 @@ onMounted(() => {
 
   scene = new THREE.Scene()
   camera = new THREE.PerspectiveCamera(MARS_FOV, initialWidth / initialHeight, 0.1, 2000)
-  // 初始视角：距火星中心 13（视半径 ~13.3°）——比月球页（~11°）略大、比地球页（~15.8°）略小，
-  // 体现"地球 > 火星 > 月球"的观感
-  camera.position.set(0, 1.8, 13)
+  // 初始视角：距火星中心 11.6（视半径 ~14.8°）——接近地球页（~15.8°），
+  // 体现"地球 ≥ 火星 > 月球"的观感（用户要求默认状态下火星接近地球大小）
+  camera.position.set(0, 1.8, 11.6)
 
   resizeObserver = new ResizeObserver(() => {
     const width = host.clientWidth
@@ -613,7 +613,7 @@ onMounted(() => {
       }
     }
 
-    // 动态拖动灵敏度（与地球一致）：近处降敏、远处提速；默认视角 13.6 处 ≈ 0.41（与地球默认手感一致）
+    // 动态拖动灵敏度（与地球一致）：近处降敏、远处提速；默认视角 11.6 处 ≈ 0.37（与地球默认手感接近）
     if (controls && camera) {
       const t = THREE.MathUtils.clamp((camera.position.length() - controls.minDistance) / 25, 0, 1)
       controls.rotateSpeed = 0.2 + t * 0.5
@@ -657,7 +657,7 @@ onMounted(() => {
 const MARS_SCENE_SCALE = 3.0 / 3389.5
 /** 轨道高度夸张（与地球 ALTITUDE_EXAGGERATION=3.2 同思路）：超出火面的部分放大 1.5 倍——
  *  MRO 真实轨道仅高出火面 ~8% 半径，视觉上贴面飞行；MAVEN/天问一号轨道本身达 2–3 倍
- *  半径，夸张取 1.5 兼顾可辨识度与取景（初始视距 17） */
+ *  半径，夸张取 1.5 兼顾可辨识度与取景 */
 const MARS_ALTITUDE_EXAGGERATION = 1.5
 /** 轨道半径（场景单位，含高度夸张）：火心 + 超出火面部分 × 夸张系数 */
 function exaggeratedA(a: number) {
