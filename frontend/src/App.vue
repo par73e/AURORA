@@ -1308,7 +1308,7 @@ onBeforeUnmount(() => {
               </button>
               <div v-if="!catalogResult.items.length" class="catalog-empty">没有符合当前条件的航天器。请修改搜索词或筛选条件。</div>
             </div>
-            <div class="pagination-space"><span>第 {{ catalogPage }} / {{ catalogPageCount }} 页 · 共 {{ catalogResult.items.length }} 个航天器</span><div><button :disabled="catalogPage <= 1" @click="catalogGotoPage(-1)">上一页</button><button :disabled="catalogPage >= catalogPageCount" @click="catalogGotoPage(1)">下一页</button></div></div>
+            <div class="pagination-space"><span>第 {{ catalogPage }} / {{ catalogPageCount }} 页</span><div><button :disabled="catalogPage <= 1" @click="catalogGotoPage(-1)">上一页</button><button :disabled="catalogPage >= catalogPageCount" @click="catalogGotoPage(1)">下一页</button></div></div>
           </div>
         </div>
       </section>
@@ -1326,7 +1326,7 @@ onBeforeUnmount(() => {
               <span class="site-coordinate">{{ formatCoordinate(site.latitude, 'N', 'S') }}<br>{{ formatCoordinate(site.longitude, 'E', 'W') }}</span>
             </button>
           </div>
-          <div class="pagination-space"><span>第 {{ launchSitePage }} / {{ launchSitePageCount }} 页 · 共 {{ overview?.launchSites.length ?? 0 }} 个发射场</span><div><button :disabled="launchSitePage <= 1" @click="launchSiteGotoPage(-1)">上一页</button><button :disabled="launchSitePage >= launchSitePageCount" @click="launchSiteGotoPage(1)">下一页</button></div></div>
+          <div class="pagination-space"><span>第 {{ launchSitePage }} / {{ launchSitePageCount }} 页</span><div><button :disabled="launchSitePage <= 1" @click="launchSiteGotoPage(-1)">上一页</button><button :disabled="launchSitePage >= launchSitePageCount" @click="launchSiteGotoPage(1)">下一页</button></div></div>
         </div>
       </section>
 
