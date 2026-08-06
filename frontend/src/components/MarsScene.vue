@@ -87,11 +87,9 @@
           <dl>
             <div><dt>运营方</dt><dd>{{ craftById(selectedCraft)?.operatorName }}</dd></div>
             <div><dt>发射地点</dt><dd>{{ craftById(selectedCraft)?.launchDate }} · {{ craftById(selectedCraft)?.launchSite }} · {{ craftById(selectedCraft)?.launchVehicle }}</dd></div>
-            <div v-if="selectedCraftInfo?.kind === 'orbital'"><dt>轨道倾角</dt><dd>{{ craftById(selectedCraft)?.displayInclination }}°</dd></div>
-            <div v-if="selectedCraftInfo?.kind === 'orbital'"><dt>偏心率</dt><dd>{{ craftById(selectedCraft)?.displayEccentricity }}</dd></div>
-            <div v-if="selectedCraftInfo?.kind === 'orbital'"><dt>轨道周期</dt><dd>{{ craftById(selectedCraft)?.displayPeriod }}</dd></div>
-            <div v-if="selectedCraftInfo?.kind === 'surface'"><dt>类别</dt><dd>地表探测器</dd></div>
-            <div v-else-if="selectedCraftInfo?.kind === 'catalog'"><dt>类别</dt><dd>历史名录</dd></div>
+            <div v-if="selectedCraftInfo?.kind === 'orbital' || selectedCraftInfo?.kind === 'catalog'"><dt>轨道倾角</dt><dd>{{ craftById(selectedCraft)?.displayInclination }}°</dd></div>
+            <div v-if="selectedCraftInfo?.kind === 'orbital' || selectedCraftInfo?.kind === 'catalog'"><dt>偏心率</dt><dd>{{ craftById(selectedCraft)?.displayEccentricity }}</dd></div>
+            <div v-if="selectedCraftInfo?.kind === 'orbital' || selectedCraftInfo?.kind === 'catalog'"><dt>轨道周期</dt><dd>{{ craftById(selectedCraft)?.displayPeriod }}</dd></div>
           </dl>
           <p class="source-caption"><template v-if="selectedCraftInfo?.snapshot">轨道历元 {{ formatEpochUTC(selectedCraftInfo.snapshot.epoch) }}<br></template>数据来源：{{ selectedCraftInfo?.sourceName }}</p>
         </aside>
@@ -116,7 +114,7 @@
         </div>
         <div class="catalog-meta">
           <span>共 {{ filteredCrafts.length }} 个飞行器</span>
-          <span>实时轨道 · JPL Horizons 日同步（历史名录见面板）</span>
+          <span>实时轨道 · JPL Horizons 日同步（历史轨道为标称示意）</span>
         </div>
         <div class="object-table" role="table" aria-label="火星航天器列表">
           <div class="object-table-head" role="row"><span>对象</span><span>轨道</span><span>数据来源</span></div>
@@ -565,7 +563,7 @@ onMounted(() => {
 
     // 航天器公转（仅绕火轨道）
     for (const runtime of craftRuntimes) {
-      if (runtime.spec.kind !== 'orbital') continue
+      if (runtime.spec.kind !== 'orbital' && runtime.spec.kind !== 'catalog') continue
       const sn = runtime.spec.snapshot ?? null
       // 快照存在时用真实公转周期（JPL 日同步，如 MRO 约 112 分钟）；
       // 无快照时回退静态轨道周期（迁移 034 起已改为真实周期）
@@ -674,7 +672,7 @@ function keplerToTrueAnomaly(M: number, e: number): number {
  *  surface（地表探测器）/ catalog（历史名录）无 3D 呈现：只入名录，点击看面板 */
 function buildCraft(spec: MarsSpacecraft) {
   if (!scene) return
-  if (spec.kind !== 'orbital' && spec.kind !== 'stationary') return
+  if (spec.kind !== 'orbital' && spec.kind !== 'stationary' && spec.kind !== 'catalog') return
   const sn = spec.snapshot ?? null
   // 真实轨道根数（快照优先）：半长轴 km → 场景单位 → 轨道高度夸张（贴面飞行观感修正）
   const a = exaggeratedA(sn ? sn.aKm * MARS_SCENE_SCALE : spec.orbitA)
@@ -684,14 +682,14 @@ function buildCraft(spec: MarsSpacecraft) {
   const argp = sn ? sn.argPeriapsisDeg : spec.argPeriapsisDeg
 
   const plane = new THREE.Object3D()
-  if (spec.kind === 'orbital') {
+  if (spec.kind === 'orbital' || spec.kind === 'catalog') {
     plane.rotation.order = 'YXZ'
     plane.rotation.y = raan * DEG
     plane.rotation.x = inc * DEG
   }
 
   const dot = new THREE.Object3D()
-  if (spec.kind === 'orbital') dot.rotation.z = argp * DEG
+  if (spec.kind === 'orbital' || spec.kind === 'catalog') dot.rotation.z = argp * DEG
   plane.add(dot)
   const dotMesh = new THREE.Mesh(
     new THREE.SphereGeometry(spec.kind === 'stationary' ? 0.045 : 0.04, 16, 16),
@@ -709,7 +707,7 @@ function buildCraft(spec: MarsSpacecraft) {
 
   let line: THREE.Line | null = null
   let initialNu = 0
-  if (spec.kind === 'orbital') {
+  if (spec.kind === 'orbital' || spec.kind === 'catalog') {
     const linePoints: THREE.Vector3[] = []
     for (let i = 0; i <= 180; i += 1) {
       const nu = (i / 180) * Math.PI * 2
