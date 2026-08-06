@@ -1254,6 +1254,18 @@ onBeforeUnmount(() => {
 .mars-sites-section .pagination-space { border-top: 1px solid rgba(224, 168, 120, .15); color: #a89078; }
 .mars-objects-section .pagination-space button,
 .mars-sites-section .pagination-space button { border-color: rgba(224, 168, 120, .3); color: #c9a17a; background: transparent; }
+.mars-objects-section .pagination-space button:not(:disabled):hover,
+.mars-sites-section .pagination-space button:not(:disabled):hover {
+  border-color: #e0a878;
+  color: #e0a878;
+  background: rgba(224, 168, 120, .1);
+}
+.mars-objects-section .pagination-space button:not(:disabled):active,
+.mars-sites-section .pagination-space button:not(:disabled):active {
+  transform: scale(.93);
+  background: rgba(224, 168, 120, .18);
+  box-shadow: 0 0 8px rgba(224, 168, 120, .25);
+}
 .mars-objects-section .section-kicker,
 .mars-sites-section .section-kicker { color: #d0a080; }
 /* 板块小字标注：航天器=飞行器 / 着陆点=着陆器 */

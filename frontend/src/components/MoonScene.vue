@@ -1231,6 +1231,18 @@ onBeforeUnmount(() => {
 .moon-sites-section .pagination-space { border-top: 1px solid rgba(170, 186, 198, .18); }
 .moon-objects-section .pagination-space button,
 .moon-sites-section .pagination-space button { border-color: rgba(170, 186, 198, .28); color: #aab4be; }
+.moon-objects-section .pagination-space button:not(:disabled):hover,
+.moon-sites-section .pagination-space button:not(:disabled):hover {
+  border-color: #c8d0d8;
+  color: #c8d0d8;
+  background: rgba(200, 208, 216, .1);
+}
+.moon-objects-section .pagination-space button:not(:disabled):active,
+.moon-sites-section .pagination-space button:not(:disabled):active {
+  transform: scale(.93);
+  background: rgba(200, 208, 216, .18);
+  box-shadow: 0 0 8px rgba(200, 208, 216, .2);
+}
 .moon-objects-section .section-kicker,
 .moon-sites-section .section-kicker { color: #b6bfc8; }
 /* 板块小字标注：航天器=飞行器 / 着陆点=着陆器 */

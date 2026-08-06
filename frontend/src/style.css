@@ -275,7 +275,31 @@ button { cursor: pointer; }
 .catalog-empty { padding: 48px 26px; color: var(--muted); font-size: 13px; text-align: center; }
 .pagination-space { display: flex; justify-content: space-between; align-items: center; padding: 18px 26px; color: var(--quiet); font: 400 9px var(--font-mono); }
 .pagination-space div { display: flex; gap: 8px; }
-.pagination-space button { padding: 7px 10px; border: 1px solid var(--line); border-radius: 4px; background: transparent; color: #536c79; font-size: 9px; cursor: default; }
+.pagination-space button {
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: transparent;
+  color: #536c79;
+  font-size: 9px;
+  cursor: pointer;
+  transition: border-color .16s, color .16s, background .16s, transform .08s, box-shadow .16s;
+}
+/* 分页按钮交互：首/末页对应按钮变暗（disabled）；悬停高亮；按动闪烁 */
+.pagination-space button:disabled {
+  opacity: .32;
+  cursor: default;
+}
+.pagination-space button:not(:disabled):hover {
+  border-color: var(--amber);
+  color: var(--amber);
+  background: rgba(255, 184, 102, .08);
+}
+.pagination-space button:not(:disabled):active {
+  transform: scale(.93);
+  background: rgba(255, 184, 102, .16);
+  box-shadow: 0 0 8px rgba(255, 184, 102, .25);
+}
 
 .launches-section { background: #050b11; }
 .launch-list { border-top: 1px solid var(--line-strong); }
