@@ -1297,7 +1297,7 @@ onBeforeUnmount(() => {
               <label><span>排序</span><select v-model="objectSort"><option value="name">名称</option><option value="norad">NORAD 编号</option><option value="operator">运营方</option></select></label>
             </div>
             <p v-if="catalogResult.error" class="query-error">{{ catalogResult.error }}</p>
-            <div class="catalog-meta"><span>找到 {{ catalogResult.items.length }} 个对象</span><span>支持 JavaScript 正则语法</span></div>
+            <div class="catalog-meta"><span>找到 {{ catalogResult.items.length }} 个对象</span></div>
             <div class="object-table" role="table" aria-label="航天器查询结果">
               <div class="object-table-head" role="row"><span>NORAD</span><span>对象</span><span>运营方</span><span>类型</span><span>轨道历元</span></div>
               <button v-for="craft in pagedCatalogItems" :key="craft.id" class="object-row" role="row" @click="selectAndFocus({ kind: craft.kind, id: craft.id })">
