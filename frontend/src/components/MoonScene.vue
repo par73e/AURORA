@@ -618,8 +618,10 @@ onMounted(() => {
       runtime.nu += (Math.PI * 2 / periodSec) * delta
       const a = exaggeratedA(sn ? sn.aKm * MOON_SCENE_SCALE : runtime.spec.orbitA)
       const e = sn ? sn.eccentricity : runtime.spec.orbitE
+      const argp = sn ? sn.argPeriapsisDeg : runtime.spec.argPeriapsisDeg
       const r = (a * (1 - e * e)) / (1 + e * Math.cos(runtime.nu))
-      runtime.dot.position.set(r * Math.cos(runtime.nu), r * Math.sin(runtime.nu), 0)
+      // 位置角度 = 真近点角 + 近点幅角（与轨道环一致：环整体旋转 argp）
+      runtime.dot.position.set(r * Math.cos(runtime.nu + argp * DEG), r * Math.sin(runtime.nu + argp * DEG), 0)
     }
     // 观测光跟随相机：明暗边界始终落在球体轮廓之外（关闭晨昏线时 360° 全亮）
     if (observationLight && camera) observationLight.position.copy(camera.position)
@@ -734,7 +736,7 @@ function buildCraft(spec: MoonSpacecraft) {
   }
 
   const dot = new THREE.Object3D()
-  if (spec.kind === 'orbital') dot.rotation.z = argp * DEG
+  // 近点幅角不进 dot.rotation（只旋转球体无意义）：位置角度统一 = 真近点角 + argp（见 animate 循环）
   plane.add(dot)
   const dotMesh = new THREE.Mesh(
     new THREE.SphereGeometry(spec.kind === 'stationary' ? 0.045 : 0.04, 16, 16),
@@ -772,7 +774,8 @@ function buildCraft(spec: MoonSpacecraft) {
       const M = (sn.meanAnomalyDeg * DEG + n * elapsedSec) % (Math.PI * 2)
       initialNu = keplerToTrueAnomaly(M, e)
     }
-    dot.position.set(a * (1 - e), 0, 0)
+    // 初始相位（首帧即被 animate 覆盖）：近点方向 + argp
+    dot.position.set(a * (1 - e) * Math.cos(argp * DEG), a * (1 - e) * Math.sin(argp * DEG), 0)
   } else {
     // 定点：固定在月球外侧（不参与公转）
     dot.position.set(spec.stationaryOffset[0], spec.stationaryOffset[1], spec.stationaryOffset[2])
