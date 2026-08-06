@@ -114,6 +114,7 @@
           <label><span>排序</span><select v-model="craftSort"><option value="name">名称</option><option value="type">类型</option><option value="operator">运营方</option></select></label>
         </div>
         <div class="catalog-meta">
+          <span>{{ filteredCrafts.length }} 个飞行器</span>
           <span>实时轨道 · JPL Horizons</span>
         </div>
         <div class="object-table" role="table" aria-label="火星航天器列表">
@@ -125,7 +126,7 @@
           </button>
           <div v-if="!filteredCrafts.length" class="catalog-empty">没有符合条件的航天器。请修改搜索词。</div>
         </div>
-        <div class="pagination-space"><span>第 {{ craftPage }} / {{ craftPageCount }} 页</span><div><button :disabled="craftPage <= 1" @click="craftGotoPage(-1)">上一页</button><button :disabled="craftPage >= craftPageCount" @click="craftGotoPage(1)">下一页</button></div></div>
+        <div class="pagination-space"><span>第 {{ craftPage }} / {{ craftPageCount }} 页 · {{ filteredCrafts.length }} 个飞行器</span><div><button :disabled="craftPage <= 1" @click="craftGotoPage(-1)">上一页</button><button :disabled="craftPage >= craftPageCount" @click="craftGotoPage(1)">下一页</button></div></div>
       </div>
     </div>
   </section>
@@ -144,6 +145,7 @@
           </label>
         </div>
         <div class="catalog-meta">
+          <span>{{ filteredSites.length }} 个着陆点</span>
           <span>真实历史坐标 · 火星表面足迹</span>
         </div>
         <div class="object-table" role="table" aria-label="火星着陆点列表">
@@ -158,7 +160,7 @@
           </button>
           <div v-if="!filteredSites.length" class="catalog-empty">没有符合条件的着陆点。请修改搜索词。</div>
         </div>
-        <div class="pagination-space"><span>第 {{ sitePage }} / {{ sitePageCount }} 页</span><div><button :disabled="sitePage <= 1" @click="siteGotoPage(-1)">上一页</button><button :disabled="sitePage >= sitePageCount" @click="siteGotoPage(1)">下一页</button></div></div>
+        <div class="pagination-space"><span>第 {{ sitePage }} / {{ sitePageCount }} 页 · {{ filteredSites.length }} 个着陆点</span><div><button :disabled="sitePage <= 1" @click="siteGotoPage(-1)">上一页</button><button :disabled="sitePage >= sitePageCount" @click="siteGotoPage(1)">下一页</button></div></div>
       </div>
     </div>
   </section>
