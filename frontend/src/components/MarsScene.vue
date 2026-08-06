@@ -58,7 +58,7 @@
             <div><dt>任务</dt><dd>{{ siteById(selectedSite)?.missionName }}</dd></div>
             <div><dt>着陆日期</dt><dd>{{ siteById(selectedSite)?.landingDate }}</dd></div>
             <div><dt>区域</dt><dd>{{ siteById(selectedSite)?.region }}</dd></div>
-            <div><dt>类别</dt><dd>{{ siteById(selectedSite)?.category === 'ROVER_LANDING' ? '巡视探测' : siteById(selectedSite)?.category === 'SAMPLE_RETURN' ? '采样返回' : '静态着陆' }}</dd></div>
+            <div><dt>类别</dt><dd>{{ siteById(selectedSite)?.category === 'ROVER_LANDING' ? '巡视探测' : siteById(selectedSite)?.category === 'SAMPLE_RETURN' ? '采样返回' : siteById(selectedSite)?.category === 'AERIAL' ? '动力飞行' : '静态着陆' }}</dd></div>
             <div><dt>机构</dt><dd>{{ siteById(selectedSite)?.operatorName }}</dd></div>
             <div><dt>简介</dt><dd>{{ siteById(selectedSite)?.description }}</dd></div>
           </dl>
@@ -103,29 +103,7 @@
   <section id="mars-objects" class="content-section mars-objects-section">
     <div class="page-frame">
       <div class="section-heading">
-        <div><p class="section-kicker">MARS SPACECRAFT</p><h2><i class="sec-num">Ⅰ</i>航天器</h2></div>
-      </div>
-      <div class="catalog-tabs" role="tablist" aria-label="航天器分类">
-        <button
-          type="button"
-          class="catalog-tab tab-lander"
-          :class="{ active: catalogTab === 'surface' }"
-          role="tab"
-          :aria-selected="catalogTab === 'surface'"
-          @click="catalogTab = 'surface'"
-        >
-          <i class="tab-glyph" v-html="landerTabGlyph" />着陆器<small>{{ surfaceCrafts.length }}</small>
-        </button>
-        <button
-          type="button"
-          class="catalog-tab tab-orbit"
-          :class="{ active: catalogTab === 'orbit' }"
-          role="tab"
-          :aria-selected="catalogTab === 'orbit'"
-          @click="catalogTab = 'orbit'"
-        >
-          <i class="tab-glyph" v-html="orbitTabGlyph" />飞行器<small>{{ orbitCrafts.length }}</small>
-        </button>
+        <div><p class="section-kicker">MARS SPACECRAFT</p><h2><i class="sec-num">Ⅰ</i>航天器</h2><p class="section-sub">飞行器 · 环绕火星运行的航天器</p></div>
       </div>
       <div class="catalog-workspace">
         <div class="catalog-controls">
@@ -137,8 +115,8 @@
           <label><span>排序</span><select v-model="craftSort"><option value="name">名称</option><option value="type">类型</option><option value="operator">运营方</option></select></label>
         </div>
         <div class="catalog-meta">
-          <span>共 {{ filteredCrafts.length }} 个{{ catalogTab === 'surface' ? '着陆器' : '飞行器' }}</span>
-          <span>实时轨道 · JPL Horizons 日同步（地表/历史名录见面板）</span>
+          <span>共 {{ filteredCrafts.length }} 个飞行器</span>
+          <span>实时轨道 · JPL Horizons 日同步（历史名录见面板）</span>
         </div>
         <div class="object-table" role="table" aria-label="火星航天器列表">
           <div class="object-table-head" role="row"><span>对象</span><span>轨道</span><span>数据来源</span></div>
@@ -157,7 +135,7 @@
   <section id="mars-sites" class="content-section mars-sites-section">
     <div class="page-frame">
       <div class="section-heading">
-        <div><p class="section-kicker">MARS LANDING SITES</p><h2><i class="sec-num">Ⅲ</i>着陆点</h2></div>
+        <div><p class="section-kicker">MARS LANDING SITES</p><h2><i class="sec-num">Ⅲ</i>着陆点</h2><p class="section-sub">着陆器 · 在火星表面着陆的航天器</p></div>
       </div>
       <div class="catalog-workspace">
         <div class="catalog-controls">
@@ -178,7 +156,7 @@
               <span><strong>{{ site.siteName }}</strong><small>{{ site.officialName || site.region }}</small></span>
             </span>
             <span>{{ site.missionName }}<small>{{ site.operatorName }}</small></span>
-            <span>{{ site.landingDate }}<small>{{ site.category === 'ROVER_LANDING' ? '巡视探测' : site.category === 'SAMPLE_RETURN' ? '采样返回' : '静态着陆' }}</small></span>
+            <span>{{ site.landingDate }}<small>{{ site.category === 'ROVER_LANDING' ? '巡视探测' : site.category === 'SAMPLE_RETURN' ? '采样返回' : site.category === 'AERIAL' ? '动力飞行' : '静态着陆' }}</small></span>
           </button>
           <div v-if="!filteredSites.length" class="catalog-empty">没有符合条件的着陆点。请修改搜索词。</div>
         </div>
@@ -223,13 +201,6 @@ const selectedCraft = ref<string | null>(null)
 /** 悬停预览的飞行器（不运镜，仅驱动高亮：标记放大/实色 + 轨道线点亮；悬停优先于选中） */
 const hoveredCraftId = ref<string | null>(null)
 const craftQuery = ref('')
-/** 航天器分类标签：surface=着陆器（地表探测器）/ orbit=飞行器（绕行器） */
-const catalogTab = ref<'surface' | 'orbit'>('surface')
-const surfaceCrafts = computed(() => crafts.value.filter((c) => (c.catalogGroup ?? 'orbit') === 'surface'))
-const orbitCrafts = computed(() => crafts.value.filter((c) => (c.catalogGroup ?? 'orbit') === 'orbit'))
-/** 标签图标：着陆器（降落箭头+基座） / 飞行器（轨道环+卫星点）——两个标签样式刻意不同 */
-const landerTabGlyph = `<svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"><path d="M6 1.2v4.6M3.4 3.4L6 6l2.6-2.6"/><path d="M2.2 7.8h7.6l-.9 3H3.1z"/></svg>`
-const orbitTabGlyph = `<svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.1"><ellipse cx="6" cy="6" rx="4.6" ry="2.1"/><circle cx="9.8" cy="4.4" r="1.3" fill="currentColor" stroke="none"/></svg>`
 /** 航天器目录：运营方筛选 + 排序（与地球页一致） */
 const craftOperatorFilter = ref('all')
 const craftSort = ref('name')
@@ -341,7 +312,7 @@ function formatEpochUTC(iso?: string) {
 }
 
 const filteredCrafts = computed(() => {
-  let items = crafts.value.filter((c) => (c.catalogGroup ?? 'orbit') === catalogTab.value)
+  let items = crafts.value
   if (craftOperatorFilter.value !== 'all') {
     items = items.filter((c) => primaryOperator(c.operatorName) === craftOperatorFilter.value)
   }
@@ -1150,66 +1121,19 @@ onBeforeUnmount(() => {
     radial-gradient(1.2px 1.2px at 66% 4%, rgba(230, 178, 130, .3), transparent 100%),
     radial-gradient(ellipse at 50% 50%, #120a06 0%, #050302 100%);
 }
-/* 航天器分类标签：着陆器（实底圆角胶囊） / 飞行器（描边方角）——两种样式刻意区分 */
-.mars-objects-section .catalog-tabs {
-  display: flex;
-  gap: 10px;
-  margin: 0 0 18px;
-}
-.mars-objects-section .catalog-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  font-size: 12px;
-  letter-spacing: .06em;
-  cursor: pointer;
-  transition: color .2s, border-color .2s, background .2s, box-shadow .2s;
-}
-.mars-objects-section .catalog-tab small {
-  font: 500 9px var(--font-mono);
-  opacity: .75;
-}
-.mars-objects-section .catalog-tab .tab-glyph {
-  display: inline-flex;
-}
-/* 着陆器标签：暖橙实底胶囊 + 着陆箭头图标 */
-.mars-objects-section .tab-lander {
-  color: #2a1a10;
-  background: linear-gradient(180deg, #f0a868, #d98a4e);
-  border: 1px solid rgba(240, 168, 104, .7);
-  border-radius: 999px;
-}
-.mars-objects-section .tab-lander .tab-glyph { color: #5a3418; }
-.mars-objects-section .tab-lander:hover { box-shadow: 0 0 12px rgba(224, 168, 120, .45); }
-/* 未激活：降为半透明描边胶囊（与激活实底明显区分） */
-.mars-objects-section .tab-lander:not(.active) {
-  color: #b09070;
-  background: transparent;
-  border: 1px solid rgba(224, 168, 120, .45);
-}
-.mars-objects-section .tab-lander:not(.active) .tab-glyph { color: #c09070; }
-.mars-objects-section .tab-lander:not(.active):hover { color: #ecd9c8; border-color: rgba(224, 168, 120, .85); }
-/* 飞行器标签：陶土描边方角 + 轨道环图标 */
-.mars-objects-section .tab-orbit {
-  color: #b09070;
-  background: transparent;
-  border: 1px dashed rgba(224, 168, 120, .5);
-  border-radius: 6px;
-}
-.mars-objects-section .tab-orbit .tab-glyph { color: #d0a080; }
-.mars-objects-section .tab-orbit:hover { border-color: rgba(224, 168, 120, .9); color: #ecd9c8; }
-.mars-objects-section .tab-orbit.active {
-  color: #f0d8c0;
-  border: 1px solid rgba(224, 168, 120, .9);
-  box-shadow: inset 0 0 0 1px rgba(224, 168, 120, .3), 0 0 10px rgba(224, 168, 120, .25);
-}
-
 /* 航天器/着陆点板块 UI 全暖红（覆盖全局浅蓝主题色） */
 .mars-objects-section .catalog-workspace,
 .mars-sites-section .catalog-workspace { background: #16100a; }
 .mars-objects-section .section-kicker,
 .mars-sites-section .section-kicker { color: #d0a080; }
+/* 板块小字标注：航天器=飞行器 / 着陆点=着陆器 */
+.mars-objects-section .section-sub,
+.mars-sites-section .section-sub {
+  margin: 6px 0 0;
+  color: var(--mars-quiet);
+  font: 400 10px/1.5 var(--font-mono);
+  letter-spacing: .08em;
+}
 .mars-objects-section .sec-num,
 .mars-sites-section .sec-num { color: #c09070; }
 .mars-objects-section .catalog-controls label > span,

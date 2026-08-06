@@ -102,7 +102,7 @@
   <section id="moon-objects" class="content-section moon-objects-section">
     <div class="page-frame">
       <div class="section-heading">
-        <div><p class="section-kicker">LUNAR SPACECRAFT</p><h2><i class="sec-num">Ⅰ</i>月球航天器</h2></div>
+        <div><p class="section-kicker">LUNAR SPACECRAFT</p><h2><i class="sec-num">Ⅰ</i>月球航天器</h2><p class="section-sub">飞行器 · 环绕月球运行的航天器</p></div>
       </div>
       <div class="catalog-workspace">
         <div class="catalog-controls">
@@ -134,7 +134,7 @@
   <section id="moon-sites" class="content-section moon-sites-section">
     <div class="page-frame">
       <div class="section-heading">
-        <div><p class="section-kicker">LUNAR LANDING SITES</p><h2><i class="sec-num">Ⅲ</i>着陆点</h2></div>
+        <div><p class="section-kicker">LUNAR LANDING SITES</p><h2><i class="sec-num">Ⅲ</i>着陆点</h2><p class="section-sub">着陆器 · 在月面着陆的航天器</p></div>
       </div>
       <div class="catalog-workspace">
         <div class="catalog-controls">
@@ -1188,6 +1188,14 @@ onBeforeUnmount(() => {
 .moon-sites-section .catalog-workspace { background: #0d1217; }
 .moon-objects-section .section-kicker,
 .moon-sites-section .section-kicker { color: #b6bfc8; }
+/* 板块小字标注：航天器=飞行器 / 着陆点=着陆器 */
+.moon-objects-section .section-sub,
+.moon-sites-section .section-sub {
+  margin: 6px 0 0;
+  color: var(--moon-quiet);
+  font: 400 10px/1.5 var(--font-mono);
+  letter-spacing: .08em;
+}
 .moon-objects-section .sec-num,
 .moon-sites-section .sec-num { color: #aab4be; }
 .moon-objects-section .catalog-controls label > span,
