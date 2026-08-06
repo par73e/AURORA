@@ -117,13 +117,11 @@
           <span>实时轨道 · JPL Horizons 日同步（历史轨道为标称示意）</span>
         </div>
         <div class="object-table" role="table" aria-label="火星航天器列表">
-          <div class="object-table-head" role="row"><span>NORAD</span><span>对象</span><span>运营方</span><span>类型</span><span>轨道历元</span></div>
+          <div class="object-table-head" role="row"><span>对象</span><span>运营方</span><span>类型</span></div>
           <button v-for="craft in pagedCrafts" :key="craft.id" class="object-row" role="row" @click="focusCraft(craft.id)">
-            <span>—</span>
             <span><strong>{{ craftBilingual.get(craft.id)?.primary }}</strong><small v-if="craftBilingual.get(craft.id)?.secondary">（{{ craftBilingual.get(craft.id)?.secondary }}）</small></span>
             <span>{{ craft.operatorName }}</span>
             <span>{{ craft.type }}</span>
-            <span>{{ craft.snapshot?.epoch ? formatUTCDate(craft.snapshot.epoch) : '—' }}</span>
           </button>
           <div v-if="!filteredCrafts.length" class="catalog-empty">没有符合条件的航天器。请修改搜索词。</div>
         </div>
@@ -315,13 +313,7 @@ function formatEpochUTC(iso?: string) {
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC`
 }
 
-/** UTC 日期（名录表轨道历元列，与地球目录一致） */
-function formatUTCDate(iso?: string) {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`
-}
+// 注：formatUTCDate 曾用于航天器名录"轨道历元"列，该列已移除（标称轨道无历元）
 
 const filteredCrafts = computed(() => {
   let items = crafts.value
@@ -1214,6 +1206,12 @@ onBeforeUnmount(() => {
   border-top-color: rgba(224, 168, 120, .15);
   color: #a89078;
 }
+.mars-objects-section .object-table-head,
+.mars-objects-section .object-row {
+  grid-template-columns: minmax(260px, 1.6fr) minmax(200px, 1.1fr) minmax(180px, 1fr);
+}
+/* 对象列现在是首列：全局 first-child mono 字体仅应作用于编码类列，名称用正文字体 */
+.mars-objects-section .object-row > span:first-child { font: inherit; }
 .mars-sites-section .object-table-head,
 .mars-sites-section .object-row {
   grid-template-columns: 150px minmax(260px, 1.6fr) minmax(180px, 1fr);
