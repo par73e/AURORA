@@ -336,9 +336,9 @@ const filteredCrafts = computed(() => {
 
 // 占位（craftById 已覆盖原 helper）
 
-/** 双语名称（统一规则）：运营方为中国 → 中文主（中文（英文））；外国 → 英文主（English（中文）） */
-const craftBilingual = computed(() => new Map(crafts.value.map((c) => [c.id, bilingualName(c.nameZh, c.nameEn, c.operatorName)])))
-const siteBilingual = computed(() => new Map(landingSites.value.map((s) => [s.id, bilingualName(s.siteName, s.officialName || s.region, s.operatorName)])))
+/** 双语名称（统一规则）：全部中文主，外国对象附英文括号注释 */
+const craftBilingual = computed(() => new Map(crafts.value.map((c) => [c.id, bilingualName(c.nameZh, c.nameEn)])))
+const siteBilingual = computed(() => new Map(landingSites.value.map((s) => [s.id, bilingualName(s.siteName, s.officialName || s.region)])))
 
 /** 点击搜索结果/场景标签：选中并聚焦（滚回主视图 → 飞行器居中 → 右侧面板） */
 function focusCraft(id: string) {

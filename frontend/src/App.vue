@@ -8,7 +8,7 @@ FORM: progressive observatory, the assigned seventh Operate structure; dense dat
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { CATALOG_PAGE_SIZE } from './catalog'
-import { bilingualName, isChineseOrigin } from './bilingual'
+import { bilingualName } from './bilingual'
 import AuroraCover from './components/AuroraCover.vue'
 import OrbitScene from './components/OrbitScene.vue'
 import SolarSystem from './components/SolarSystem.vue'
@@ -355,19 +355,18 @@ function catalogGotoPage(delta: number) {
   catalogPage.value = Math.min(catalogPageCount.value, Math.max(1, catalogPage.value + delta))
 }
 
-/** 双语名称（统一规则）：运营方为中国 → 中文主；外国 → 英文主（English（中文）） */
-function catalogBilingual(item: { nameZh: string; nameEn: string; operatorName?: string }) {
-  return bilingualName(item.nameZh, item.nameEn, item.operatorName)
+/** 双语名称（统一规则）：全部中文主，外国对象附英文注释 */
+function catalogBilingual(item: { nameZh: string; nameEn: string }) {
+  return bilingualName(item.nameZh, item.nameEn)
 }
 
-/** 发射事件双语：中文任务名（神舟/天舟/天问…）→ 中文主；其余 → 英文主 */
+/** 发射事件双语：中文任务名为主（附英文注释）；无中文名则显示英文任务名 */
 function eventBilingual(e: { missionName?: string; missionNameZh?: string; name?: string }) {
   const en = (e.missionName || e.name || '').trim()
   const zh = (e.missionNameZh || '').trim()
-  const chinese = isChineseOrigin(zh || en)
-  if (zh && zh === en) return { primary: en, secondary: '' }
-  if (chinese) return { primary: zh || en, secondary: zh ? en : '' }
-  return { primary: en, secondary: zh }
+  const primary = zh || en
+  const secondary = zh && en && zh !== en ? en : ''
+  return { primary, secondary, lang: zh ? 'zh-CN' : 'en' }
 }
 
 
@@ -1325,7 +1324,7 @@ onBeforeUnmount(() => {
             <button v-for="event in upcomingEvents" :key="event.externalId" class="launch-row" @click="selectAndFocus({ kind: 'event', id: event.externalId })">
               <time><strong>{{ eventDate(event.net).day }}</strong><span>{{ eventDate(event.net).month }} · {{ eventDate(event.net).weekday }}</span></time>
               <span class="launch-mission">
-                <strong :lang="isChineseOrigin(eventBilingual(event).primary) ? 'zh-CN' : 'en'">{{ eventBilingual(event).primary }}</strong>
+                <strong :lang="eventBilingual(event).lang">{{ eventBilingual(event).primary }}</strong>
                 <small v-if="eventBilingual(event).secondary">（{{ eventBilingual(event).secondary }}）</small>
               </span>
               <span><i :class="event.statusAbbrev.toLowerCase()" />{{ event.statusNameZh }}</span>

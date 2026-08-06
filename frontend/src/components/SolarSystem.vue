@@ -71,8 +71,8 @@ const nameEnById = new Map(planets.map((p) => [p.id, p.nameEn]))
 nameById.set(MOON.id, MOON.name)
 nameEnById.set(MOON.id, MOON.nameEn)
 
-/** 双语名称（统一规则）：外国探测器 → 英文主（English（中文））；中国探测器（如有）→ 中文主 */
-const probeBilingual = computed(() => new Map(probes.value.map((p) => [p.id, bilingualName(p.nameZh, p.nameEn, p.operatorName)])))
+/** 双语名称（统一规则）：全部中文主，外国对象附英文括号注释 */
+const probeBilingual = computed(() => new Map(probes.value.map((p) => [p.id, bilingualName(p.nameZh, p.nameEn)])))
 
 function choosePlanet(id: string) {
   activeId.value = id
