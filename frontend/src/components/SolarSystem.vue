@@ -5,6 +5,7 @@ import { solarSession } from '../solar/session'
 import { MOON, planets, SUN, type PlanetSpec } from '../solar/data'
 import { solarTexturesReady } from '../solar/textures'
 import { fetchDeepSpaceProbes } from '../api'
+import { bilingualName } from '../bilingual'
 import type { DeepSpaceProbe } from '../types'
 import type { ProbeData } from '../solar/scene'
 
@@ -70,8 +71,8 @@ const nameEnById = new Map(planets.map((p) => [p.id, p.nameEn]))
 nameById.set(MOON.id, MOON.name)
 nameEnById.set(MOON.id, MOON.nameEn)
 
-const probeNameById = computed(() => new Map(probes.value.map((p) => [p.id, p.nameZh])))
-const probeNameEnById = computed(() => new Map(probes.value.map((p) => [p.id, p.nameEn])))
+/** 双语名称（统一规则）：外国探测器 → 英文主（English（中文））；中国探测器（如有）→ 中文主 */
+const probeBilingual = computed(() => new Map(probes.value.map((p) => [p.id, bilingualName(p.nameZh, p.nameEn, p.operatorName)])))
 
 function choosePlanet(id: string) {
   activeId.value = id
@@ -317,15 +318,15 @@ defineExpose({ resetView })
         class="solar-label probe-label"
         :class="{ active: selectedProbe?.id === label.id }"
         :style="planetLabelStyle(label)"
-        :aria-label="`${probeNameById.get(label.id)}（${probeNameEnById.get(label.id)}）`"
+        :aria-label="`${probeBilingual.get(label.id)?.primary}${probeBilingual.get(label.id)?.secondary ? `（${probeBilingual.get(label.id)?.secondary}）` : ''}`"
         @mouseenter="hoverProbe(label.id)"
         @mouseleave="hoverProbe(null)"
         @focus="hoverProbe(label.id)"
         @blur="hoverProbe(null)"
         @click="onProbeClick(label.id)"
       >
-        <strong>{{ probeNameById.get(label.id) }}</strong>
-        <small>{{ probeNameEnById.get(label.id) }}</small>
+        <strong>{{ probeBilingual.get(label.id)?.primary }}</strong>
+        <small v-if="probeBilingual.get(label.id)?.secondary">（{{ probeBilingual.get(label.id)?.secondary }}）</small>
       </button>
 
       <div
@@ -371,7 +372,7 @@ defineExpose({ resetView })
     <aside v-if="selectedProbe" class="probe-panel" role="dialog" aria-label="深空探测器信息">
       <button class="probe-panel-close" type="button" aria-label="关闭信息面板" @click="closeProbePanel">×</button>
       <p class="probe-panel-kicker">{{ selectedProbe.missionType }} · 精度等级 {{ selectedProbe.precisionGrade }}</p>
-      <h2>{{ selectedProbe.nameZh }} <small>{{ selectedProbe.nameEn }}</small></h2>
+      <h2>{{ probeBilingual.get(selectedProbe.id)?.primary }} <small v-if="probeBilingual.get(selectedProbe.id)?.secondary">（{{ probeBilingual.get(selectedProbe.id)?.secondary }}）</small></h2>
       <dl>
         <div><dt>运营方</dt><dd>{{ selectedProbe.operatorName }}</dd></div>
         <div><dt>发射地点</dt><dd>{{ probeLaunchText }}</dd></div>

@@ -4,6 +4,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { LaunchEvent, LaunchSite, SceneLayers, Selection, Spacecraft } from '../types'
 import { EARTH_DAY_TEXTURE_URL, EARTH_NIGHT_TEXTURE_URL, EARTH_RADIUS, latLonToVector, sampleOrbit, spacecraftPoint } from '../orbit/coordinates'
+import { bilingualName, isChineseOrigin } from '../bilingual'
 
 const EARTH_AXIAL_TILT_DEGREES = 23.44
 /** 地球入场自转（先做地球，月球后续再说）：
@@ -120,6 +121,22 @@ const selectedEvent = computed(() =>
   localSelection.value?.kind === 'event' ? props.events.find((item) => item.externalId === localSelection.value?.id) : undefined,
 )
 const selectedEventSite = computed(() => (selectedEvent.value ? nearestSite(selectedEvent.value) : undefined))
+
+/** 双语名称（统一规则，与 App/月球/火星一致）：运营方为中国 → 中文主；外国 → 英文主（English（中文）） */
+function bName(zh: string, en: string, operator?: string) {
+  return bilingualName(zh, en, operator)
+}
+/** 发射事件双语：中文任务名 → 中文主；其余 → 英文主 */
+const eventPanelName = computed(() => {
+  const e = selectedEvent.value
+  if (!e) return { primary: '', secondary: '' }
+  const en = (e.missionName || e.name || '').trim()
+  const zh = (e.missionNameZh || '').trim()
+  const chinese = isChineseOrigin(zh || en)
+  if (zh && zh === en) return { primary: en, secondary: '' }
+  if (chinese) return { primary: zh || en, secondary: zh ? en : '' }
+  return { primary: en, secondary: zh }
+})
 watch(() => selectedEvent.value?.externalId, () => {
   showEventOriginal.value = false
 })
@@ -1158,8 +1175,8 @@ onBeforeUnmount(() => {
 
       <template v-if="selectedSpacecraft">
         <p class="context-type">NORAD {{ selectedSpacecraft.noradCatalogId }}</p>
-        <h2>{{ selectedSpacecraft.nameZh }}</h2>
-        <p class="context-subtitle">{{ selectedSpacecraft.nameEn }}</p>
+        <h2>{{ bName(selectedSpacecraft.nameZh, selectedSpacecraft.nameEn, selectedSpacecraft.operatorName).primary }}</h2>
+        <p v-if="bName(selectedSpacecraft.nameZh, selectedSpacecraft.nameEn, selectedSpacecraft.operatorName).secondary" class="context-subtitle">（{{ bName(selectedSpacecraft.nameZh, selectedSpacecraft.nameEn, selectedSpacecraft.operatorName).secondary }}）</p>
         <p class="context-description">{{ selectedSpacecraft.description }}</p>
         <dl>
           <div><dt>运营方</dt><dd>{{ selectedSpacecraft.operatorName }}</dd></div>
@@ -1173,8 +1190,8 @@ onBeforeUnmount(() => {
 
       <template v-else-if="selectedSite">
         <p class="context-type launch-context">LAUNCH SITE · {{ selectedSite.countryCode }}</p>
-        <h2>{{ selectedSite.nameZh }}</h2>
-        <p class="context-subtitle">{{ selectedSite.nameEn }}</p>
+        <h2>{{ bName(selectedSite.nameZh, selectedSite.nameEn).primary }}</h2>
+        <p v-if="bName(selectedSite.nameZh, selectedSite.nameEn).secondary" class="context-subtitle">（{{ bName(selectedSite.nameZh, selectedSite.nameEn).secondary }}）</p>
         <p class="context-description">{{ selectedSite.description }}</p>
         <dl>
           <div><dt>国家 / 地区</dt><dd>{{ selectedSite.countryNameZh }}</dd></div>
@@ -1185,13 +1202,8 @@ onBeforeUnmount(() => {
 
       <template v-else-if="selectedEvent">
         <p class="context-type launch-context">LAUNCH · {{ selectedEvent.statusAbbrev }}</p>
-        <h2 lang="en">{{ selectedEvent.missionName || selectedEvent.name }}</h2>
-        <p
-          v-if="selectedEvent.missionNameZh && selectedEvent.missionNameZh !== selectedEvent.missionName"
-          class="context-translation"
-        >
-          {{ selectedEvent.missionNameZh }}
-        </p>
+        <h2 :lang="isChineseOrigin(eventPanelName.primary) ? 'zh-CN' : 'en'">{{ eventPanelName.primary }}</h2>
+        <p v-if="eventPanelName.secondary" class="context-translation">（{{ eventPanelName.secondary }}）</p>
         <p class="context-subtitle">
           {{ launchVehicleName(selectedEvent) }}<template v-if="selectedEvent.providerName"> · {{ selectedEvent.providerName }}</template>
         </p>

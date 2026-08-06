@@ -8,6 +8,7 @@ FORM: progressive observatory, the assigned seventh Operate structure; dense dat
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { CATALOG_PAGE_SIZE } from './catalog'
+import { bilingualName, isChineseOrigin } from './bilingual'
 import AuroraCover from './components/AuroraCover.vue'
 import OrbitScene from './components/OrbitScene.vue'
 import SolarSystem from './components/SolarSystem.vue'
@@ -352,6 +353,21 @@ watch([objectQuery, operatorFilter, objectSort], () => {
 })
 function catalogGotoPage(delta: number) {
   catalogPage.value = Math.min(catalogPageCount.value, Math.max(1, catalogPage.value + delta))
+}
+
+/** 双语名称（统一规则）：运营方为中国 → 中文主；外国 → 英文主（English（中文）） */
+function catalogBilingual(item: { nameZh: string; nameEn: string; operatorName?: string }) {
+  return bilingualName(item.nameZh, item.nameEn, item.operatorName)
+}
+
+/** 发射事件双语：中文任务名（神舟/天舟/天问…）→ 中文主；其余 → 英文主 */
+function eventBilingual(e: { missionName?: string; missionNameZh?: string; name?: string }) {
+  const en = (e.missionName || e.name || '').trim()
+  const zh = (e.missionNameZh || '').trim()
+  const chinese = isChineseOrigin(zh || en)
+  if (zh && zh === en) return { primary: en, secondary: '' }
+  if (chinese) return { primary: zh || en, secondary: zh ? en : '' }
+  return { primary: en, secondary: zh }
 }
 
 
@@ -1271,7 +1287,7 @@ onBeforeUnmount(() => {
               <div class="object-table-head" role="row"><span>NORAD</span><span>对象</span><span>运营方</span><span>类型</span><span>轨道历元</span></div>
               <button v-for="craft in pagedCatalogItems" :key="craft.id" class="object-row" role="row" @click="selectAndFocus({ kind: craft.kind, id: craft.id })">
                 <span>{{ craft.noradCatalogId ?? '—' }}</span>
-                <span><strong>{{ craft.nameZh }}</strong><small>{{ craft.nameEn }}</small></span>
+                <span><strong>{{ catalogBilingual(craft).primary }}</strong><small v-if="catalogBilingual(craft).secondary">（{{ catalogBilingual(craft).secondary }}）</small></span>
                 <span>{{ craft.operatorName }}</span>
                 <span>{{ craft.category }}</span>
                 <span>{{ formatUTCDate(craft.orbitEpoch) }}</span>
@@ -1291,7 +1307,7 @@ onBeforeUnmount(() => {
           <div class="site-directory">
             <button v-for="site in overview?.launchSites" :key="site.id" @click="selectAndFocus({ kind: 'site', id: site.id })">
               <span class="site-code">{{ site.countryCode }}</span>
-              <span><strong>{{ site.nameZh }}</strong><small>{{ site.nameEn }}</small></span>
+              <span><strong>{{ bilingualName(site.nameZh, site.nameEn).primary }}</strong><small v-if="bilingualName(site.nameZh, site.nameEn).secondary">（{{ bilingualName(site.nameZh, site.nameEn).secondary }}）</small></span>
               <p>{{ site.description }}</p>
               <span class="site-coordinate">{{ formatCoordinate(site.latitude, 'N', 'S') }}<br>{{ formatCoordinate(site.longitude, 'E', 'W') }}</span>
             </button>
@@ -1309,8 +1325,8 @@ onBeforeUnmount(() => {
             <button v-for="event in upcomingEvents" :key="event.externalId" class="launch-row" @click="selectAndFocus({ kind: 'event', id: event.externalId })">
               <time><strong>{{ eventDate(event.net).day }}</strong><span>{{ eventDate(event.net).month }} · {{ eventDate(event.net).weekday }}</span></time>
               <span class="launch-mission">
-                <strong lang="en">{{ event.missionName || event.name }}</strong>
-                <small v-if="event.missionNameZh && event.missionNameZh !== event.missionName">{{ event.missionNameZh }}</small>
+                <strong :lang="isChineseOrigin(eventBilingual(event).primary) ? 'zh-CN' : 'en'">{{ eventBilingual(event).primary }}</strong>
+                <small v-if="eventBilingual(event).secondary">（{{ eventBilingual(event).secondary }}）</small>
               </span>
               <span><i :class="event.statusAbbrev.toLowerCase()" />{{ event.statusNameZh }}</span>
               <span>{{ event.locationNameZh || event.padNameZh }}</span>

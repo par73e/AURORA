@@ -18,13 +18,13 @@
           class="craft-label"
           :class="{ selected: selectedCraft === label.id, 'stage-late': !elementsVisible, 'leaving-fade': leaving }"
           :style="craftLabelStyle(label)"
-          :aria-label="`${craftById(label.id)?.nameZh}（${craftById(label.id)?.nameEn}）`"
+          :aria-label="`${craftBilingual.get(label.id)?.primary}${craftBilingual.get(label.id)?.secondary ? `（${craftBilingual.get(label.id)?.secondary}）` : ''}`"
           @click="selectedCraft = label.id"
           @pointerenter="hoveredCraftId = label.id"
           @pointerleave="hoveredCraftId = null"
         >
-          <strong>{{ craftById(label.id)?.nameZh }}</strong>
-          <small>{{ craftById(label.id)?.nameEn }}</small>
+          <strong>{{ craftBilingual.get(label.id)?.primary }}</strong>
+          <small v-if="craftBilingual.get(label.id)?.secondary">（{{ craftBilingual.get(label.id)?.secondary }}）</small>
         </button>
 
         <!-- 着陆点标签：图标（宇航员/着陆器/月球车/样本）+ 地点名 + 任务名 -->
@@ -36,12 +36,12 @@
           :class="{ selected: selectedSite === label.id, 'leaving-fade': leaving }"
           :data-icon="siteById(label.id)?.icon ?? 'lander'"
           :style="siteLabelStyle(label)"
-          :aria-label="`${siteById(label.id)?.siteName}（${siteById(label.id)?.missionName}）`"
+          :aria-label="`${siteBilingual.get(label.id)?.primary}${siteBilingual.get(label.id)?.secondary ? `（${siteBilingual.get(label.id)?.secondary}）` : ''}`"
           @click="selectSite(label.id)"
         >
           <span class="site-glyph" v-html="siteGlyph(siteById(label.id)?.icon ?? 'lander')" />
-          <strong>{{ siteById(label.id)?.siteName }}</strong>
-          <small>{{ siteById(label.id)?.missionName }}</small>
+          <strong>{{ siteBilingual.get(label.id)?.primary }}</strong>
+          <small v-if="siteBilingual.get(label.id)?.secondary">（{{ siteBilingual.get(label.id)?.secondary }}）</small>
         </button>
 
         <!-- 选中着陆点的信息卡 -->
@@ -50,8 +50,8 @@
           <div class="site-panel-head">
             <span class="site-glyph large" v-html="siteGlyph(siteById(selectedSite)?.icon ?? 'lander')" />
             <div>
-              <h3>{{ siteById(selectedSite)?.siteName }}</h3>
-              <p v-if="siteById(selectedSite)?.officialName">{{ siteById(selectedSite)?.officialName }}</p>
+              <h3>{{ siteBilingual.get(selectedSite)?.primary }}</h3>
+              <p v-if="siteBilingual.get(selectedSite)?.secondary">（{{ siteBilingual.get(selectedSite)?.secondary }}）</p>
             </div>
           </div>
           <dl>
@@ -81,8 +81,8 @@
         <aside v-if="selectedCraft" class="context-panel" aria-label="所选飞行器详情">
           <button class="panel-close" aria-label="关闭详情" @click="selectedCraft = null">关闭</button>
           <p class="context-type">{{ craftById(selectedCraft)?.type }}</p>
-          <h2>{{ craftById(selectedCraft)?.nameZh }}</h2>
-          <p class="context-subtitle">{{ craftById(selectedCraft)?.nameEn }}</p>
+          <h2>{{ craftBilingual.get(selectedCraft)?.primary }}</h2>
+          <p v-if="craftBilingual.get(selectedCraft)?.secondary" class="context-subtitle">（{{ craftBilingual.get(selectedCraft)?.secondary }}）</p>
           <p class="context-description">{{ craftById(selectedCraft)?.description }}</p>
           <dl>
             <div><dt>运营方</dt><dd>{{ craftById(selectedCraft)?.operatorName }}</dd></div>
@@ -119,7 +119,7 @@
         <div class="object-table" role="table" aria-label="火星航天器列表">
           <div class="object-table-head" role="row"><span>对象</span><span>轨道</span><span>数据来源</span></div>
           <button v-for="craft in pagedCrafts" :key="craft.id" class="object-row" role="row" @click="focusCraft(craft.id)">
-            <span><strong>{{ craft.nameZh }}</strong><small>{{ craft.nameEn }}</small></span>
+            <span><strong>{{ craftBilingual.get(craft.id)?.primary }}</strong><small v-if="craftBilingual.get(craft.id)?.secondary">（{{ craftBilingual.get(craft.id)?.secondary }}）</small></span>
             <span>{{ craft.description }}</span>
             <span>{{ craft.sourceName }}</span>
           </button>
@@ -152,7 +152,7 @@
           <button v-for="site in pagedSites" :key="site.id" class="object-row site-row" :data-icon="site.icon" role="row" @click="focusSite(site.id)">
             <span class="site-row-name">
               <span class="site-glyph" v-html="siteGlyph(site.icon)" />
-              <span><strong>{{ site.siteName }}</strong><small>{{ site.officialName || site.region }}</small></span>
+              <span><strong>{{ siteBilingual.get(site.id)?.primary }}</strong><small v-if="siteBilingual.get(site.id)?.secondary">（{{ siteBilingual.get(site.id)?.secondary }}）</small></span>
             </span>
             <span>{{ site.missionName }}<small>{{ site.operatorName }}</small></span>
             <span>{{ site.landingDate }}<small>{{ site.category === 'ROVER_LANDING' ? '巡视探测' : site.category === 'SAMPLE_RETURN' ? '采样返回' : site.category === 'AERIAL' ? '动力飞行' : '静态着陆' }}</small></span>
@@ -173,6 +173,7 @@ import { MARS_HD } from '../solar/data'
 import { solarTexture } from '../solar/textures'
 import type { MarsLandingSite, MarsSpacecraft } from '../types'
 import { primaryOperator } from '../operators'
+import { bilingualName } from '../bilingual'
 import { CATALOG_PAGE_SIZE } from '../catalog'
 
 const props = defineProps<{ revealTick?: number; enterFromSolar?: boolean; leaving?: boolean; headerExpanded?: boolean }>()
@@ -334,6 +335,10 @@ const filteredCrafts = computed(() => {
 })
 
 // 占位（craftById 已覆盖原 helper）
+
+/** 双语名称（统一规则）：运营方为中国 → 中文主（中文（英文））；外国 → 英文主（English（中文）） */
+const craftBilingual = computed(() => new Map(crafts.value.map((c) => [c.id, bilingualName(c.nameZh, c.nameEn, c.operatorName)])))
+const siteBilingual = computed(() => new Map(landingSites.value.map((s) => [s.id, bilingualName(s.siteName, s.officialName || s.region, s.operatorName)])))
 
 /** 点击搜索结果/场景标签：选中并聚焦（滚回主视图 → 飞行器居中 → 右侧面板） */
 function focusCraft(id: string) {
