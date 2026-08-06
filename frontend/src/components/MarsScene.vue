@@ -983,21 +983,25 @@ function isCraftOccluded(world: THREE.Vector3) {
   const toCenter = camera.position.clone().negate() // 相机→火星中心方向
   const D = toCenter.length()
   if (D < 3.0) return true // 相机贴近/进入球内：一律隐藏
+  // 0) 位于火星内部（大偏心轨道近日段 r<3.0，如 MOM 近日 r≈0.97）：球内绝不可见。
+  //    射线-球体判定对"球体与相机之间的球内点"会漏判（最近点越过目标点）。
+  //    严格按球面 3.0 判定（留 1e-3 浮点余量，cos²+sin² 表面点可能 ≈2.9999）——
+  //    不能带 3.04 圆点余量：着陆点在表面上 r=3.0，带余量会把全部着陆点误隐藏
+  if (world.length() < 3.0 - 1e-3) return true
   const toDot = world.clone().sub(camera.position)
-  // 1) 视线段与火星球体相交（含掠射带 3.04 = 星球 3.0 + 圆点半径 0.04）——标准背面判定
+  // 1) 视线段与火星球体相交（含掠射带 3.04 = 星球 3.0 + 圆点半径 0.04）：
+  //    地球 isOccludedByEarth / 月球 isCraftOccluded 同款"射线-球体"判定（盘面内遮挡）
   const dir = toDot.clone().normalize()
   const t = -camera.position.dot(dir)
   if (t > 0 && t < toDot.length()) {
     const closest = camera.position.clone().addScaledVector(dir, t)
     if (closest.length() < 3.04) return true
   }
-  // 2) 位于球心之后 且 视线方向落入盘面角锥（含 0.2 边缘余量）：
-  //    火星大倾斜轨道上存在大量"投影贴着火星盘面边缘"的远侧点（月球轨道贴面没有此情况），
-  //    仅靠判定 1（视线擦过球外缘 closest≈3.0x）会漏判 → 点与名牌透到正面。此判定精确按
-  //    角锥隐藏：近侧点（|toDot|<=D 或夹角在盘面外）不受影响，盘面内远侧点全部隐藏。
-  if (toDot.length() > D && toDot.dot(toCenter) > 0) {
-    if (toDot.angleTo(toCenter) < Math.asin(3.2 / D)) return true
-  }
+  // 2) 背半球判定：点位于过球心、垂直视线的平面之后 → 隐藏，与相机旋转角度无关。
+  //    月球轨道贴面（r≈2.7≈月面）仅靠判定 1 就等价于背半球；火星大轨道 r 可达 20+，
+  //    远侧点视线常不擦球（旧"盘面角锥"按视线角度判定，相机一转贴边远侧点即漏出/重现），
+  //    背半球判定保证：转过边缘才见、背侧任意角度始终隐藏——"刚入背面消失、转动中途重现"消失
+  if (world.dot(camera.position) < 0) return true
   return false
 }
 
