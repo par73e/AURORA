@@ -976,14 +976,17 @@ function isNearMars(clientX: number, clientY: number) {
 /** 飞行器是否被火星遮挡：视线段（相机→飞行器）与火星球体（半径 3.0）相交 */
 function isCraftOccluded(world: THREE.Vector3) {
   if (!camera) return false
+  // 视线段与火星球体相交（含掠射带）：半径取星球 3.0 + 圆点半径 0.04 ——
+  // 大倾斜轨道上偏轴远侧点的视线恰好擦过球体边缘时，盘面投影仍落在火星脸上，
+  // 严格 <3.0 会漏判（closest ≈ 3.0x）导致"背面透到正面"；3.04 覆盖该掠射带，
+  // 近侧点（视线最近点在点之后，t>=distance）不受影响
   const dir = world.clone().sub(camera.position)
   const distance = dir.length()
   dir.normalize()
-  // 最近点必须在视线段之内（否则是飞行器后面的火星，不算遮挡）
   const t = -camera.position.dot(dir)
   if (t <= 0 || t >= distance) return false
   const closest = camera.position.clone().addScaledVector(dir, t)
-  return closest.length() < 3.0
+  return closest.length() < 3.04
 }
 
 /** 滚轮：在火星上 → 缩放火星；在边缘区域 → 交给页面滚动（与地球一致） */
