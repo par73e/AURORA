@@ -261,7 +261,7 @@ const MARS_ELEMENTS_DELAY_MS = 900
 const MARS_MARKER_REF_DISTANCE = 11.6
 /** 距离透明度（与地球统一）：远处（默认视角及更远）70% 半透明，放大到极限后渐变为实色 */
 function distOpacity(d: number): number {
-  return 0.7 + 0.3 * THREE.MathUtils.clamp((MARS_MARKER_REF_DISTANCE - d) / (MARS_MARKER_REF_DISTANCE - 3.15), 0, 1)
+  return 0.7 + 0.3 * THREE.MathUtils.clamp((MARS_MARKER_REF_DISTANCE - d) / (MARS_MARKER_REF_DISTANCE - 4.2), 0, 1)
 }
 function animateElements(to: number, duration: number) {
   elementsAnim = { from: elementsFade, to, startedAt: performance.now(), duration }
@@ -499,7 +499,7 @@ onMounted(() => {
   controls.addEventListener('start', () => {
     dragResetTarget = true
   })
-  controls.minDistance = 3.15 // 拉近极限（与地球 3.0 统一）：距火星表面（半径 3.0）0.15——不能更近：near 平面 0.1，间隙须 > near 否则贴面时星球被裁剪穿洞
+  controls.minDistance = 4.2 // 拉近极限（与地球视大小一致）：地球 3.0 → 视半径 45.8°；火星 4.2 → 45.8°（间隙 1.2）
   controls.maxDistance = 20 // 缩到最远：与地球视大小统一（地球 12 → 视半径 10.3°；火星 20 → 8.6°）——需 > 天问一号远心 r≈18，保证镜头能越过飞行器聚焦
 
   // 火星本体：8k 贴图 + PBR 材质（保留质感，同地球模式）
