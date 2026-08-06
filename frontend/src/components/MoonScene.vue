@@ -273,7 +273,7 @@ const MOON_ELEMENTS_DELAY_MS = 1850
 const MOON_MARKER_REF_DISTANCE = 13.6
 /** 距离透明度（与地球统一）：远处（默认视角及更远）70% 半透明，放大到极限后渐变为实色 */
 function distOpacity(d: number): number {
-  return 0.7 + 0.3 * THREE.MathUtils.clamp((MOON_MARKER_REF_DISTANCE - d) / (MOON_MARKER_REF_DISTANCE - 2.85), 0, 1)
+  return 0.7 + 0.3 * THREE.MathUtils.clamp((MOON_MARKER_REF_DISTANCE - d) / (MOON_MARKER_REF_DISTANCE - 3.0), 0, 1)
 }
 function animateElements(to: number, duration: number) {
   elementsAnim = { from: elementsFade, to, startedAt: performance.now(), duration }
@@ -528,8 +528,8 @@ onMounted(() => {
   controls.addEventListener('start', () => {
     dragResetTarget = true
   })
-  controls.minDistance = 2.85 // 拉近极限：距月面（半径 2.6）仅 0.25，可贴面观察纹理
-  controls.maxDistance = 60
+  controls.minDistance = 3.0 // 拉近极限（与地球 3.0 统一）：距月面（半径 2.6）0.4，可贴面观察纹理
+  controls.maxDistance = 15.5 // 缩到最远：与地球视大小统一（地球 12 → 视半径 10.3°；月球 15.5 → 9.7°）
 
   // 月球本体：8k 贴图 + PBR 材质（保留质感，同地球模式）
   const texture = solarTexture(MOON_HD.textureUrl, () => emitTexturesReady())
@@ -656,9 +656,9 @@ onMounted(() => {
       }
     }
 
-    // 动态拖动灵敏度（与地球一致）：近处降敏、远处提速；默认视角 13.6 处 ≈ 0.41（与地球默认手感一致）
+    // 动态拖动灵敏度（与地球一致）：近处降敏、远处提速；默认视角 13.5 处 ≈ 0.62
     if (controls && camera) {
-      const t = THREE.MathUtils.clamp((camera.position.length() - controls.minDistance) / 25, 0, 1)
+      const t = THREE.MathUtils.clamp((camera.position.length() - controls.minDistance) / (controls.maxDistance - controls.minDistance), 0, 1)
       controls.rotateSpeed = 0.2 + t * 0.5
     }
     // 统一元素淡入淡出：进入时星球渐入完成后一次性浮现；退出时全部一起消失（只留裸月球）
