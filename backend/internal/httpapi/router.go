@@ -35,7 +35,11 @@ func Router(repository *orbit.Repository, moonRepository *moon.Repository, marsR
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "暂时无法读取月球飞行器数据"})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"spacecraft": items})
+		syncedAt, syncErr := moonRepository.LastSyncTime(r.Context())
+		if syncErr != nil {
+			slog.Error("load moon sync time", "error", syncErr)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"spacecraft": items, "syncedAt": syncedAt})
 	})
 	router.Get("/api/v1/moon/landing-sites", func(w http.ResponseWriter, r *http.Request) {
 		items, err := moonRepository.ListLandingSites(r.Context())
@@ -53,7 +57,11 @@ func Router(repository *orbit.Repository, moonRepository *moon.Repository, marsR
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "暂时无法读取火星飞行器数据"})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"spacecraft": items})
+		syncedAt, syncErr := marsRepository.LastSyncTime(r.Context())
+		if syncErr != nil {
+			slog.Error("load mars sync time", "error", syncErr)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"spacecraft": items, "syncedAt": syncedAt})
 	})
 	router.Get("/api/v1/mars/landing-sites", func(w http.ResponseWriter, r *http.Request) {
 		items, err := marsRepository.ListLandingSites(r.Context())

@@ -164,6 +164,11 @@
       </div>
     </div>
   </section>
+
+  <!-- 页脚：数据源同步时间（与地球页脚一致；右对齐） -->
+  <footer v-if="syncedAt" class="moon-page-footer">
+    <div class="page-frame source-list"><span><i class="healthy" />JPL Horizons · {{ formatEpochUTC(syncedAt) }}</span></div>
+  </footer>
 </template>
 
 <script setup lang="ts">
@@ -334,6 +339,8 @@ watch(sceneRevealed, (revealed) => {
 
 /** 月球飞行器列表（API 数据驱动，镜像地球 fetch overview 模式） */
 const crafts = ref<MoonSpacecraft[]>([])
+/** 数据源最近同步时间（/api/v1/moon/spacecraft 返回，JPL Horizons） */
+const syncedAt = ref<string | null>(null)
 const craftById = (id: string) => crafts.value.find((c) => c.id === id)
 /** 当前选中飞行器（模板多次取用） */
 const selectedCraftInfo = computed(() => (selectedCraft.value ? craftById(selectedCraft.value) : undefined))
@@ -580,8 +587,9 @@ onMounted(() => {
   // 挂载后异步拉取并按数据构建轨道/圆点（镜像地球的数据链路）
   fetch('/api/v1/moon/spacecraft')
     .then((res) => res.json())
-    .then((data: { spacecraft: MoonSpacecraft[] }) => {
+    .then((data: { spacecraft: MoonSpacecraft[]; syncedAt?: string | null }) => {
       crafts.value = data.spacecraft ?? []
+      syncedAt.value = data.syncedAt ?? null
       if (!scene) return
       for (const spec of crafts.value) buildCraft(spec)
     })
@@ -1447,6 +1455,9 @@ onBeforeUnmount(() => {
 .site-hardware li { color: var(--moon-text); font-size: 11px; line-height: 1.5; }
 
 /* 右下角署名（银灰，与太阳系页同位置同风格） */
+.moon-page-footer { padding: 10px 0 56px; }
+.moon-page-footer .source-list { color: #9aa4ae; }
+.moon-page-footer .source-list i.healthy { background: #79e3bd; }
 .moon-credits {
   position: absolute;
   z-index: 3;

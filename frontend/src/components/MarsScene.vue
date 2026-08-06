@@ -163,6 +163,11 @@
       </div>
     </div>
   </section>
+
+  <!-- 页脚：数据源同步时间（与地球页脚一致；右对齐） -->
+  <footer v-if="syncedAt" class="mars-page-footer">
+    <div class="page-frame source-list"><span><i class="healthy" />JPL Horizons · {{ formatEpochUTC(syncedAt) }}</span></div>
+  </footer>
 </template>
 
 <script setup lang="ts">
@@ -301,6 +306,8 @@ watch(sceneRevealed, (revealed) => {
 
 /** 火星飞行器列表（API 数据驱动，镜像地球 fetch overview 模式） */
 const crafts = ref<MarsSpacecraft[]>([])
+/** 数据源最近同步时间（/api/v1/mars/spacecraft 返回，JPL Horizons） */
+const syncedAt = ref<string | null>(null)
 const craftById = (id: string) => crafts.value.find((c) => c.id === id)
 /** 当前选中飞行器（模板多次取用） */
 const selectedCraftInfo = computed(() => (selectedCraft.value ? craftById(selectedCraft.value) : undefined))
@@ -547,8 +554,9 @@ onMounted(() => {
   // 挂载后异步拉取并按数据构建轨道/圆点（镜像地球的数据链路）
   fetch('/api/v1/mars/spacecraft')
     .then((res) => res.json())
-    .then((data: { spacecraft: MarsSpacecraft[] }) => {
+    .then((data: { spacecraft: MarsSpacecraft[]; syncedAt?: string | null }) => {
       crafts.value = data.spacecraft ?? []
+      syncedAt.value = data.syncedAt ?? null
       if (!scene) return
       for (const spec of crafts.value) buildCraft(spec)
     })
@@ -1397,6 +1405,9 @@ onBeforeUnmount(() => {
 .site-hardware li { color: var(--mars-text); font-size: 11px; line-height: 1.5; }
 
 /* 右下角署名（银灰，与太阳系页同位置同风格） */
+.mars-page-footer { padding: 10px 0 56px; }
+.mars-page-footer .source-list { color: #a89078; }
+.mars-page-footer .source-list i.healthy { background: #79e3bd; }
 .mars-credits {
   position: absolute;
   z-index: 3;

@@ -3,9 +3,11 @@ package mars
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -15,6 +17,22 @@ type Repository struct {
 
 func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
+}
+
+/** 最近一次数据同步时间（jpl_horizons——火星飞行器/快照数据源；无记录返回 nil） */
+func (r *Repository) LastSyncTime(ctx context.Context) (*time.Time, error) {
+	var t time.Time
+	err := r.pool.QueryRow(ctx, `
+		SELECT finished_at FROM sync_runs
+		WHERE source_code = 'jpl_horizons' AND finished_at IS NOT NULL
+		ORDER BY started_at DESC LIMIT 1`).Scan(&t)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("last sync time: %w", err)
+	}
+	return &t, nil
 }
 
 /** 火星绕行器列表（按 sort_order 排序；联表取每个飞行器最新轨道快照） */
