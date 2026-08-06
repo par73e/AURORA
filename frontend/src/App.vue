@@ -1155,12 +1155,12 @@ onBeforeUnmount(() => {
             <a href="#launches"><i class="nav-num">Ⅳ</i>发射日程</a>
           </nav>
           <nav v-else-if="surface === 'moon'" aria-label="页面导航">
-            <a href="#moon-scene"><i class="nav-num">Ⅰ</i>月球观测</a>
+            <a href="#moon-scene"><i class="nav-num">Ⅰ</i>月球</a>
             <a href="#moon-objects"><i class="nav-num">Ⅱ</i>航天器</a>
             <a href="#moon-sites"><i class="nav-num">Ⅲ</i>着陆点</a>
           </nav>
           <nav v-else-if="surface === 'mars'" aria-label="页面导航">
-            <a href="#mars-scene"><i class="nav-num">Ⅰ</i>火星观测</a>
+            <a href="#mars-scene"><i class="nav-num">Ⅰ</i>火星</a>
             <a href="#mars-objects"><i class="nav-num">Ⅱ</i>航天器</a>
             <a href="#mars-sites"><i class="nav-num">Ⅲ</i>着陆点</a>
           </nav>

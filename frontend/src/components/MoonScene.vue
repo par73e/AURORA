@@ -102,7 +102,7 @@
   <section id="moon-objects" class="content-section moon-objects-section">
     <div class="page-frame">
       <div class="section-heading">
-        <div><p class="section-kicker">LUNAR SPACECRAFT</p><h2><i class="sec-num">Ⅰ</i>月球航天器</h2><p class="section-sub">飞行器 · 环绕月球运行的航天器</p></div>
+        <div><p class="section-kicker">LUNAR SPACECRAFT</p><h2><i class="sec-num">Ⅱ</i>航天器</h2><p class="section-sub">飞行器 · 环绕月球运行的航天器</p></div>
       </div>
       <div class="catalog-workspace">
         <div class="catalog-controls">
@@ -118,11 +118,13 @@
           <span>标称轨道参数 · 非实时星历</span>
         </div>
         <div class="object-table" role="table" aria-label="月球航天器列表">
-          <div class="object-table-head" role="row"><span>对象</span><span>轨道</span><span>数据来源</span></div>
+          <div class="object-table-head" role="row"><span>NORAD</span><span>对象</span><span>运营方</span><span>类型</span><span>轨道历元</span></div>
           <button v-for="craft in pagedCrafts" :key="craft.id" class="object-row" role="row" @click="focusCraft(craft.id)">
+            <span>—</span>
             <span><strong>{{ craftBilingual.get(craft.id)?.primary }}</strong><small v-if="craftBilingual.get(craft.id)?.secondary">（{{ craftBilingual.get(craft.id)?.secondary }}）</small></span>
-            <span>{{ craft.description }}</span>
-            <span>{{ craft.sourceName }}</span>
+            <span>{{ craft.operatorName }}</span>
+            <span>{{ craft.type }}</span>
+            <span>{{ craft.snapshot?.epoch ? formatUTCDate(craft.snapshot.epoch) : '—' }}</span>
           </button>
           <div v-if="!filteredCrafts.length" class="catalog-empty">没有符合条件的航天器。请修改搜索词。</div>
         </div>
@@ -344,6 +346,14 @@ function formatEpochUTC(iso?: string) {
   const d = new Date(iso)
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC`
+}
+
+/** UTC 日期（名录表轨道历元列，与地球目录一致） */
+function formatUTCDate(iso?: string) {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`
 }
 
 const filteredCrafts = computed(() => {
@@ -1254,8 +1264,6 @@ onBeforeUnmount(() => {
   border-top-color: rgba(200, 208, 216, .15);
   color: #8b959f;
 }
-.moon-objects-section .object-table-head,
-.moon-objects-section .object-row,
 .moon-sites-section .object-table-head,
 .moon-sites-section .object-row {
   grid-template-columns: 150px minmax(260px, 1.6fr) minmax(180px, 1fr);
