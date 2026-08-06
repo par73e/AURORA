@@ -296,6 +296,9 @@ const selectedEvent = computed(() => selection.value?.kind === 'event'
   : undefined)
 const upcomingEvents = computed(() => overview.value?.events.filter((item) => new Date(item.net) >= now.value) ?? [])
 const dataHealthy = computed(() => overview.value?.freshness.every((item) => item.success) ?? false)
+/** 地球页页脚数据源：只显示本页实际使用的（CelesTrak 轨道 + Launch Library 发射日程）；
+ *  JPL Horizons 服务于太阳系/月球/火星页（深空探测器与月球/火星轨道），不在地球页脚列出 */
+const earthSources = computed(() => (overview.value?.freshness ?? []).filter((s) => s.sourceCode !== 'jpl_horizons'))
 const operators = computed(() => [...new Set((overview.value?.spacecraft ?? []).map((item) => primaryOperator(item.operatorName)))].sort())
 
 /** 目录条目：TLE 航天器（韦布/斯皮策等非地球轨道任务不再在地球页目录/外圈展示，回归太阳系页真实呈现） */
@@ -1339,7 +1342,7 @@ onBeforeUnmount(() => {
       <footer class="site-footer">
         <div class="page-frame footer-inner">
           <div><strong>AURORA / ORBIT</strong></div>
-          <div class="source-list"><span v-for="source in overview?.freshness" :key="source.sourceCode"><i :class="{ healthy: source.success }" />{{ source.sourceName }} · {{ formatUTCDateTime(source.lastFinishedAt) }}</span></div>
+          <div class="source-list"><span v-for="source in earthSources" :key="source.sourceCode"><i :class="{ healthy: source.success }" />{{ source.sourceName }} · {{ formatUTCDateTime(source.lastFinishedAt) }}</span></div>
         </div>
       </footer>
       </template>
