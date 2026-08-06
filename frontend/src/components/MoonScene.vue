@@ -114,7 +114,7 @@
           <label><span>排序</span><select v-model="craftSort"><option value="name">名称</option><option value="type">类型</option><option value="operator">运营方</option></select></label>
         </div>
         <div class="catalog-meta">
-          <span>{{ filteredCrafts.length }} 个对象</span>
+          <span>{{ filteredCrafts.length }} 个航天器</span>
           <span>标称轨道参数 · 非实时星历</span>
         </div>
         <div class="object-table" role="table" aria-label="月球航天器列表">
@@ -126,7 +126,7 @@
           </button>
           <div v-if="!filteredCrafts.length" class="catalog-empty">没有符合条件的航天器。请修改搜索词。</div>
         </div>
-        <div class="pagination-space"><span>第 {{ craftPage }} / {{ craftPageCount }} 页 · {{ filteredCrafts.length }} 个对象</span><div><button :disabled="craftPage <= 1" @click="craftGotoPage(-1)">上一页</button><button :disabled="craftPage >= craftPageCount" @click="craftGotoPage(1)">下一页</button></div></div>
+        <div class="pagination-space"><span>第 {{ craftPage }} / {{ craftPageCount }} 页 · {{ filteredCrafts.length }} 个航天器</span><div><button :disabled="craftPage <= 1" @click="craftGotoPage(-1)">上一页</button><button :disabled="craftPage >= craftPageCount" @click="craftGotoPage(1)">下一页</button></div></div>
       </div>
     </div>
   </section>
