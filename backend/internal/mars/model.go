@@ -15,7 +15,8 @@ type Spacecraft struct {
 	DisplayInclination string        `json:"displayInclination"`
 	DisplayEccentricity string       `json:"displayEccentricity"`
 	DisplayPeriod      string        `json:"displayPeriod"`
-	Kind               string        `json:"kind"` // orbital / stationary / surface / catalog
+	Kind               string        `json:"kind"`           // orbital / stationary / surface / catalog
+	CatalogGroup       string        `json:"catalogGroup"`    // surface=地表探测器 / orbit=飞行器（航天器区块标签页）
 	OrbitA             float64       `json:"orbitA"`
 	OrbitE             float64       `json:"orbitE"`
 	InclinationDeg     float64       `json:"inclinationDeg"`

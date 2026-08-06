@@ -105,6 +105,28 @@
       <div class="section-heading">
         <div><p class="section-kicker">MARS SPACECRAFT</p><h2><i class="sec-num">Ⅰ</i>航天器</h2></div>
       </div>
+      <div class="catalog-tabs" role="tablist" aria-label="航天器分类">
+        <button
+          type="button"
+          class="catalog-tab tab-lander"
+          :class="{ active: catalogTab === 'surface' }"
+          role="tab"
+          :aria-selected="catalogTab === 'surface'"
+          @click="catalogTab = 'surface'"
+        >
+          <i class="tab-glyph" v-html="landerTabGlyph" />着陆器<small>{{ surfaceCrafts.length }}</small>
+        </button>
+        <button
+          type="button"
+          class="catalog-tab tab-orbit"
+          :class="{ active: catalogTab === 'orbit' }"
+          role="tab"
+          :aria-selected="catalogTab === 'orbit'"
+          @click="catalogTab = 'orbit'"
+        >
+          <i class="tab-glyph" v-html="orbitTabGlyph" />飞行器<small>{{ orbitCrafts.length }}</small>
+        </button>
+      </div>
       <div class="catalog-workspace">
         <div class="catalog-controls">
           <label class="search-field">
@@ -115,7 +137,7 @@
           <label><span>排序</span><select v-model="craftSort"><option value="name">名称</option><option value="type">类型</option><option value="operator">运营方</option></select></label>
         </div>
         <div class="catalog-meta">
-          <span>共 {{ filteredCrafts.length }} 个对象</span>
+          <span>共 {{ filteredCrafts.length }} 个{{ catalogTab === 'surface' ? '着陆器' : '飞行器' }}</span>
           <span>实时轨道 · JPL Horizons 日同步（地表/历史名录见面板）</span>
         </div>
         <div class="object-table" role="table" aria-label="火星航天器列表">
@@ -201,6 +223,13 @@ const selectedCraft = ref<string | null>(null)
 /** 悬停预览的飞行器（不运镜，仅驱动高亮：标记放大/实色 + 轨道线点亮；悬停优先于选中） */
 const hoveredCraftId = ref<string | null>(null)
 const craftQuery = ref('')
+/** 航天器分类标签：surface=着陆器（地表探测器）/ orbit=飞行器（绕行器） */
+const catalogTab = ref<'surface' | 'orbit'>('surface')
+const surfaceCrafts = computed(() => crafts.value.filter((c) => (c.catalogGroup ?? 'orbit') === 'surface'))
+const orbitCrafts = computed(() => crafts.value.filter((c) => (c.catalogGroup ?? 'orbit') === 'orbit'))
+/** 标签图标：着陆器（降落箭头+基座） / 飞行器（轨道环+卫星点）——两个标签样式刻意不同 */
+const landerTabGlyph = `<svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"><path d="M6 1.2v4.6M3.4 3.4L6 6l2.6-2.6"/><path d="M2.2 7.8h7.6l-.9 3H3.1z"/></svg>`
+const orbitTabGlyph = `<svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.1"><ellipse cx="6" cy="6" rx="4.6" ry="2.1"/><circle cx="9.8" cy="4.4" r="1.3" fill="currentColor" stroke="none"/></svg>`
 /** 航天器目录：运营方筛选 + 排序（与地球页一致） */
 const craftOperatorFilter = ref('all')
 const craftSort = ref('name')
@@ -312,7 +341,7 @@ function formatEpochUTC(iso?: string) {
 }
 
 const filteredCrafts = computed(() => {
-  let items = crafts.value
+  let items = crafts.value.filter((c) => (c.catalogGroup ?? 'orbit') === catalogTab.value)
   if (craftOperatorFilter.value !== 'all') {
     items = items.filter((c) => primaryOperator(c.operatorName) === craftOperatorFilter.value)
   }
@@ -1121,6 +1150,61 @@ onBeforeUnmount(() => {
     radial-gradient(1.2px 1.2px at 66% 4%, rgba(230, 178, 130, .3), transparent 100%),
     radial-gradient(ellipse at 50% 50%, #120a06 0%, #050302 100%);
 }
+/* 航天器分类标签：着陆器（实底圆角胶囊） / 飞行器（描边方角）——两种样式刻意区分 */
+.mars-objects-section .catalog-tabs {
+  display: flex;
+  gap: 10px;
+  margin: 0 0 18px;
+}
+.mars-objects-section .catalog-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  font-size: 12px;
+  letter-spacing: .06em;
+  cursor: pointer;
+  transition: color .2s, border-color .2s, background .2s, box-shadow .2s;
+}
+.mars-objects-section .catalog-tab small {
+  font: 500 9px var(--font-mono);
+  opacity: .75;
+}
+.mars-objects-section .catalog-tab .tab-glyph {
+  display: inline-flex;
+}
+/* 着陆器标签：暖橙实底胶囊 + 着陆箭头图标 */
+.mars-objects-section .tab-lander {
+  color: #2a1a10;
+  background: linear-gradient(180deg, #f0a868, #d98a4e);
+  border: 1px solid rgba(240, 168, 104, .7);
+  border-radius: 999px;
+}
+.mars-objects-section .tab-lander .tab-glyph { color: #5a3418; }
+.mars-objects-section .tab-lander:hover { box-shadow: 0 0 12px rgba(224, 168, 120, .45); }
+/* 未激活：降为半透明描边胶囊（与激活实底明显区分） */
+.mars-objects-section .tab-lander:not(.active) {
+  color: #b09070;
+  background: transparent;
+  border: 1px solid rgba(224, 168, 120, .45);
+}
+.mars-objects-section .tab-lander:not(.active) .tab-glyph { color: #c09070; }
+.mars-objects-section .tab-lander:not(.active):hover { color: #ecd9c8; border-color: rgba(224, 168, 120, .85); }
+/* 飞行器标签：陶土描边方角 + 轨道环图标 */
+.mars-objects-section .tab-orbit {
+  color: #b09070;
+  background: transparent;
+  border: 1px dashed rgba(224, 168, 120, .5);
+  border-radius: 6px;
+}
+.mars-objects-section .tab-orbit .tab-glyph { color: #d0a080; }
+.mars-objects-section .tab-orbit:hover { border-color: rgba(224, 168, 120, .9); color: #ecd9c8; }
+.mars-objects-section .tab-orbit.active {
+  color: #f0d8c0;
+  border: 1px solid rgba(224, 168, 120, .9);
+  box-shadow: inset 0 0 0 1px rgba(224, 168, 120, .3), 0 0 10px rgba(224, 168, 120, .25);
+}
+
 /* 航天器/着陆点板块 UI 全暖红（覆盖全局浅蓝主题色） */
 .mars-objects-section .catalog-workspace,
 .mars-sites-section .catalog-workspace { background: #16100a; }
