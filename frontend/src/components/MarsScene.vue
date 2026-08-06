@@ -375,13 +375,17 @@ function planFocusMotion(targetPos: THREE.Vector3, targetDistance: number) {
   controls.enabled = false
 }
 
-/** 飞行器聚焦：方向对准飞行器，观察距离取"当前距离与 8 的较小值"——稍作放大
- *  （初始 17 → 8，不至于太小；已放大时保持用户距离） */
+/** 飞行器聚焦：镜头沿球面弧线转到飞行器方向，并停在飞行器外侧（正面可见）。
+ *  月球/地球轨道贴面（r << 8），镜头停 8 即可；火星大轨道 r 可达 20+，
+ *  若仍停 8 会被火星挡在背后 → "透过火星看到虚空"。故聚焦距离 = max(8, 飞行器当前半径 + 0.8)，
+ *  保证飞行器始终在火星与相机之间、正面可见（方向球面插值绕行星弧线，不穿星球）。 */
 function startCraftFocus(id: string) {
   const runtime = craftRuntimes.find((r) => r.spec.id === id)
   if (!runtime || !camera) return
   const world = runtime.dot.getWorldPosition(focusTmp).clone()
-  planFocusMotion(world, Math.min(camera.position.length(), 8))
+  const desired = Math.min(camera.position.length(), 8)
+  const targetDistance = Math.max(desired, world.length() + 0.8)
+  planFocusMotion(world, targetDistance)
 }
 
 /** 着陆点聚焦：方向对准着陆点（观察距离 5.2——火面区域与周边地形整体可见） */
