@@ -1297,7 +1297,6 @@ onBeforeUnmount(() => {
               <label><span>排序</span><select v-model="objectSort"><option value="name">名称</option><option value="norad">NORAD 编号</option><option value="operator">运营方</option></select></label>
             </div>
             <p v-if="catalogResult.error" class="query-error">{{ catalogResult.error }}</p>
-            <div class="catalog-meta"><span>找到 {{ catalogResult.items.length }} 个对象</span></div>
             <div class="object-table" role="table" aria-label="航天器查询结果">
               <div class="object-table-head" role="row"><span>NORAD</span><span>对象</span><span>运营方</span><span>类型</span><span>轨道历元</span></div>
               <button v-for="craft in pagedCatalogItems" :key="craft.id" class="object-row" role="row" @click="selectAndFocus({ kind: craft.kind, id: craft.id })">
@@ -1309,7 +1308,7 @@ onBeforeUnmount(() => {
               </button>
               <div v-if="!catalogResult.items.length" class="catalog-empty">没有符合当前条件的航天器。请修改搜索词或筛选条件。</div>
             </div>
-            <div class="pagination-space"><span>第 {{ catalogPage }} / {{ catalogPageCount }} 页 · 共 {{ catalogResult.items.length }} 个对象</span><div><button :disabled="catalogPage <= 1" @click="catalogGotoPage(-1)">上一页</button><button :disabled="catalogPage >= catalogPageCount" @click="catalogGotoPage(1)">下一页</button></div></div>
+            <div class="pagination-space"><span>第 {{ catalogPage }} / {{ catalogPageCount }} 页 · 共 {{ catalogResult.items.length }} 个航天器</span><div><button :disabled="catalogPage <= 1" @click="catalogGotoPage(-1)">上一页</button><button :disabled="catalogPage >= catalogPageCount" @click="catalogGotoPage(1)">下一页</button></div></div>
           </div>
         </div>
       </section>
