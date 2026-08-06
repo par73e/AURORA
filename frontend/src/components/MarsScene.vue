@@ -114,7 +114,7 @@
         </div>
         <div class="catalog-meta">
           <span>共 {{ filteredCrafts.length }} 个飞行器</span>
-          <span>实时轨道 · JPL Horizons 日同步（历史轨道为标称示意）</span>
+          <span>实时轨道 · JPL Horizons</span>
         </div>
         <div class="object-table" role="table" aria-label="火星航天器列表">
           <div class="object-table-head" role="row"><span>对象</span><span>运营方</span><span>类型</span></div>
