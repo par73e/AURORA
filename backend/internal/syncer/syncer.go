@@ -318,6 +318,9 @@ func (s *Syncer) SyncMarsSpacecraft(ctx context.Context) error {
 		return err
 	}
 	for _, craft := range catalog {
+		if craft.Kind != "orbital" {
+			continue // 仅实时绕火轨道拉取 JPL 快照；地表探测器/历史名录无轨道
+		}
 		result, err := mars.FetchMarsSpacecraftElements(ctx, s.client, craft.ID)
 		if err != nil {
 			// 单个飞行器失败（未支持/星历结束/临时错误）不 abort 整轮：

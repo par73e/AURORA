@@ -87,9 +87,11 @@
           <dl>
             <div><dt>运营方</dt><dd>{{ craftById(selectedCraft)?.operatorName }}</dd></div>
             <div><dt>发射地点</dt><dd>{{ craftById(selectedCraft)?.launchDate }} · {{ craftById(selectedCraft)?.launchSite }} · {{ craftById(selectedCraft)?.launchVehicle }}</dd></div>
-            <div><dt>轨道倾角</dt><dd>{{ craftById(selectedCraft)?.displayInclination }}°</dd></div>
-            <div><dt>偏心率</dt><dd>{{ craftById(selectedCraft)?.displayEccentricity }}</dd></div>
-            <div><dt>轨道周期</dt><dd>{{ craftById(selectedCraft)?.displayPeriod }}</dd></div>
+            <div v-if="selectedCraftInfo?.kind === 'orbital'"><dt>轨道倾角</dt><dd>{{ craftById(selectedCraft)?.displayInclination }}°</dd></div>
+            <div v-if="selectedCraftInfo?.kind === 'orbital'"><dt>偏心率</dt><dd>{{ craftById(selectedCraft)?.displayEccentricity }}</dd></div>
+            <div v-if="selectedCraftInfo?.kind === 'orbital'"><dt>轨道周期</dt><dd>{{ craftById(selectedCraft)?.displayPeriod }}</dd></div>
+            <div v-if="selectedCraftInfo?.kind === 'surface'"><dt>类别</dt><dd>地表探测器</dd></div>
+            <div v-else-if="selectedCraftInfo?.kind === 'catalog'"><dt>类别</dt><dd>历史名录</dd></div>
           </dl>
           <p class="source-caption"><template v-if="selectedCraftInfo?.snapshot">轨道历元 {{ formatEpochUTC(selectedCraftInfo.snapshot.epoch) }}<br></template>数据来源：{{ selectedCraftInfo?.sourceName }}</p>
         </aside>
@@ -114,7 +116,7 @@
         </div>
         <div class="catalog-meta">
           <span>共 {{ filteredCrafts.length }} 个对象</span>
-          <span>标称轨道参数 · 非实时星历</span>
+          <span>实时轨道 · JPL Horizons 日同步（地表/历史名录见面板）</span>
         </div>
         <div class="object-table" role="table" aria-label="火星航天器列表">
           <div class="object-table-head" role="row"><span>对象</span><span>轨道</span><span>数据来源</span></div>
@@ -668,9 +670,11 @@ function keplerToTrueAnomaly(M: number, e: number): number {
 }
 
 /** 按 API 数据构建单个飞行器（轨道平面/轨道线/运动点/拾取球）
- *  优先使用 JPL Horizons 日同步快照（真实形状 + 真实相位），无快照回退静态参数 */
+ *  优先使用 JPL Horizons 日同步快照（真实形状 + 真实相位），无快照回退静态参数。
+ *  surface（地表探测器）/ catalog（历史名录）无 3D 呈现：只入名录，点击看面板 */
 function buildCraft(spec: MarsSpacecraft) {
   if (!scene) return
+  if (spec.kind !== 'orbital' && spec.kind !== 'stationary') return
   const sn = spec.snapshot ?? null
   // 真实轨道根数（快照优先）：半长轴 km → 场景单位 → 轨道高度夸张（贴面飞行观感修正）
   const a = exaggeratedA(sn ? sn.aKm * MARS_SCENE_SCALE : spec.orbitA)

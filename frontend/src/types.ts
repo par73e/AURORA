@@ -170,7 +170,7 @@ export interface MarsSpacecraft {
   displayInclination: string
   displayEccentricity: string
   displayPeriod: string
-  kind: 'orbital' | 'stationary'
+  kind: 'orbital' | 'stationary' | 'surface' | 'catalog'
   orbitA: number
   orbitE: number
   inclinationDeg: number
