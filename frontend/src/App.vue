@@ -1364,7 +1364,7 @@ onBeforeUnmount(() => {
 
       <footer class="site-footer">
         <div class="page-frame footer-inner">
-          <div><strong>AURORA / earth</strong></div>
+          <div><strong>AURORA / EARTH</strong></div>
           <div class="source-list"><span v-for="source in earthSources" :key="source.sourceCode"><i :class="{ healthy: source.success }" />{{ source.sourceName }} · {{ formatUTCDateTime(source.lastFinishedAt) }}</span></div>
         </div>
       </footer>
