@@ -1192,7 +1192,7 @@ onBeforeUnmount(() => {
             <strong>{{ timeOnly(now) }} UTC+8</strong>
           </div>
           <div v-else class="live-status solar-clock">
-            <span>{{ surface === 'moon' ? '月球 · MOON' : surface === 'mars' ? '火星 · MARS' : '地球 · ORBIT' }}</span>
+            <span>{{ surface === 'moon' ? '月球 · MOON' : surface === 'mars' ? '火星 · MARS' : '地球 · EARTH' }}</span>
           </div>
         </div>
       </header>
