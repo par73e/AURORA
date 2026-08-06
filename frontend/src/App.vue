@@ -295,6 +295,12 @@ const selectedEvent = computed(() => selection.value?.kind === 'event'
   ? overview.value?.events.find((item) => item.externalId === selection.value?.id)
   : undefined)
 const upcomingEvents = computed(() => overview.value?.events.filter((item) => new Date(item.net) >= now.value) ?? [])
+/** 发射日程折叠：默认只展开前 5 行，可展开全部 */
+const launchExpanded = ref(false)
+const LAUNCH_PREVIEW_ROWS = 5
+const visibleLaunchEvents = computed(() =>
+  launchExpanded.value ? upcomingEvents.value : upcomingEvents.value.slice(0, LAUNCH_PREVIEW_ROWS),
+)
 const dataHealthy = computed(() => overview.value?.freshness.every((item) => item.success) ?? false)
 /** 地球页页脚数据源：只显示本页实际使用的（CelesTrak 轨道 + Launch Library 发射日程）；
  *  JPL Horizons 服务于太阳系/月球/火星页（深空探测器与月球/火星轨道），不在地球页脚列出 */
@@ -1337,7 +1343,7 @@ onBeforeUnmount(() => {
           </div>
           <div class="launch-list">
             <div class="launch-list-head"><span>日期</span><span>任务</span><span>状态</span><span>发射地点</span><span>时间</span></div>
-            <button v-for="event in upcomingEvents" :key="event.externalId" class="launch-row" @click="selectAndFocus({ kind: 'event', id: event.externalId })">
+            <button v-for="event in visibleLaunchEvents" :key="event.externalId" class="launch-row" @click="selectAndFocus({ kind: 'event', id: event.externalId })">
               <time><strong>{{ eventDate(event.net).day }}</strong><span>{{ eventDate(event.net).month }} · {{ eventDate(event.net).weekday }}</span></time>
               <span class="launch-mission">
                 <strong :lang="eventBilingual(event).lang">{{ eventBilingual(event).primary }}</strong>
@@ -1348,6 +1354,10 @@ onBeforeUnmount(() => {
               <span class="launch-time">{{ eventDate(event.net).time }}<small>UTC+8</small></span>
             </button>
             <div v-if="!upcomingEvents.length" class="catalog-empty">未来 30 天内暂无已载入事件。</div>
+          </div>
+          <div v-if="upcomingEvents.length" class="pagination-space">
+            <span />
+            <div><button v-if="upcomingEvents.length > LAUNCH_PREVIEW_ROWS" @click="launchExpanded = !launchExpanded">{{ launchExpanded ? '收起' : `展开全部 ${upcomingEvents.length} 条` }}</button></div>
           </div>
         </div>
       </section>
