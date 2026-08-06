@@ -382,6 +382,11 @@ button { cursor: pointer; }
   background: #e0a878;
   box-shadow: 0 0 6px rgba(224, 168, 120, .55);
 }
+.desktop-app.mars .scene-toolbar i.terminator { border-color: #8a6a52; background: #3a2a1e; }
+.desktop-app.mars .scene-toolbar input:checked + i.terminator {
+  border-color: rgba(224, 168, 120, .85);
+  background: linear-gradient(90deg, #e0a878 0 50%, #241710 50% 100%);
+}
 
 /* 火星页：返回首页徽标（brand）+ 太阳系图标，陶土红、无蓝色元素 */
 .desktop-app.mars .brand small { color: #a89078; }

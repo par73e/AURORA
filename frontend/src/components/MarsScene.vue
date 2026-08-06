@@ -8,6 +8,7 @@
           <label><input v-model="spacecraftEnabled" type="checkbox"><i />航天器</label>
           <label><input v-model="orbitsEnabled" type="checkbox"><i />轨道</label>
           <label><input v-model="sitesEnabled" type="checkbox"><i class="sites" />着陆点</label>
+          <label><input v-model="terminatorEnabled" type="checkbox"><i class="terminator" />晨昏线</label>
         </div>
 
         <!-- 轨道飞行器标签 -->
@@ -306,6 +307,7 @@ watch(sceneRevealed, (revealed) => {
 
 /** 火星飞行器列表（API 数据驱动，镜像地球 fetch overview 模式） */
 const crafts = ref<MarsSpacecraft[]>([])
+const terminatorEnabled = ref(false)
 /** 数据源最近同步时间（/api/v1/mars/spacecraft 返回，JPL Horizons） */
 const syncedAt = ref<string | null>(null)
 const craftById = (id: string) => crafts.value.find((c) => c.id === id)
@@ -576,6 +578,7 @@ onMounted(() => {
   renderer.render(scene, camera)
 
   let lastTime = performance.now()
+  let lastSunUpdate = 0
   const animate = () => {
     frameId = requestAnimationFrame(animate)
     if (!renderer || !scene || !camera) return
@@ -600,6 +603,11 @@ onMounted(() => {
     }
     // 观测光跟随相机：明暗边界始终落在球体轮廓之外（关闭晨昏线时 360° 全亮）
     if (observationLight && camera) observationLight.position.copy(camera.position)
+    // 晨昏线开启：太阳方向随火日持续推进（每 60s 刷新，与地球页 updateSun 同节奏）
+    if (terminatorEnabled.value && sunLight && now - lastSunUpdate > 60_000) {
+      lastSunUpdate = now
+      sunLight.position.copy(marsSunDirection()).multiplyScalar(10)
+    }
 
     // 聚焦：相机与注视点双缓动（点击瞬间飞行器居中、火星背景放大）。
     // 动画完成后不再跟随；用户拖拽时注视点滑回火星中心——拖拽始终绕火星旋转
@@ -890,6 +898,38 @@ function siteGlyph(icon: 'astronaut' | 'lander' | 'rover' | 'sample') {
 // 火星无晨昏线开关：观测光(相机方向) 3.1 + 太阳光 0 → 360° 全亮
 
 // 航天器开关：显示/隐藏飞行器圆点（标签由 v-show 联动）；关闭时清悬停避免轨道线残留点亮
+// 晨昏线开关（镜像地球 applyDayNightMode / 月球 terminatorEnabled）：
+// 关闭 = 观测光(相机方向) 3.1 + 太阳光 0 → 360° 全亮；
+// 打开 = 太阳光 3.1 + 观测光 0 → 真实昼夜阴影
+
+/** 真实太阳方向（火星参数）：按当前日期/时刻计算太阳在火星固连坐标系中的方向
+ *  （北 = +y），用于晨昏线——黄赤交角 25.19°、火星年 687 地球日、火日 24.6229h。
+ *  子日点黄经按火日推进（14.622°/h），赤纬按火星季节（25.19°·sin 火星年相位）；
+ *  经 marsMesh 世界四元数变换，晨昏线落在火星正确位置 */
+function marsSunDirection(): THREE.Vector3 {
+  const now = new Date()
+  const yearStart = Date.UTC(now.getUTCFullYear(), 0, 0)
+  const dayOfYear = Math.floor((now.getTime() - yearStart) / 86_400_000)
+  // 火星年相位：以真实春分 Ls=0 为锚（火星年 39 春分 ≈ 2026-10-01，dayOfYear 274）
+  const declination = 25.19 * Math.sin(DEG * ((360 / 687) * (dayOfYear - 274)))
+  const utcHours = now.getUTCHours() + now.getUTCMinutes() / 60 + now.getUTCSeconds() / 3600
+  const subsolarLongitude = 180 - utcHours * (360 / 24.6229)
+  const dir = sitePosition(declination, subsolarLongitude, 10)
+  const q = new THREE.Quaternion()
+  if (marsMesh) marsMesh.getWorldQuaternion(q)
+  return dir.applyQuaternion(q)
+}
+
+watch(terminatorEnabled, (enabled) => {
+  if (!observationLight || !sunLight) return
+  observationLight.intensity = enabled ? 0 : 3.1
+  sunLight.intensity = enabled ? 3.1 : 0
+  if (enabled) {
+    // 真实昼夜方向：晨昏线位置 = 此刻太阳方位（严格按时间，火星白天黑夜随火日推进）
+    sunLight.position.copy(marsSunDirection()).multiplyScalar(10)
+  }
+})
+
 watch(spacecraftEnabled, (enabled) => {
   for (const runtime of craftRuntimes) runtime.dot.visible = enabled
   if (!enabled) hoveredCraftId.value = null
