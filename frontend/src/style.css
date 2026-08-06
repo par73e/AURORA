@@ -434,7 +434,7 @@ button { cursor: pointer; }
 /* 两条轨道的高亮边线（含中轨，原组件漏覆盖）+ 蓝色辉光全部陶土红 */
 .desktop-app.mars .solar-system-item .orbit-outer::after,
 .desktop-app.mars .solar-system-item .orbit-middle::after {
-  border-top-color: rgba(240, 190, 150, .5);
+  border-top-color: rgba(240, 190, 150, .8);
   filter: drop-shadow(0 0 3px rgba(224, 168, 120, .2));
 }
 .desktop-app.mars .solar-system-item .orbit-outer,
@@ -443,9 +443,9 @@ button { cursor: pointer; }
 .desktop-app.mars .solar-system-item::after {
   background: linear-gradient(90deg, transparent, rgba(224, 168, 120, .11), transparent);
 }
-/* 悬停标题发光：浅蓝 → 陶土红 */
-.desktop-app.mars .solar-system-item:not(.is-active):hover .solar-title,
-.desktop-app.mars .solar-system-item:not(.is-active):focus-visible .solar-title {
+/* 悬停标题发光：浅蓝 → 陶土红（类翻倍提特异性，避免与组件 scoped 规则平局） */
+.desktop-app.mars .solar-system-item.solar-system-item:not(.is-active):hover .solar-title,
+.desktop-app.mars .solar-system-item.solar-system-item:not(.is-active):focus-visible .solar-title {
   color: #f6e6d4;
   text-shadow: 0 0 10px rgba(224, 168, 120, .2), 0 0 18px rgba(224, 168, 120, .1);
 }
