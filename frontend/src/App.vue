@@ -498,7 +498,7 @@ async function setSurface(nextSurface: AppSurface) {
     ? 'AURORA'
     : nextSurface === 'solar-system' ? 'AURORA · 太阳系'
     : nextSurface === 'moon' ? 'AURORA · 月球'
-    : nextSurface === 'mars' ? 'AURORA · 火星' : 'AURORA · ORBIT'
+    : nextSurface === 'mars' ? 'AURORA · 火星' : 'AURORA · earth'
   if (nextSurface === 'orbit') {
     orbitPageActive.value = true
     headerExpanded.value = false // 进入 ORBIT 默认收起页头（悬停屏幕顶部可展开）
@@ -1101,7 +1101,7 @@ onMounted(() => {
   preloadSolarTextures() // 预热太阳系纹理，让首次进入不出现加载卡顿
   document.title = surface.value === 'cover'
     ? 'AURORA'
-    : surface.value === 'solar-system' ? 'AURORA · 太阳系' : 'AURORA · ORBIT'
+    : surface.value === 'solar-system' ? 'AURORA · 太阳系' : 'AURORA · earth'
   load()
   requestObserverLocation()
   updateActivePage()
@@ -1355,7 +1355,7 @@ onBeforeUnmount(() => {
 
       <footer class="site-footer">
         <div class="page-frame footer-inner">
-          <div><strong>AURORA / ORBIT</strong></div>
+          <div><strong>AURORA / earth</strong></div>
           <div class="source-list"><span v-for="source in earthSources" :key="source.sourceCode"><i :class="{ healthy: source.success }" />{{ source.sourceName }} · {{ formatUTCDateTime(source.lastFinishedAt) }}</span></div>
         </div>
       </footer>
