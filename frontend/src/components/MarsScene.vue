@@ -260,9 +260,19 @@ const elementsVisible = ref(!props.enterFromSolar)
  *  直接加载/刷新默认全亮（无时间轴）。 */
 let elementsFade = props.enterFromSolar ? 0 : 1
 let elementsAnim: { from: number; to: number; startedAt: number; duration: number } | null = null
-/** 火星自转（已移除持续自转）：火星页面静止展示，保留初始姿态角 */
-/** 元素弹出延迟 = 星球渐入（0.3s）+ 缓冲 */
-const MARS_ELEMENTS_DELAY_MS = 900
+/** 火星入场自转（自西向东 = 火星真实自转方向，绕自转轴）：
+ *  转速 14.4°/s（≈1.45s 转正，与地球入场时长相当），渐入开始时从 -18° 偏角匀速转，
+ *  角度剩减速位移时线性匀减速，终点 0°（初始姿态），全程线性无突快突慢 */
+const MARS_SPIN_SPEED = THREE.MathUtils.degToRad(14.4) // ≈14.4°/s，自西向东
+const MARS_SPIN_DECEL_MS = 400 // 匀减速段
+const MARS_SPIN_DECEL_SWEEP = (MARS_SPIN_SPEED * MARS_SPIN_DECEL_MS) / 2000 // ≈2.88°（匀减速位移）
+const MARS_SPIN_OFFSET = -THREE.MathUtils.degToRad(18) // 预设偏角（渐入前偏 18°，转正）
+let marsSpinPhase: 'spin' | 'stop' | 'done' = 'done'
+let marsSpinStartAt = 0
+let marsSpinStopAt = 0
+let marsSpinStopFrom = 0
+/** 元素弹出延迟 = 旋转停稳（≈1.45s）+ 50ms 缓冲 */
+const MARS_ELEMENTS_DELAY_MS = 1500
 /** 标记点距离补偿基准（默认相机距离 ≈ 11.6）：部分透视补偿（远小近大不过度） */
 const MARS_MARKER_REF_DISTANCE = 11.6
 /** 距离透明度（与地球统一）：远处（默认视角及更远）70% 半透明，放大到极限后渐变为实色 */
@@ -288,9 +298,29 @@ watch(
   },
 )
 function startMarsSpin() {
-  if (!swingPivot) return
-  // 静止展示：仅设初始姿态角（自西向东方向），不做持续旋转
-  swingPivot.rotation.y = -THREE.MathUtils.degToRad(15)
+  if (!swingPivot || marsSpinPhase !== 'done') return
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  marsSpinPhase = reduced ? 'done' : 'spin'
+  marsSpinStartAt = performance.now()
+  swingPivot.rotation.y = MARS_SPIN_OFFSET
+}
+/** 入场自转推进：匀速（自西向东）→ 角度剩减速位移时线性匀减速 → 终点 0°（初始姿态） */
+function updateMarsSpin(now: number) {
+  if (!swingPivot || marsSpinPhase === 'done') return
+  if (marsSpinPhase === 'spin') {
+    const t = Math.max(0, (now - marsSpinStartAt) / 1000)
+    swingPivot.rotation.y = MARS_SPIN_OFFSET + MARS_SPIN_SPEED * t
+    if (swingPivot.rotation.y >= -MARS_SPIN_DECEL_SWEEP) {
+      marsSpinPhase = 'stop'
+      marsSpinStopAt = now
+      // 对齐精确阈值：终点精确落在 0°（初始姿态），不受帧偏差/后台标签页帧迟到影响
+      marsSpinStopFrom = -MARS_SPIN_DECEL_SWEEP
+    }
+  } else {
+    const t = Math.min(1, (now - marsSpinStopAt) / MARS_SPIN_DECEL_MS)
+    swingPivot.rotation.y = marsSpinStopFrom + MARS_SPIN_SPEED * (MARS_SPIN_DECEL_MS / 1000) * (t - (t * t) / 2)
+    if (t >= 1) marsSpinPhase = 'done'
+  }
 }
 // 进入：裸火星先 0.3s 渐入（scene-host），随后所有元素（着陆点+飞行器+轨道+标签）一次性淡入
 let elementsRevealTimer: number | undefined
@@ -585,6 +615,9 @@ onMounted(() => {
     const now = performance.now()
     const delta = Math.min((now - lastTime) / 1000, 0.05)
     lastTime = now
+
+    // 入场自转（自西向东绕自转轴，停稳后静止）
+    updateMarsSpin(now)
 
     // 航天器公转（仅绕火轨道）
     for (const runtime of craftRuntimes) {
