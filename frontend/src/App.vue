@@ -7,6 +7,7 @@ FORM: progressive observatory, the assigned seventh Operate structure; dense dat
 -->
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { CATALOG_PAGE_SIZE } from './catalog'
 import AuroraCover from './components/AuroraCover.vue'
 import OrbitScene from './components/OrbitScene.vue'
 import SolarSystem from './components/SolarSystem.vue'
@@ -340,7 +341,6 @@ const catalogResult = computed(() => {
 })
 
 /** 航天器目录分页（每页 12 条；查询/筛选/排序变化时回到第 1 页） */
-const CATALOG_PAGE_SIZE = 12
 const catalogPage = ref(1)
 const catalogPageCount = computed(() => Math.max(1, Math.ceil(catalogResult.value.items.length / CATALOG_PAGE_SIZE)))
 const pagedCatalogItems = computed(() => {
@@ -358,14 +358,14 @@ function catalogGotoPage(delta: number) {
 
 const focusTarget = computed(() => {
   if (selectedEvent.value?.latitude != null && selectedEvent.value.longitude != null) {
-    return { latitude: selectedEvent.value.latitude, longitude: selectedEvent.value.longitude, distance: 5.8, key: `event:${selectedEvent.value.externalId}` }
+    return { latitude: selectedEvent.value.latitude, longitude: selectedEvent.value.longitude, distance: 5.4, key: `event:${selectedEvent.value.externalId}` }
   }
   if (selectedSite.value) {
-    return { latitude: selectedSite.value.latitude, longitude: selectedSite.value.longitude, distance: 6.3, key: `site:${selectedSite.value.id}` }
+    return { latitude: selectedSite.value.latitude, longitude: selectedSite.value.longitude, distance: 5.4, key: `site:${selectedSite.value.id}` }
   }
   if (selectedSpacecraft.value) {
     const point = spacecraftPoint(selectedSpacecraft.value, now.value)
-    if (point) return { latitude: point.latitude, longitude: point.longitude, distance: 6.7, key: `spacecraft:${selectedSpacecraft.value.id}` }
+    if (point) return { latitude: point.latitude, longitude: point.longitude, distance: 6.0, key: `spacecraft:${selectedSpacecraft.value.id}` }
   }
   if (observerViewActive.value) return {
     latitude: observerLocation.value.latitude,

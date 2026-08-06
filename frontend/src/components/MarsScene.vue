@@ -118,13 +118,14 @@
         </div>
         <div class="object-table" role="table" aria-label="火星航天器列表">
           <div class="object-table-head" role="row"><span>对象</span><span>轨道</span><span>数据来源</span></div>
-          <button v-for="craft in filteredCrafts" :key="craft.id" class="object-row" role="row" @click="focusCraft(craft.id)">
+          <button v-for="craft in pagedCrafts" :key="craft.id" class="object-row" role="row" @click="focusCraft(craft.id)">
             <span><strong>{{ craft.nameZh }}</strong><small>{{ craft.nameEn }}</small></span>
             <span>{{ craft.description }}</span>
             <span>{{ craft.sourceName }}</span>
           </button>
           <div v-if="!filteredCrafts.length" class="catalog-empty">没有符合条件的航天器。请修改搜索词。</div>
         </div>
+        <div class="pagination-space"><span>第 {{ craftPage }} / {{ craftPageCount }} 页 · 共 {{ filteredCrafts.length }} 个飞行器</span><div><button :disabled="craftPage <= 1" @click="craftGotoPage(-1)">上一页</button><button :disabled="craftPage >= craftPageCount" @click="craftGotoPage(1)">下一页</button></div></div>
       </div>
     </div>
   </section>
@@ -148,7 +149,7 @@
         </div>
         <div class="object-table" role="table" aria-label="火星着陆点列表">
           <div class="object-table-head" role="row"><span>地点</span><span>任务</span><span>着陆日期</span></div>
-          <button v-for="site in filteredSites" :key="site.id" class="object-row site-row" :data-icon="site.icon" role="row" @click="focusSite(site.id)">
+          <button v-for="site in pagedSites" :key="site.id" class="object-row site-row" :data-icon="site.icon" role="row" @click="focusSite(site.id)">
             <span class="site-row-name">
               <span class="site-glyph" v-html="siteGlyph(site.icon)" />
               <span><strong>{{ site.siteName }}</strong><small>{{ site.officialName || site.region }}</small></span>
@@ -158,6 +159,7 @@
           </button>
           <div v-if="!filteredSites.length" class="catalog-empty">没有符合条件的着陆点。请修改搜索词。</div>
         </div>
+        <div class="pagination-space"><span>第 {{ sitePage }} / {{ sitePageCount }} 页 · 共 {{ filteredSites.length }} 个着陆点</span><div><button :disabled="sitePage <= 1" @click="siteGotoPage(-1)">上一页</button><button :disabled="sitePage >= sitePageCount" @click="siteGotoPage(1)">下一页</button></div></div>
       </div>
     </div>
   </section>
@@ -171,6 +173,7 @@ import { MARS_HD } from '../solar/data'
 import { solarTexture } from '../solar/textures'
 import type { MarsLandingSite, MarsSpacecraft } from '../types'
 import { primaryOperator } from '../operators'
+import { CATALOG_PAGE_SIZE } from '../catalog'
 
 const props = defineProps<{ revealTick?: number; enterFromSolar?: boolean; leaving?: boolean; headerExpanded?: boolean }>()
 const emit = defineEmits<{
@@ -383,8 +386,8 @@ function startCraftFocus(id: string) {
   const runtime = craftRuntimes.find((r) => r.spec.id === id)
   if (!runtime || !camera) return
   const world = runtime.dot.getWorldPosition(focusTmp).clone()
-  const desired = Math.min(camera.position.length(), 8)
-  const targetDistance = Math.max(desired, world.length() + 0.8)
+  const desired = Math.min(camera.position.length(), 8.4)
+  const targetDistance = Math.max(desired, world.length() + 0.8) // 基准 8.4 ≈2.8R（地球 6.0、月球 7.4）
   planFocusMotion(world, targetDistance)
 }
 
@@ -393,7 +396,7 @@ function startSiteFocus(id: string) {
   const marker = siteMarkers.get(id)
   if (!marker || !camera) return
   const world = marker.getWorldPosition(focusTmp).clone()
-  planFocusMotion(world, 5.2)
+  planFocusMotion(world, 7.4) // 着陆点聚焦距离统一 ≈2.5R（地球 5.4/2.15≈2.5R、月球 6.4/2.6≈2.5R）
 }
 
 watch(selectedCraft, (id) => {
@@ -760,7 +763,7 @@ function buildSiteMarkers() {
     // 图标类型着色：astronaut 金 / rover 橙 / sample 青 / lander 银
     const color = site.icon === 'astronaut' ? 0xffcf8f : site.icon === 'rover' ? 0xffb27d : site.icon === 'sample' ? 0x8fd6c2 : 0xcfd8e2
     const marker = new THREE.Mesh(
-      new THREE.SphereGeometry(0.03, 12, 12),
+      new THREE.SphereGeometry(0.024, 12, 12),
       new THREE.MeshBasicMaterial({ color, transparent: true, opacity: elementsFade }),
     )
     // 球心落在火面半径上（3.0）：球体一半嵌进表面（被火星深度遮挡）、一半露出——
@@ -807,6 +810,26 @@ const filteredSites = computed(() => {
       site.region.toLowerCase().includes(q),
   )
 })
+
+// ===== 统一分页（与地球目录/月球一致：每页 CATALOG_PAGE_SIZE 条）=====
+const craftPage = ref(1)
+const craftPageCount = computed(() => Math.max(1, Math.ceil(filteredCrafts.value.length / CATALOG_PAGE_SIZE)))
+const pagedCrafts = computed(() =>
+  filteredCrafts.value.slice((craftPage.value - 1) * CATALOG_PAGE_SIZE, craftPage.value * CATALOG_PAGE_SIZE),
+)
+const craftGotoPage = (delta: number) => {
+  craftPage.value = Math.min(craftPageCount.value, Math.max(1, craftPage.value + delta))
+}
+const sitePage = ref(1)
+const sitePageCount = computed(() => Math.max(1, Math.ceil(filteredSites.value.length / CATALOG_PAGE_SIZE)))
+const pagedSites = computed(() =>
+  filteredSites.value.slice((sitePage.value - 1) * CATALOG_PAGE_SIZE, sitePage.value * CATALOG_PAGE_SIZE),
+)
+const siteGotoPage = (delta: number) => {
+  sitePage.value = Math.min(sitePageCount.value, Math.max(1, sitePage.value + delta))
+}
+watch([craftQuery, craftOperatorFilter, craftSort], () => { craftPage.value = 1 })
+watch(siteQuery, () => { sitePage.value = 1 })
 
 /** 着陆点标签样式：右侧偏移，垂直对齐圆点 */
 function siteLabelStyle(label: { id: string; x: number; y: number }) {
@@ -1136,6 +1159,10 @@ onBeforeUnmount(() => {
 /* 航天器/着陆点板块 UI 全暖红（覆盖全局浅蓝主题色） */
 .mars-objects-section .catalog-workspace,
 .mars-sites-section .catalog-workspace { background: #16100a; }
+.mars-objects-section .pagination-space,
+.mars-sites-section .pagination-space { border-top: 1px solid rgba(224, 168, 120, .15); color: #a89078; }
+.mars-objects-section .pagination-space button,
+.mars-sites-section .pagination-space button { border-color: rgba(224, 168, 120, .3); color: #c9a17a; background: transparent; }
 .mars-objects-section .section-kicker,
 .mars-sites-section .section-kicker { color: #d0a080; }
 /* 板块小字标注：航天器=飞行器 / 着陆点=着陆器 */

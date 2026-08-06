@@ -426,7 +426,7 @@ function rebuildDataLayers() {
     const key = `spacecraft:${craft.id}`
     const selected = activeKey.value === key
     const marker = new THREE.Mesh(
-      new THREE.SphereGeometry(selected ? 0.052 : 0.037, 16, 16),
+      new THREE.SphereGeometry(selected ? 0.064 : 0.046, 16, 16),
       markerMaterial(0x72d7ff, selected),
     )
     marker.position.copy(point.position)
@@ -463,7 +463,7 @@ function rebuildDataLayers() {
     const selected = selectionKey.value === key
     const position = latLonToVector(site.latitude, site.longitude, EARTH_RADIUS * 1.006)
     const marker = new THREE.Mesh(
-      new THREE.ConeGeometry(selected ? 0.047 : 0.035, selected ? 0.16 : 0.12, 8),
+      new THREE.ConeGeometry(selected ? 0.056 : 0.042, selected ? 0.19 : 0.145, 8),
       markerMaterial(0xffb866, selected),
     )
     marker.position.copy(position)
