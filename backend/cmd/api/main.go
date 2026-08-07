@@ -61,8 +61,8 @@ func main() {
 
 	go schedule(ctx, 2*time.Hour, 45*time.Second, "celestrak", dataSyncer.SyncCelesTrak)
 	go schedule(ctx, 30*time.Minute, 45*time.Second, "launch_library_2", dataSyncer.SyncLaunches)
-	go schedule(ctx, 24*time.Hour, 45*time.Second, "moon", dataSyncer.SyncMoonSpacecraft)   // 月球轨道：每日 JPL Horizons 同步
-	go schedule(ctx, 24*time.Hour, 45*time.Second, "mars", dataSyncer.SyncMarsSpacecraft)   // 火星轨道：每日 JPL Horizons 同步
+	go schedule(ctx, 24*time.Hour, 45*time.Second, "moon", dataSyncer.SyncMoonSpacecraft) // 月球轨道：每日 JPL Horizons 同步
+	go schedule(ctx, 24*time.Hour, 45*time.Second, "mars", dataSyncer.SyncMarsSpacecraft) // 火星轨道：每日 JPL Horizons 同步
 	go schedule(ctx, 24*time.Hour, 120*time.Second, "probes", dataSyncer.SyncDeepSpaceProbes) // 深空探测器：每日同步（9 个顺序查询，预算放宽）
 
 	server := &http.Server{Addr: ":" + cfg.Port, Handler: httpapi.Router(repository, moonRepository, marsRepository, voyageRepository), ReadHeaderTimeout: 5 * time.Second}
@@ -82,25 +82,27 @@ func main() {
 
 // schedule 周期执行数据同步，带自愈（曾出现：僵尸同步 1h38m + 该源 13.5h 零重试）：
 //  - 每次运行放独立 goroutine，panic 只记日志不会杀死调度循环，下轮照常触发；
-//  - busy 防重叠：上一轮未结束时本轮跳过（记日志）；
-//  - 看门狗：运行超过 timeout+宽限仍未结束 → 放弃该轮并复位 busy，保证该源永不
-//    因一次僵尸同步而永久停摆（下一轮 tick 会重新开始）。
+//  - 代际防重叠：activeGen 保存当前运行轮次；非零时本轮跳过（记日志）；
+//  - 看门狗：运行超过 timeout+宽限仍未结束 → 放弃该轮（CAS 仅当仍是自己这轮才复位）；
+//    僵尸 goroutine 迟归时其 CAS 无法覆盖后继轮次（代际不匹配）→ 源永不因僵尸同步停摆。
 func schedule(ctx context.Context, interval, timeout time.Duration, name string, run func(context.Context) error) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	var busy atomic.Bool
+	var tickGen atomic.Uint64
+	var activeGen atomic.Uint64
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if !busy.CompareAndSwap(false, true) {
+			gen := tickGen.Add(1)
+			if !activeGen.CompareAndSwap(0, gen) {
 				slog.Warn("scheduled data sync skipped (previous run still active)", "source", name)
 				continue
 			}
-			// 看门狗：预算 + 10s 宽限后仍未完成 → 放弃该轮（不复用其 goroutine），下轮继续
+			// 看门狗：预算 + 10s 宽限后仍未完成 → 放弃该轮（仅复位自己这一代）
 			watchdog := time.AfterFunc(timeout+10*time.Second, func() {
-				if busy.CompareAndSwap(true, false) {
+				if activeGen.CompareAndSwap(gen, 0) {
 					slog.Error("scheduled data sync hung past budget; abandoning run", "source", name, "budget", timeout)
 				}
 			})
@@ -111,7 +113,8 @@ func schedule(ctx context.Context, interval, timeout time.Duration, name string,
 						slog.Error("scheduled data sync panicked; will retry next interval", "source", name, "panic", r)
 					}
 				}()
-				defer busy.Store(false)
+				// 仅当自己仍是当前轮次才释放（僵尸迟归不会覆盖后继轮次）
+				defer activeGen.CompareAndSwap(gen, 0)
 				runContext, cancel := context.WithTimeout(ctx, timeout)
 				defer cancel()
 				if err := run(runContext); err != nil {
