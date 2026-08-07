@@ -35,8 +35,10 @@ func NewWithMoon(repository *orbit.Repository, moonRepo *moon.Repository) *Synce
 }
 
 // NewWithMoonVoyageMars 附带月球、火星与深空探测器仓库（同步都需要）
+// client.Timeout=30s 必须 ≤ 最小调度预算（45s）：否则请求可在调度 ctx 截止后继续，
+// 出现"僵尸同步"（曾实测 1h38m >> 45s）。
 func NewWithMoonVoyageMars(repository *orbit.Repository, moonRepo *moon.Repository, marsRepo *mars.Repository, voyageRepo *voyage.Repository) *Syncer {
-	return &Syncer{repository: repository, moonRepo: moonRepo, marsRepo: marsRepo, voyageRepo: voyageRepo, client: &http.Client{Timeout: 60 * time.Second}}
+	return &Syncer{repository: repository, moonRepo: moonRepo, marsRepo: marsRepo, voyageRepo: voyageRepo, client: &http.Client{Timeout: 30 * time.Second}}
 }
 
 func (s *Syncer) SyncCelesTrak(ctx context.Context) error {
