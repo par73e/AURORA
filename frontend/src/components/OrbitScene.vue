@@ -431,6 +431,7 @@ function rebuildDataLayers() {
   markerObjects.clear()
   hoverTargets.clear()
   lineObjects.clear()
+  markerStates.clear() // 标记重建后 scale/opacity 状态缓存作废（防新标记跳过首次写入）
   disposeGroup(spacecraftGroup)
   disposeGroup(orbitGroup)
   disposeGroup(siteGroup)
@@ -515,6 +516,7 @@ function updateSpacecraftPositions(now: Date) {
 function rebuildObserverMarker() {
   disposeGroup(observerMarker)
   observerMarker = undefined
+  markerStates.delete('observer') // 观测器重建：状态缓存作废（防新标记跳过首次写入）
   if (!earthSystemGroup || !props.observerTarget || !spinGroup) return
 
   const position = latLonToVector(
@@ -598,11 +600,18 @@ function updateLabels() {
     const entry = labelById.get(key)
     if (!entry) {
       const created = { id, kind, name, x, y, visible }
-      labelById.set(key, created)
       labels.value.push(created)
+      // 缓存 push 后的响应式代理（不是原始对象）——原地改属性必须走代理才会触发 Vue 重渲染
+      labelById.set(key, labels.value[labels.value.length - 1])
       return
     }
-    if (Math.abs(entry.x - x) > 0.5 || Math.abs(entry.y - y) > 0.5 || entry.visible !== visible) {
+    if (
+      entry.name !== name ||
+      Math.abs(entry.x - x) > 0.5 ||
+      Math.abs(entry.y - y) > 0.5 ||
+      entry.visible !== visible
+    ) {
+      entry.name = name
       entry.x = x
       entry.y = y
       entry.visible = visible
