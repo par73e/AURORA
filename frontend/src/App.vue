@@ -503,8 +503,8 @@ async function setSurface(nextSurface: AppSurface) {
   document.title = nextSurface === 'cover'
     ? 'AURORA'
     : nextSurface === 'solar-system' ? 'AURORA · 太阳系'
-    : nextSurface === 'moon' ? 'AURORA · 月球'
-    : nextSurface === 'mars' ? 'AURORA · 火星' : 'AURORA · earth'
+    : nextSurface === 'moon' ? 'AURORA · MOON'
+    : nextSurface === 'mars' ? 'AURORA · MARS' : 'AURORA · EARTH'
   if (nextSurface === 'orbit') {
     orbitPageActive.value = true
     headerExpanded.value = false // 进入 ORBIT 默认收起页头（悬停屏幕顶部可展开）
@@ -1107,7 +1107,9 @@ onMounted(() => {
   preloadSolarTextures() // 预热太阳系纹理，让首次进入不出现加载卡顿
   document.title = surface.value === 'cover'
     ? 'AURORA'
-    : surface.value === 'solar-system' ? 'AURORA · 太阳系' : 'AURORA · earth'
+    : surface.value === 'solar-system' ? 'AURORA · 太阳系'
+    : surface.value === 'moon' ? 'AURORA · MOON'
+    : surface.value === 'mars' ? 'AURORA · MARS' : 'AURORA · EARTH'
   load()
   requestObserverLocation()
   updateActivePage()
