@@ -239,6 +239,14 @@ const orbitSampleCache = new Map<string, { at: number; points: THREE.Vector3[] }
 const raycaster = new THREE.Raycaster()
 /** 标记点距离补偿临时向量（每帧复用，避免分配） */
 const markerScaleTmp = new THREE.Vector3()
+// 标签投影/方向复用向量（每帧零分配）与标签索引（updateLabels 原地更新用）
+const labelProjTmp = new THREE.Vector3()
+const labelWorldTmp = new THREE.Vector3()
+const labelAuxTmp = new THREE.Vector3()
+const labelCamTmp = new THREE.Vector3()
+const labelById = new Map<string, { id: string; kind: 'spacecraft' | 'site'; name: string; x: number; y: number; visible: boolean }>()
+// 标记 scale/opacity 状态缓存：仅变化时写 THREE（滚动目录时相机静止 → 零写入）
+const markerStates = new Map<string, { scale: number; opacity: number }>()
 const earthOcclusionSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), EARTH_RADIUS * 1.004)
 const earthOcclusionRay = new THREE.Ray()
 const earthOcclusionHit = new THREE.Vector3()
@@ -573,54 +581,95 @@ function updateLabels() {
   if (!camera || !canvasHost) return
   const width = canvasHost.value?.clientWidth ?? 0
   const height = canvasHost.value?.clientHeight ?? 0
-  const next: typeof labels.value = []
+  const seen = new Set<string>()
+
+  // 原地更新（不整数组替换）：位置/可见性未变化（<0.5px）的标签不写任何属性，
+  // Vue 对未变节点零 diff——滚动目录时相机静止，全部标签静止 → 每帧零 DOM 写。
+  const upsert = (
+    kind: 'spacecraft' | 'site',
+    id: string,
+    name: string,
+    x: number,
+    y: number,
+    visible: boolean,
+  ) => {
+    const key = `${kind}:${id}`
+    seen.add(key)
+    const entry = labelById.get(key)
+    if (!entry) {
+      const created = { id, kind, name, x, y, visible }
+      labelById.set(key, created)
+      labels.value.push(created)
+      return
+    }
+    if (Math.abs(entry.x - x) > 0.5 || Math.abs(entry.y - y) > 0.5 || entry.visible !== visible) {
+      entry.x = x
+      entry.y = y
+      entry.visible = visible
+    }
+  }
 
   for (const craft of props.spacecraft) {
     const marker = markerObjects.get(`spacecraft:${craft.id}`)
     if (!marker || !props.layers.spacecraft) continue
-    const position = marker.getWorldPosition(new THREE.Vector3())
-    const projected = position.clone().project(camera)
-    next.push({
-      id: craft.id,
-      kind: 'spacecraft',
-      name: craft.nameZh,
-      x: (projected.x * 0.5 + 0.5) * width,
-      y: (-projected.y * 0.5 + 0.5) * height,
-      visible: projected.z > -1 && projected.z < 1 && !isOccludedByEarth(position),
-    })
+    const position = marker.getWorldPosition(labelWorldTmp)
+    labelProjTmp.copy(position).project(camera)
+    upsert(
+      'spacecraft',
+      craft.id,
+      craft.nameZh,
+      (labelProjTmp.x * 0.5 + 0.5) * width,
+      (-labelProjTmp.y * 0.5 + 0.5) * height,
+      labelProjTmp.z > -1 && labelProjTmp.z < 1 && !isOccludedByEarth(position),
+    )
   }
 
   for (const site of props.sites) {
     const marker = markerObjects.get(`site:${site.id}`)
     if (!marker || !props.layers.sites) continue
-    const position = marker.getWorldPosition(new THREE.Vector3())
-    const projected = position.clone().project(camera)
-    const outward = position.clone().normalize()
-    const towardCamera = camera.position.clone().sub(position).normalize()
-    next.push({
-      id: site.id,
-      kind: 'site',
-      name: site.nameZh,
-      x: (projected.x * 0.5 + 0.5) * width,
-      y: (-projected.y * 0.5 + 0.5) * height,
-      visible: projected.z > -1 && projected.z < 1 && outward.dot(towardCamera) > -0.05 && !isOccludedByEarth(position),
-    })
+    const position = marker.getWorldPosition(labelWorldTmp)
+    labelProjTmp.copy(position).project(camera)
+    const outward = labelAuxTmp.copy(position).normalize()
+    const towardCamera = labelCamTmp.copy(camera.position).sub(position).normalize()
+    upsert(
+      'site',
+      site.id,
+      site.nameZh,
+      (labelProjTmp.x * 0.5 + 0.5) * width,
+      (-labelProjTmp.y * 0.5 + 0.5) * height,
+      labelProjTmp.z > -1 && labelProjTmp.z < 1 && outward.dot(towardCamera) > -0.05 && !isOccludedByEarth(position),
+    )
   }
   if (observerMarker && props.observerTarget) {
-    const position = observerMarker.getWorldPosition(new THREE.Vector3())
-    const projected = position.clone().project(camera)
-    const outward = position.clone().normalize()
-    const towardCamera = camera.position.clone().sub(position).normalize()
-    observerLabel.value = {
+    const position = observerMarker.getWorldPosition(labelWorldTmp)
+    labelProjTmp.copy(position).project(camera)
+    const outward = labelAuxTmp.copy(position).normalize()
+    const towardCamera = labelCamTmp.copy(camera.position).sub(position).normalize()
+    const nextObserver = {
       name: props.observerTarget.label,
-      x: (projected.x * 0.5 + 0.5) * width,
-      y: (-projected.y * 0.5 + 0.5) * height,
-      visible: projected.z > -1 && projected.z < 1 && outward.dot(towardCamera) > -0.05 && !isOccludedByEarth(position),
+      x: (labelProjTmp.x * 0.5 + 0.5) * width,
+      y: (-labelProjTmp.y * 0.5 + 0.5) * height,
+      visible: labelProjTmp.z > -1 && labelProjTmp.z < 1 && outward.dot(towardCamera) > -0.05 && !isOccludedByEarth(position),
     }
-  } else {
+    const cur = observerLabel.value
+    if (
+      !cur ||
+      cur.name !== nextObserver.name ||
+      Math.abs(cur.x - nextObserver.x) > 0.5 ||
+      Math.abs(cur.y - nextObserver.y) > 0.5 ||
+      cur.visible !== nextObserver.visible
+    ) {
+      observerLabel.value = nextObserver
+    }
+  } else if (observerLabel.value !== null) {
     observerLabel.value = null
   }
-  labels.value = next
+  // 图层关闭等导致条目收缩时移除多余标签（并重建索引）
+  if (labels.value.length !== seen.size) {
+    labels.value = labels.value.filter((l) => seen.has(`${l.kind}:${l.id}`))
+    labelById.clear()
+    for (const l of labels.value) labelById.set(`${l.kind}:${l.id}`, l)
+  }
 }
 
 function setupScene() {
@@ -1066,9 +1115,20 @@ function animate(time = 0) {
       const d = marker.getWorldPosition(markerScaleTmp).distanceTo(camera.position)
       const isActive = activeKey.value === key
       // 选中/悬停：标记放大 35% + 全实色（醒目点亮）
-      marker.scale.setScalar(Math.pow(d / refDistance, 0.6) * (isActive ? 1.35 : 1))
+      const scale = Math.pow(d / refDistance, 0.6) * (isActive ? 1.35 : 1)
       const material = (marker as THREE.Mesh).material as THREE.MeshBasicMaterial | undefined
-      if (material) material.opacity = (isActive ? 1 : distOpacity(d)) * fade
+      const opacity = (isActive ? 1 : distOpacity(d)) * fade
+      // 仅变化时写（相机静止时 scale/opacity 恒定 → 每帧零材质/几何写，减滚动掉帧）
+      let st = markerStates.get(key)
+      if (!st) markerStates.set(key, (st = { scale: -1, opacity: -1 }))
+      if (Math.abs(st.scale - scale) > 1e-4) {
+        marker.scale.setScalar(scale)
+        st.scale = scale
+      }
+      if (material && Math.abs(st.opacity - opacity) > 1e-3) {
+        material.opacity = opacity
+        st.opacity = opacity
+      }
     }
     for (const [key, entry] of lineObjects) {
       const isActive = activeKey.value === key
@@ -1084,13 +1144,23 @@ function animate(time = 0) {
     }
     if (observerMarker) {
       const d = observerMarker.getWorldPosition(markerScaleTmp).distanceTo(camera.position)
-      observerMarker.scale.setScalar(Math.pow(d / refDistance, 0.6))
-      const mats: THREE.MeshBasicMaterial[] = []
-      observerMarker.traverse((item) => {
-        const m = (item as THREE.Mesh).material as THREE.MeshBasicMaterial | undefined
-        if (m) mats.push(m)
-      })
-      for (const m of mats) m.opacity = distOpacity(d) * fade
+      const scale = Math.pow(d / refDistance, 0.6)
+      const opacity = distOpacity(d) * fade
+      let st = markerStates.get('observer')
+      if (!st) markerStates.set('observer', (st = { scale: -1, opacity: -1 }))
+      if (Math.abs(st.scale - scale) > 1e-4) {
+        observerMarker.scale.setScalar(scale)
+        st.scale = scale
+      }
+      if (Math.abs(st.opacity - opacity) > 1e-3) {
+        const mats: THREE.MeshBasicMaterial[] = []
+        observerMarker.traverse((item) => {
+          const m = (item as THREE.Mesh).material as THREE.MeshBasicMaterial | undefined
+          if (m) mats.push(m)
+        })
+        for (const m of mats) m.opacity = opacity
+        st.opacity = opacity
+      }
     }
   }
   observerMarker?.traverse((item) => {
