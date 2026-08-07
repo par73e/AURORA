@@ -55,12 +55,18 @@ func (s *Syncer) SyncCelesTrak(ctx context.Context) error {
 		syncErr = err
 		return err
 	}
+	failed := 0
 	for spacecraftID, catalogID := range catalog {
-		endpoint := fmt.Sprintf("https://celestrak.org/NORAD/elements/gp.php?CATNR=%d&FORMAT=JSON", catalogID)
-		body, err := s.get(ctx, endpoint)
-		if err != nil {
+		if err := ctx.Err(); err != nil {
 			syncErr = err
 			return err
+		}
+		endpoint := fmt.Sprintf("https://celestrak.org/NORAD/elements/gp.php?CATNR=%d&FORMAT=JSON", catalogID)
+		body, err := s.getWithRetry(ctx, endpoint)
+		if err != nil {
+			failed++
+			slog.Warn("CelesTrak orbit sync skipped", "spacecraft", spacecraftID, "catalog", catalogID, "error", err)
+			continue
 		}
 		var payload []struct {
 			Epoch string `json:"EPOCH"`
@@ -69,27 +75,38 @@ func (s *Syncer) SyncCelesTrak(ctx context.Context) error {
 			if err == nil {
 				err = errors.New("empty CelesTrak payload")
 			}
-			syncErr = err
-			return err
+			failed++
+			slog.Warn("CelesTrak payload skipped", "spacecraft", spacecraftID, "catalog", catalogID, "error", err)
+			continue
 		}
 		epoch, err := time.Parse("2006-01-02T15:04:05.999999", payload[0].Epoch)
 		if err != nil {
 			epoch, err = time.Parse(time.RFC3339Nano, payload[0].Epoch+"Z")
 		}
 		if err != nil {
-			syncErr = fmt.Errorf("parse CelesTrak epoch: %w", err)
-			return syncErr
+			failed++
+			slog.Warn("CelesTrak epoch skipped", "spacecraft", spacecraftID, "catalog", catalogID, "error", err)
+			continue
 		}
 		var rawItems []json.RawMessage
 		if err := json.Unmarshal(body, &rawItems); err != nil || len(rawItems) == 0 {
-			syncErr = fmt.Errorf("decode CelesTrak raw payload: %w", err)
-			return syncErr
+			if err == nil {
+				err = errors.New("empty CelesTrak raw payload")
+			}
+			failed++
+			slog.Warn("CelesTrak payload decode skipped", "spacecraft", spacecraftID, "catalog", catalogID, "error", err)
+			continue
 		}
 		if err := s.repository.SaveOrbitSnapshot(ctx, spacecraftID, epoch.UTC(), rawItems[0]); err != nil {
-			syncErr = err
-			return err
+			failed++
+			slog.Warn("CelesTrak snapshot save skipped", "spacecraft", spacecraftID, "catalog", catalogID, "error", err)
+			continue
 		}
 		records++
+	}
+	if failed > 0 {
+		syncErr = fmt.Errorf("CelesTrak partial sync: %d/%d records failed", failed, len(catalog))
+		return syncErr
 	}
 	return nil
 }
@@ -207,7 +224,7 @@ func (s *Syncer) SyncDeepSpaceProbes(ctx context.Context) error {
 	if s.voyageRepo == nil {
 		return errors.New("voyage repository 未配置")
 	}
-	runID, err := s.repository.StartSync(ctx, "jpl_horizons")
+	runID, err := s.repository.StartSync(ctx, "jpl_horizons_voyage")
 	if err != nil {
 		return err
 	}
@@ -260,13 +277,34 @@ func (s *Syncer) get(ctx context.Context, endpoint string) ([]byte, error) {
 	return body, nil
 }
 
+// getWithRetry 只为短暂网络抖动补一次请求；重试等待也受当前调度 ctx 约束，不能留下后台僵尸任务。
+func (s *Syncer) getWithRetry(ctx context.Context, endpoint string) ([]byte, error) {
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		body, err := s.get(ctx, endpoint)
+		if err == nil {
+			return body, nil
+		}
+		lastErr = err
+		if attempt == 1 || ctx.Err() != nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(600 * time.Millisecond):
+		}
+	}
+	return nil, lastErr
+}
+
 // SyncMoonSpacecraft 从 JPL Horizons 拉取月球飞行器（LRO/CAPSTONE 等已支持）实时轨道根数；
 // 未支持的飞行器跳过（前端回退静态参数）。
 func (s *Syncer) SyncMoonSpacecraft(ctx context.Context) error {
 	if s.moonRepo == nil {
 		return errors.New("moon repository 未配置")
 	}
-	runID, err := s.repository.StartSync(ctx, "jpl_horizons")
+	runID, err := s.repository.StartSync(ctx, "jpl_horizons_moon")
 	if err != nil {
 		return err
 	}
@@ -306,7 +344,7 @@ func (s *Syncer) SyncMarsSpacecraft(ctx context.Context) error {
 	if s.marsRepo == nil {
 		return errors.New("mars repository 未配置")
 	}
-	runID, err := s.repository.StartSync(ctx, "jpl_horizons")
+	runID, err := s.repository.StartSync(ctx, "jpl_horizons_mars")
 	if err != nil {
 		return err
 	}

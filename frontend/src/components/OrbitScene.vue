@@ -449,10 +449,9 @@ function rebuildDataLayers() {
     const point = spacecraftPoint(craft, now)
     if (!point) continue
     const key = `spacecraft:${craft.id}`
-    const selected = activeKey.value === key
     const marker = new THREE.Mesh(
-      new THREE.SphereGeometry(selected ? 0.064 : 0.046, 16, 16),
-      markerMaterial(0x72d7ff, selected),
+      new THREE.SphereGeometry(0.046, 16, 16),
+      markerMaterial(0x72d7ff, false),
     )
     marker.position.copy(point.position)
     marker.userData = { kind: 'spacecraft', id: craft.id }
@@ -485,11 +484,10 @@ function rebuildDataLayers() {
 
   for (const site of props.sites) {
     const key = `site:${site.id}`
-    const selected = selectionKey.value === key
     const position = latLonToVector(site.latitude, site.longitude, EARTH_RADIUS * 1.006)
     const marker = new THREE.Mesh(
-      new THREE.ConeGeometry(selected ? 0.056 : 0.042, selected ? 0.19 : 0.145, 8),
-      markerMaterial(0xffb866, selected),
+      new THREE.ConeGeometry(0.042, 0.145, 8),
+      markerMaterial(0xffb866, false),
     )
     marker.position.copy(position)
     marker.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), position.clone().normalize())
@@ -1191,7 +1189,7 @@ watch(() => [props.spacecraft, props.sites], async () => {
   orbitSampleCache.clear() // TLE 刷新（同 id 新 omm）时清轨道采样缓存，避免 1 分钟桶内旧轨道
   await nextTick()
   rebuildDataLayers()
-}, { deep: true })
+})
 
 watch(() => props.layers, () => {
   if (spacecraftGroup) spacecraftGroup.visible = props.layers.spacecraft
@@ -1199,7 +1197,8 @@ watch(() => props.layers, () => {
   if (siteGroup) siteGroup.visible = props.layers.sites
 }, { deep: true })
 
-watch(selectionKey, rebuildDataLayers)
+// 选中态由渲染循环原地更新 marker / line 的高亮与透明度；不能为一次点击销毁并重建全部轨道。
+// 数据集变更才走 rebuildDataLayers，才能承受未来数百个对象的目录与场景联动。
 watch(() => props.focusTarget?.key, beginFocus)
 watch(() => [props.observerTarget, props.observerActive], rebuildObserverMarker, { deep: true })
 watch(() => props.dayNightEnabled, applyDayNightMode)

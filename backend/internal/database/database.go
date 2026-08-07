@@ -27,7 +27,20 @@ func Open(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 }
 
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
-	if _, err := pool.Exec(ctx, `
+	// 多实例同时启动时只能有一个进程检查并登记迁移，避免两个事务同时应用同一版本。
+	lockConn, err := pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire migration lock connection: %w", err)
+	}
+	defer lockConn.Release()
+	if _, err := lockConn.Exec(ctx, "SELECT pg_advisory_lock(hashtext('aurora_schema_migrations'))"); err != nil {
+		return fmt.Errorf("acquire migration advisory lock: %w", err)
+	}
+	defer func() {
+		_, _ = lockConn.Exec(context.Background(), "SELECT pg_advisory_unlock(hashtext('aurora_schema_migrations'))")
+	}()
+
+	if _, err := lockConn.Exec(ctx, `
 		CREATE TABLE IF NOT EXISTS schema_migrations (
 			version TEXT PRIMARY KEY,
 			applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -46,7 +59,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 			continue
 		}
 		var applied bool
-		if err := pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=$1)", entry.Name()).Scan(&applied); err != nil {
+		if err := lockConn.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=$1)", entry.Name()).Scan(&applied); err != nil {
 			return fmt.Errorf("check migration %s: %w", entry.Name(), err)
 		}
 		if applied {
@@ -56,7 +69,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		if err != nil {
 			return fmt.Errorf("read migration %s: %w", entry.Name(), err)
 		}
-		tx, err := pool.Begin(ctx)
+		tx, err := lockConn.Begin(ctx)
 		if err != nil {
 			return fmt.Errorf("begin migration %s: %w", entry.Name(), err)
 		}

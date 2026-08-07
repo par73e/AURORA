@@ -73,6 +73,24 @@ type DataFreshness struct {
 	ErrorMessage   string     `json:"errorMessage,omitempty"`
 }
 
+// SpacecraftQuery 是目录页的服务端查询契约。场景概览与目录分开：
+// 前者优先首帧与可视化，后者可随目录规模增长而保持可查询、可分页。
+type SpacecraftQuery struct {
+	Query    string
+	Operator string
+	Sort     string
+	Regex    bool
+	Page     int
+	PageSize int
+}
+
+type SpacecraftPage struct {
+	Items    []Spacecraft `json:"items"`
+	Page     int          `json:"page"`
+	PageSize int          `json:"pageSize"`
+	Total    int64        `json:"total"`
+}
+
 type Overview struct {
 	GeneratedAt time.Time       `json:"generatedAt"`
 	Spacecraft  []Spacecraft    `json:"spacecraft"`

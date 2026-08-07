@@ -19,12 +19,12 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-/** 最近一次数据同步时间（jpl_horizons——火星飞行器/快照数据源；无记录返回 nil） */
+/** 最近一次成功的数据同步时间（JPL Horizons 火星轨道；无记录返回 nil）。 */
 func (r *Repository) LastSyncTime(ctx context.Context) (*time.Time, error) {
 	var t time.Time
 	err := r.pool.QueryRow(ctx, `
 		SELECT finished_at FROM sync_runs
-		WHERE source_code = 'jpl_horizons' AND finished_at IS NOT NULL
+		WHERE source_code = 'jpl_horizons_mars' AND finished_at IS NOT NULL AND success = true
 		ORDER BY started_at DESC LIMIT 1`).Scan(&t)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil

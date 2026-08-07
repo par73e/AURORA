@@ -57,7 +57,72 @@ func (r *Repository) listSpacecraft(ctx context.Context) ([]Spacecraft, error) {
 		return nil, fmt.Errorf("list spacecraft: %w", err)
 	}
 	defer rows.Close()
-	items := make([]Spacecraft, 0, 3)
+	return scanSpacecraftRows(rows)
+}
+
+const spacecraftColumns = `
+	SELECT s.id, s.name_zh, s.name_en, s.norad_catalog_id, s.category,
+	       s.operator_name, s.description,
+	       COALESCE(s.launch_date,''), COALESCE(s.launch_site,''), COALESCE(s.launch_vehicle,''),
+	       ds.name, ds.base_url,
+	       o.epoch, o.synced_at, o.raw_omm
+	FROM spacecraft s
+	JOIN data_sources ds ON ds.code = s.source_code
+	LEFT JOIN LATERAL (
+		SELECT epoch, synced_at, raw_omm
+		FROM orbit_snapshots
+		WHERE spacecraft_id = s.id
+		ORDER BY epoch DESC
+		LIMIT 1
+	) o ON true`
+
+// SearchSpacecraft 为目录提供服务端筛选与分页。白名单排序字段避免 SQL 标识符拼接，
+// 正则由 PostgreSQL 执行，前端只传去掉 /.../ 包装后的表达式。
+func (r *Repository) SearchSpacecraft(ctx context.Context, query SpacecraftQuery) (SpacecraftPage, error) {
+	if query.Page < 1 {
+		query.Page = 1
+	}
+	if query.PageSize < 1 {
+		query.PageSize = 20
+	}
+	if query.PageSize > 100 {
+		query.PageSize = 100
+	}
+
+	sortSQL := "s.name_zh COLLATE \"C\", s.id"
+	switch query.Sort {
+	case "norad":
+		sortSQL = "s.norad_catalog_id NULLS LAST, s.id"
+	case "operator":
+		sortSQL = "s.operator_name COLLATE \"C\", s.name_zh COLLATE \"C\", s.id"
+	}
+
+	searchable := "concat_ws(' ', s.name_zh, s.name_en, s.norad_catalog_id::text, s.operator_name, s.category)"
+	matcher := searchable + " ILIKE '%' || $1 || '%'"
+	if query.Regex {
+		matcher = searchable + " ~* $1"
+	}
+	operatorPrimary := "regexp_replace(split_part(s.operator_name, ' / ', 1), '[（(].*$', '')"
+	where := " WHERE ($1 = '' OR " + matcher + ") AND ($2 = '' OR " + operatorPrimary + " = $2)"
+
+	var total int64
+	if err := r.pool.QueryRow(ctx, "SELECT count(*) FROM spacecraft s"+where, query.Query, query.Operator).Scan(&total); err != nil {
+		return SpacecraftPage{}, fmt.Errorf("count spacecraft catalog: %w", err)
+	}
+	rows, err := r.pool.Query(ctx, spacecraftColumns+where+" ORDER BY "+sortSQL+" LIMIT $3 OFFSET $4", query.Query, query.Operator, query.PageSize, (query.Page-1)*query.PageSize)
+	if err != nil {
+		return SpacecraftPage{}, fmt.Errorf("search spacecraft catalog: %w", err)
+	}
+	defer rows.Close()
+	items, err := scanSpacecraftRows(rows)
+	if err != nil {
+		return SpacecraftPage{}, err
+	}
+	return SpacecraftPage{Items: items, Page: query.Page, PageSize: query.PageSize, Total: total}, nil
+}
+
+func scanSpacecraftRows(rows pgx.Rows) ([]Spacecraft, error) {
+	items := make([]Spacecraft, 0, 20)
 	for rows.Next() {
 		var item Spacecraft
 		var epoch, syncedAt *time.Time

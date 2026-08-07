@@ -11,6 +11,11 @@
           <label><input v-model="terminatorEnabled" type="checkbox"><i class="terminator" />晨昏线</label>
         </div>
 
+        <div v-if="dataLoading || dataError" class="scene-data-state" :class="{ error: !!dataError }" role="status">
+          <span>{{ dataError || '正在读取火星航天器与着陆点数据' }}</span>
+          <button v-if="dataError" type="button" @click="loadSceneData">重新加载</button>
+        </div>
+
         <!-- 轨道飞行器标签 -->
         <button
           v-for="label in craftLabels"
@@ -115,7 +120,7 @@
         </div>
         <div class="catalog-meta">
           <span>{{ filteredCrafts.length }} 个飞行器</span>
-          <span>实时轨道 · JPL Horizons</span>
+          <span>{{ orbitDataCaption }}</span>
         </div>
         <div class="object-table" role="table" aria-label="火星航天器列表">
           <div class="object-table-head" role="row"><span>对象</span><span>运营方</span><span>类型</span></div>
@@ -166,8 +171,8 @@
   </section>
 
   <!-- 页脚：数据源同步时间（与地球页脚一致；右对齐） -->
-  <footer v-if="syncedAt" class="mars-page-footer">
-    <div class="page-frame source-list"><span><i class="healthy" />JPL Horizons · {{ formatEpochUTC(syncedAt) }}</span></div>
+  <footer class="mars-page-footer">
+    <div class="page-frame source-list"><span><i :class="{ healthy: !!syncedAt }" />{{ orbitDataCaption }}<template v-if="syncedAt"> · 上次成功同步 {{ formatEpochUTC(syncedAt) }}</template></span></div>
   </footer>
 </template>
 
@@ -178,9 +183,11 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { MARS_HD } from '../solar/data'
 import { solarTexture } from '../solar/textures'
 import type { MarsLandingSite, MarsSpacecraft } from '../types'
+import { fetchMarsLandingSites, fetchMarsSpacecraft } from '../api'
 import { primaryOperator } from '../operators'
 import { bilingualName } from '../bilingual'
 import { CATALOG_PAGE_SIZE } from '../catalog'
+import { usePlanetSceneData } from '../composables/usePlanetSceneData'
 
 const props = defineProps<{ revealTick?: number; enterFromSolar?: boolean; leaving?: boolean; headerExpanded?: boolean }>()
 const emit = defineEmits<{
@@ -336,13 +343,27 @@ watch(sceneRevealed, (revealed) => {
 })
 
 /** 火星飞行器列表（API 数据驱动，镜像地球 fetch overview 模式） */
-const crafts = ref<MarsSpacecraft[]>([])
 const terminatorEnabled = ref(false)
-/** 数据源最近同步时间（/api/v1/mars/spacecraft 返回，JPL Horizons） */
-const syncedAt = ref<string | null>(null)
+/** 火星数据与月球走同一原子提交规则，避免网络抖动时场景出现半套实体。 */
+const { crafts, syncedAt, dataLoading, dataError, loadSceneData, abortSceneData } = usePlanetSceneData<MarsSpacecraft, MarsLandingSite>({
+  loadSpacecraft: fetchMarsSpacecraft,
+  loadLandingSites: fetchMarsLandingSites,
+  canCommit: () => Boolean(scene),
+  onLoaded: (nextCrafts, nextSites) => {
+    landingSites.value = nextSites
+    for (const spec of nextCrafts) buildCraft(spec)
+    buildSiteMarkers()
+  },
+  unavailableLabel: '数据暂时不可用',
+})
 const craftById = (id: string) => crafts.value.find((c) => c.id === id)
 /** 当前选中飞行器（模板多次取用） */
 const selectedCraftInfo = computed(() => (selectedCraft.value ? craftById(selectedCraft.value) : undefined))
+const orbitDataCaption = computed(() => {
+  const snapshots = crafts.value.filter((craft) => craft.snapshot).length
+  if (!crafts.value.length) return '火星轨道数据'
+  return snapshots === crafts.value.length ? 'JPL Horizons 轨道快照' : `JPL Horizons 快照 / 标称轨道（${snapshots}/${crafts.value.length}）`
+})
 
 /** 轨道历元统一 UTC 显示（与探测器面板同步时间格式一致，避免本地/UTC 混用） */
 function formatEpochUTC(iso?: string) {
@@ -582,28 +603,8 @@ onMounted(() => {
   scene.add(camera)
   camera.add(starPoints)
 
-  // 轨道飞行器数据来自 /api/v1/mars/spacecraft（数据库 → Go → API → 前端），
-  // 挂载后异步拉取并按数据构建轨道/圆点（镜像地球的数据链路）
-  fetch('/api/v1/mars/spacecraft')
-    .then((res) => res.json())
-    .then((data: { spacecraft: MarsSpacecraft[]; syncedAt?: string | null }) => {
-      crafts.value = data.spacecraft ?? []
-      syncedAt.value = data.syncedAt ?? null
-      if (!scene) return
-      for (const spec of crafts.value) buildCraft(spec)
-    })
-    .catch((error) => {
-      console.error('加载火星飞行器数据失败:', error)
-    })
-  fetch('/api/v1/mars/landing-sites')
-    .then((res) => res.json())
-    .then((data: { landingSites: MarsLandingSite[] }) => {
-      landingSites.value = data.landingSites ?? []
-      buildSiteMarkers()
-    })
-    .catch((error) => {
-      console.error('加载火星着陆点数据失败:', error)
-    })
+  // 数据和 3D 对象在同一成功边界提交：任一接口失败就保留可恢复错误态，不渲染半套场景。
+  void loadSceneData()
 
   renderer.render(scene, camera)
 
@@ -1204,6 +1205,7 @@ function craftLabelStyle(label: { id: string; x: number; y: number }) {
 }
 
 onBeforeUnmount(() => {
+  abortSceneData()
   if (elementsRevealTimer !== undefined) clearTimeout(elementsRevealTimer)
   cancelAnimationFrame(frameId)
   resizeObserver?.disconnect()
@@ -1354,6 +1356,29 @@ onBeforeUnmount(() => {
   opacity: 1;
 }
 .mars-scene-host canvas { display: block; }
+.scene-data-state {
+  position: absolute;
+  z-index: 7;
+  left: 32px;
+  top: 82px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(440px, calc(100% - 64px));
+  color: var(--mars-quiet);
+  font: 500 10px var(--font-mono);
+  letter-spacing: .06em;
+}
+.scene-data-state.error { color: #ffcf8f; }
+.scene-data-state button {
+  border: 1px solid var(--mars-line);
+  border-radius: 3px;
+  padding: 5px 8px;
+  background: rgba(18, 12, 8, .72);
+  color: var(--mars-text);
+  font: inherit;
+  cursor: pointer;
+}
 
 /* 航天器标签（银灰，位于小点右侧，连接线水平指向左侧的圆点） */
 .craft-label {

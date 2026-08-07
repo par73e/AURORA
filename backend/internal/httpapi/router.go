@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strconv"
 
 	"aurora/backend/internal/mars"
 	"aurora/backend/internal/moon"
@@ -27,6 +28,34 @@ func Router(repository *orbit.Repository, moonRepository *moon.Repository, marsR
 			return
 		}
 		writeJSON(w, http.StatusOK, overview)
+	})
+	router.Get("/api/v1/orbit/spacecraft", func(w http.ResponseWriter, r *http.Request) {
+		params := r.URL.Query()
+		page, err := positiveInt(params.Get("page"), 1)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "page 必须是正整数"})
+			return
+		}
+		pageSize, err := positiveInt(params.Get("pageSize"), 20)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "pageSize 必须是正整数"})
+			return
+		}
+		mode := params.Get("mode")
+		if mode != "" && mode != "keyword" && mode != "regex" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "mode 仅支持 keyword 或 regex"})
+			return
+		}
+		result, err := repository.SearchSpacecraft(r.Context(), orbit.SpacecraftQuery{
+			Query: params.Get("q"), Operator: params.Get("operator"), Sort: params.Get("sort"),
+			Regex: mode == "regex", Page: page, PageSize: pageSize,
+		})
+		if err != nil {
+			slog.Warn("search ORBIT spacecraft", "error", err)
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "查询条件无效或暂时无法读取航天器目录"})
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
 	})
 	router.Get("/api/v1/moon/spacecraft", func(w http.ResponseWriter, r *http.Request) {
 		items, err := moonRepository.ListSpacecraft(r.Context())
@@ -82,6 +111,20 @@ func Router(repository *orbit.Repository, moonRepository *moon.Repository, marsR
 		writeJSON(w, http.StatusOK, map[string]any{"probes": items})
 	})
 	return router
+}
+
+func positiveInt(raw string, fallback int) (int, error) {
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, err
+	}
+	if value < 1 {
+		return 0, strconv.ErrSyntax
+	}
+	return value, nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

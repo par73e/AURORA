@@ -145,6 +145,11 @@ const LABEL_OFFSET_Y = 0.87
 
 /** 标签放在球体轮廓之外：沿排列线法向（右下）偏移 */
 function planetLabelStyle(label: SolarLabel) {
+  // 月球与地球在这张总览图中有意保持真实邻近关系；标签则向左上独立避让，
+  // 不能覆盖“进入地球”的主入口（覆盖时视觉读到地球，实际点到月球）。
+  if (label.id === 'moon') {
+    return { opacity: label.opacity, transform: `translate(calc(${label.x - 58}px - 50%), ${label.y - label.radiusPx - 42}px)` }
+  }
   const offset = label.radiusPx + 14
   return { opacity: label.opacity, transform: `translate(calc(${label.x + offset * LABEL_OFFSET_X}px - 50%), ${label.y + offset * LABEL_OFFSET_Y}px)` }
 }
@@ -438,7 +443,9 @@ defineExpose({ resetView })
   overflow: hidden;
   cursor: default;
 }
-.solar-scene-host canvas { display: block; }
+/* 明确把 WebGL 画布放在标签层下：否则某些浏览器的 canvas 合成层会抢到标签的指针事件，
+   出现“点地球却命中附近月球”的错位交互。 */
+.solar-scene-host :deep(canvas) { position: absolute; inset: 0; z-index: 0; display: block; }
 
 .solar-label {
   position: absolute;

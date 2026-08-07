@@ -73,6 +73,14 @@ export interface OrbitOverview {
   freshness: Freshness[]
 }
 
+/** 航天器目录的服务端分页响应；与首屏 3D 场景数据刻意分离。 */
+export interface SpacecraftCatalogPage {
+  items: Spacecraft[]
+  page: number
+  pageSize: number
+  total: number
+}
+
 /** 月球飞行器（来自 /api/v1/moon/spacecraft，镜像地球 Spacecraft 类型） */
 export interface MoonLandingSite {
   id: string

@@ -41,29 +41,6 @@ func main() {
 	marsRepository := mars.NewRepository(pool)
 	voyageRepository := voyage.NewRepository(pool)
 	dataSyncer := syncer.NewWithMoonVoyageMars(repository, moonRepository, marsRepository, voyageRepository)
-	initialSyncContext, cancelInitialSync := context.WithTimeout(ctx, 120*time.Second)
-	if err := dataSyncer.SyncCelesTrak(initialSyncContext); err != nil {
-		slog.Warn("CelesTrak startup sync failed; cached data remains available", "error", err)
-	}
-	if err := dataSyncer.SyncLaunches(initialSyncContext); err != nil {
-		slog.Warn("Launch Library startup sync failed; cached data remains available", "error", err)
-	}
-	if err := dataSyncer.SyncMoonSpacecraft(initialSyncContext); err != nil {
-		slog.Warn("JPL Horizons startup sync failed; static moon data remains available", "error", err)
-	}
-	if err := dataSyncer.SyncMarsSpacecraft(initialSyncContext); err != nil {
-		slog.Warn("JPL Horizons startup sync failed; static mars data remains available", "error", err)
-	}
-	if err := dataSyncer.SyncDeepSpaceProbes(initialSyncContext); err != nil {
-		slog.Warn("JPL Horizons probe sync failed; no deep-space positions available", "error", err)
-	}
-	cancelInitialSync()
-
-	go schedule(ctx, 2*time.Hour, 45*time.Second, "celestrak", dataSyncer.SyncCelesTrak)
-	go schedule(ctx, 30*time.Minute, 45*time.Second, "launch_library_2", dataSyncer.SyncLaunches)
-	go schedule(ctx, 24*time.Hour, 45*time.Second, "moon", dataSyncer.SyncMoonSpacecraft) // 月球轨道：每日 JPL Horizons 同步
-	go schedule(ctx, 24*time.Hour, 45*time.Second, "mars", dataSyncer.SyncMarsSpacecraft) // 火星轨道：每日 JPL Horizons 同步
-	go schedule(ctx, 24*time.Hour, 120*time.Second, "probes", dataSyncer.SyncDeepSpaceProbes) // 深空探测器：每日同步（9 个顺序查询，预算放宽）
 
 	server := &http.Server{Addr: ":" + cfg.Port, Handler: httpapi.Router(repository, moonRepository, marsRepository, voyageRepository), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
@@ -73,6 +50,13 @@ func main() {
 			stop()
 		}
 	}()
+	// 先提供缓存数据和健康接口；远端源变慢时不再把整个网站卡在启动阶段。
+	go runStartupSync(ctx, dataSyncer)
+	go schedule(ctx, 2*time.Hour, 45*time.Second, "celestrak", dataSyncer.SyncCelesTrak)
+	go schedule(ctx, 30*time.Minute, 45*time.Second, "launch_library_2", dataSyncer.SyncLaunches)
+	go schedule(ctx, 24*time.Hour, 45*time.Second, "moon", dataSyncer.SyncMoonSpacecraft)     // 月球轨道：每日 JPL Horizons 同步
+	go schedule(ctx, 24*time.Hour, 45*time.Second, "mars", dataSyncer.SyncMarsSpacecraft)     // 火星轨道：每日 JPL Horizons 同步
+	go schedule(ctx, 24*time.Hour, 120*time.Second, "probes", dataSyncer.SyncDeepSpaceProbes) // 深空探测器：每日同步（9 个顺序查询，预算放宽）
 
 	<-ctx.Done()
 	shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
@@ -80,11 +64,32 @@ func main() {
 	_ = server.Shutdown(shutdownContext)
 }
 
+// runStartupSync 在 API 已可用后刷新缓存；所有同步共用原先的 120 秒预算，避免首启无限占用网络请求。
+func runStartupSync(parent context.Context, dataSyncer *syncer.Syncer) {
+	ctx, cancel := context.WithTimeout(parent, 120*time.Second)
+	defer cancel()
+	if err := dataSyncer.SyncCelesTrak(ctx); err != nil {
+		slog.Warn("CelesTrak startup sync failed; cached data remains available", "error", err)
+	}
+	if err := dataSyncer.SyncLaunches(ctx); err != nil {
+		slog.Warn("Launch Library startup sync failed; cached data remains available", "error", err)
+	}
+	if err := dataSyncer.SyncMoonSpacecraft(ctx); err != nil {
+		slog.Warn("JPL Horizons moon startup sync failed; static moon data remains available", "error", err)
+	}
+	if err := dataSyncer.SyncMarsSpacecraft(ctx); err != nil {
+		slog.Warn("JPL Horizons mars startup sync failed; static mars data remains available", "error", err)
+	}
+	if err := dataSyncer.SyncDeepSpaceProbes(ctx); err != nil {
+		slog.Warn("JPL Horizons probe startup sync failed; cached data remains available", "error", err)
+	}
+}
+
 // schedule 周期执行数据同步，带自愈（曾出现：僵尸同步 1h38m + 该源 13.5h 零重试）：
-//  - 每次运行放独立 goroutine，panic 只记日志不会杀死调度循环，下轮照常触发；
-//  - 代际防重叠：activeGen 保存当前运行轮次；非零时本轮跳过（记日志）；
-//  - 看门狗：运行超过 timeout+宽限仍未结束 → 放弃该轮（CAS 仅当仍是自己这轮才复位）；
-//    僵尸 goroutine 迟归时其 CAS 无法覆盖后继轮次（代际不匹配）→ 源永不因僵尸同步停摆。
+//   - 每次运行放独立 goroutine，panic 只记日志不会杀死调度循环，下轮照常触发；
+//   - 代际防重叠：activeGen 保存当前运行轮次；非零时本轮跳过（记日志）；
+//   - 看门狗：运行超过 timeout+宽限仍未结束 → 放弃该轮（CAS 仅当仍是自己这轮才复位）；
+//     僵尸 goroutine 迟归时其 CAS 无法覆盖后继轮次（代际不匹配）→ 源永不因僵尸同步停摆。
 func schedule(ctx context.Context, interval, timeout time.Duration, name string, run func(context.Context) error) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()

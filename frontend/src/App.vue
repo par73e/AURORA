@@ -6,21 +6,28 @@ FIRST VIEWPORT: a quiet heading above one dominant globe; controls are compact a
 FORM: progressive observatory, the assigned seventh Operate structure; dense datasets receive dedicated workspaces below the scene.
 -->
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { CATALOG_PAGE_SIZE, LAUNCH_SITE_PAGE_SIZE } from './catalog'
 import { bilingualName } from './bilingual'
 import AuroraCover from './components/AuroraCover.vue'
-import OrbitScene from './components/OrbitScene.vue'
-import SolarSystem from './components/SolarSystem.vue'
 import SolarSystemItem from './components/SolarSystemItem.vue'
-import MoonScene from './components/MoonScene.vue'
-import MarsScene from './components/MarsScene.vue'
-import { fetchOrbitOverview } from './api'
+import { fetchOrbitOverview, fetchSpacecraftCatalog } from './api'
 import { spacecraftPoint } from './orbit/coordinates'
 import { marsHdReady, moonHdReady, orbitTexturesReady, preloadMarsHdTexture, preloadMoonHdTexture, preloadOrbitTextures, preloadSolarTextures } from './preload'
 import { solarTexturesReady } from './solar/textures'
-import type { LaunchEvent, LaunchSite, OrbitOverview, SceneLayers, Selection } from './types'
+import type { LaunchEvent, LaunchSite, OrbitOverview, SceneLayers, Selection, SpacecraftCatalogPage } from './types'
 import { primaryOperator } from './operators'
+
+// 大型 Three.js 场景按路径加载。导入动作总是在原有的黑幕/推镜预热阶段启动，
+// 因而不改变用户已经调校过的入场节奏，只减少封面首次下载的负担。
+const loadOrbitScene = () => import('./components/OrbitScene.vue')
+const loadSolarSystem = () => import('./components/SolarSystem.vue')
+const loadMoonScene = () => import('./components/MoonScene.vue')
+const loadMarsScene = () => import('./components/MarsScene.vue')
+const OrbitScene = defineAsyncComponent({ loader: loadOrbitScene, suspensible: false })
+const SolarSystem = defineAsyncComponent({ loader: loadSolarSystem, suspensible: false })
+const MoonScene = defineAsyncComponent({ loader: loadMoonScene, suspensible: false })
+const MarsScene = defineAsyncComponent({ loader: loadMarsScene, suspensible: false })
 
 type ObserverLocationStatus = 'locating' | 'located' | 'fallback'
 
@@ -33,7 +40,7 @@ interface ObserverLocation {
 
 const fallbackObserver = observerFallback()
 const overview = ref<OrbitOverview | null>(null)
-const loading = ref(true)
+const loading = ref(false)
 const error = ref('')
 const now = ref(new Date())
 const selection = ref<Selection | null>(null)
@@ -44,13 +51,14 @@ const objectSort = ref<'name' | 'norad' | 'operator'>('name')
 const observerLocation = ref<ObserverLocation>({ ...fallbackObserver, status: 'locating' })
 const observerFocusRevision = ref(0)
 const observerViewActive = ref(false)
+let observerLocationRequested = false
 const dayNightEnabled = ref(false)
 type AppSurface = 'cover' | 'solar-system' | 'orbit' | 'moon' | 'mars'
 
 // 初始页面：纯 hash 决定（无 hash = 首页；#earth/#moon/#solar-system = 对应页）。
 // 不用 sessionStorage 恢复——打开网站应总是首页（上次会话的页面残留会导致"打开就是 #solar-system"）
 const surface = ref<AppSurface>(surfaceFromHash())
-const solarSystemRef = ref<InstanceType<typeof SolarSystem> | null>(null)
+const solarSystemRef = ref<{ resetView?: () => void } | null>(null)
 /** 地球界面"进入边界"信号：遮罩开始淡出时递增，OrbitScene 据此播放入场渐亮 */
 const orbitRevealTick = ref(0)
 const headerExpanded = ref(true)
@@ -195,6 +203,23 @@ const shellTransitioning = ref(false)
 const veilDuration = ref('0.4s')
 let transitionTimer: number | undefined
 let transitionFrame: number | undefined
+/** 每次导航递增；异步纹理解码完成后先核验代际，旧页面不能把用户拉回去。 */
+let navigationGeneration = 0
+const deferredNavigationTimers = new Set<number>()
+
+function isCurrentNavigation(generation: number) {
+  return generation === navigationGeneration
+}
+
+/** 保留原有等待时长，但让它属于当前导航；取消/离开后旧回调不会再写页面状态。 */
+function scheduleForNavigation(generation: number, callback: () => void, delay: number) {
+  const timer = window.setTimeout(() => {
+    deferredNavigationTimers.delete(timer)
+    if (isCurrentNavigation(generation)) callback()
+  }, delay)
+  deferredNavigationTimers.add(timer)
+  return timer
+}
 
 const shellStyle = computed(() => {
   if (!shellTransitioning.value) return undefined
@@ -210,8 +235,19 @@ interface TransitionTiming {
   veilSeconds?: string
 }
 
+/** 预取目标场景组件，不等待它完成；原有纹理预热、黑幕与 reveal 时钟仍是唯一节奏来源。 */
+function preloadSurfaceComponent(target: AppSurface) {
+  if (target === 'solar-system') void loadSolarSystem()
+  else if (target === 'orbit') void loadOrbitScene()
+  else if (target === 'moon') void loadMoonScene()
+  else if (target === 'mars') void loadMarsScene()
+}
+
 /** 取消进行中的过渡（含定时器与动画帧），恢复无过渡状态 */
 function cancelPendingTransition() {
+  navigationGeneration += 1
+  for (const timer of deferredNavigationTimers) window.clearTimeout(timer)
+  deferredNavigationTimers.clear()
   if (transitionTimer !== undefined) {
     window.clearTimeout(transitionTimer)
     transitionTimer = undefined
@@ -228,6 +264,9 @@ function cancelPendingTransition() {
   orbitSectionLeaving.value = false
   moonLeaving.value = false
   marsLeaving.value = false
+  pendingOrbitReveal = null
+  pendingMoonReveal = null
+  pendingMarsReveal = null
   suppressHeaderReveal = false // 中止返回：页头恢复可 hover 唤回（保持收起态，与正常 orbit 行为一致）
 }
 
@@ -240,6 +279,7 @@ function transitionTo(nextSurface: AppSurface, zoom = 1, origin = '50% 50%', tim
   const enterMs = reduced ? 40 : 620
   cancelPendingTransition()
   // 过渡动画期间预热目标页资源
+  preloadSurfaceComponent(nextSurface)
   if (nextSurface === 'solar-system') preloadSolarTextures()
   if (nextSurface === 'orbit') preloadOrbitTextures()
   // 退出阶段：当前页变暗 + 缩放
@@ -301,10 +341,14 @@ const LAUNCH_PREVIEW_ROWS = 5
 const visibleLaunchEvents = computed(() =>
   launchExpanded.value ? upcomingEvents.value : upcomingEvents.value.slice(0, LAUNCH_PREVIEW_ROWS),
 )
-const dataHealthy = computed(() => overview.value?.freshness.every((item) => item.success) ?? false)
+/** 太阳系头部不把月球/火星/深空的独立同步失败误报成地球轨道不可用；各自页面单独标示其快照状态。 */
+const dataHealthy = computed(() => {
+  const primary = (overview.value?.freshness ?? []).filter((item) => ['celestrak', 'launch_library_2'].includes(item.sourceCode))
+  return primary.length === 2 && primary.every((item) => item.success)
+})
 /** 地球页页脚数据源：只显示本页实际使用的（CelesTrak 轨道 + Launch Library 发射日程）；
  *  JPL Horizons 服务于太阳系/月球/火星页（深空探测器与月球/火星轨道），不在地球页脚列出 */
-const earthSources = computed(() => (overview.value?.freshness ?? []).filter((s) => s.sourceCode !== 'jpl_horizons'))
+const earthSources = computed(() => (overview.value?.freshness ?? []).filter((s) => ['celestrak', 'launch_library_2'].includes(s.sourceCode)))
 const operators = computed(() => [...new Set((overview.value?.spacecraft ?? []).map((item) => primaryOperator(item.operatorName)))].sort())
 
 /** 目录条目：TLE 航天器（韦布/斯皮策等非地球轨道任务不再在地球页目录/外圈展示，回归太阳系页真实呈现） */
@@ -312,10 +356,12 @@ const catalogItems = computed(() => [
   ...(overview.value?.spacecraft ?? []).map((s) => ({ kind: 'spacecraft' as const, ...s })),
 ])
 
-const catalogResult = computed(() => {
+function parseCatalogQuery() {
   const raw = objectQuery.value.trim()
   let matcher: ((value: string) => boolean) | undefined
   let queryError = ''
+  let query = raw
+  let mode: 'keyword' | 'regex' = 'keyword'
 
   if (raw) {
     if (raw.startsWith('/')) {
@@ -324,8 +370,13 @@ const catalogResult = computed(() => {
         queryError = '正则表达式需要以 / 结束，例如 /ISS|TIANHE/i'
       } else {
         try {
-          const expression = new RegExp(raw.slice(1, lastSlash), raw.slice(lastSlash + 1))
+          const flags = raw.slice(lastSlash + 1)
+          if (flags.replaceAll('i', '') !== '') throw new Error('服务端正则仅支持 i（忽略大小写）标记')
+          const pattern = raw.slice(1, lastSlash)
+          const expression = new RegExp(pattern, flags)
           matcher = (value) => expression.test(value)
+          query = pattern
+          mode = 'regex'
         } catch (reason) {
           queryError = reason instanceof Error ? `正则表达式无效：${reason.message}` : '正则表达式无效'
         }
@@ -335,7 +386,19 @@ const catalogResult = computed(() => {
       matcher = (value) => value.toLocaleLowerCase().includes(keyword)
     }
   }
+  return { raw, query, mode, matcher, error: queryError }
+}
 
+/** 后端未重启到新版时仍可用当前场景数据完成小目录检索；新版 API 可用后自动切为服务端分页。 */
+const parsedCatalogQuery = computed(parseCatalogQuery)
+const catalogRemote = ref<SpacecraftCatalogPage | null>(null)
+const catalogLoading = ref(false)
+const catalogRequestError = ref('')
+let catalogRequest: AbortController | undefined
+let catalogQueryTimer: number | undefined
+
+const catalogResult = computed(() => {
+  const { raw, matcher, error: queryError } = parsedCatalogQuery.value
   const items = catalogItems.value.filter((item) => {
     if (operatorFilter.value !== 'all' && primaryOperator(item.operatorName) !== operatorFilter.value) return false
     if (!matcher) return !raw && !queryError
@@ -350,16 +413,54 @@ const catalogResult = computed(() => {
   return { items, error: queryError }
 })
 
-/** 航天器目录分页（每页 CATALOG_PAGE_SIZE 条；查询/筛选/排序变化时回到第 1 页） */
+/** 航天器目录分页：接口存在时由 PostgreSQL 分页；旧后端/离线时安全回退到已载入代表性对象。 */
 const catalogPage = ref(1)
-const catalogPageCount = computed(() => Math.max(1, Math.ceil(catalogResult.value.items.length / CATALOG_PAGE_SIZE)))
+const catalogTotal = computed(() => catalogRemote.value?.total ?? catalogResult.value.items.length)
+const catalogPageCount = computed(() => Math.max(1, Math.ceil(catalogTotal.value / CATALOG_PAGE_SIZE)))
 const pagedCatalogItems = computed(() => {
+  if (catalogRemote.value) return catalogRemote.value.items.map((item) => ({ kind: 'spacecraft' as const, ...item }))
   const start = (catalogPage.value - 1) * CATALOG_PAGE_SIZE
   return catalogResult.value.items.slice(start, start + CATALOG_PAGE_SIZE)
 })
+async function loadCatalogPage() {
+  if (catalogQueryTimer !== undefined) window.clearTimeout(catalogQueryTimer)
+  const { query, mode, error: queryError } = parsedCatalogQuery.value
+  if (queryError) {
+    catalogRemote.value = null
+    catalogRequestError.value = ''
+    return
+  }
+  catalogQueryTimer = window.setTimeout(async () => {
+    catalogRequest?.abort()
+    const controller = new AbortController()
+    catalogRequest = controller
+    catalogLoading.value = true
+    catalogRequestError.value = ''
+    try {
+      catalogRemote.value = await fetchSpacecraftCatalog({
+        page: catalogPage.value,
+        pageSize: CATALOG_PAGE_SIZE,
+        query,
+        operator: operatorFilter.value,
+        sort: objectSort.value,
+        mode,
+      }, controller.signal)
+    } catch (reason) {
+      if (controller.signal.aborted) return
+      // 过渡部署期间前端可能先于后端更新。此时不让目录空掉，降级为场景内小目录。
+      catalogRemote.value = null
+      const message = reason instanceof Error ? reason.message : '目录服务暂时不可用'
+      if (!message.includes('404')) catalogRequestError.value = message
+    } finally {
+      if (!controller.signal.aborted) catalogLoading.value = false
+    }
+  }, 180)
+}
 watch([objectQuery, operatorFilter, objectSort], () => {
   catalogPage.value = 1
+  void loadCatalogPage()
 })
+watch(catalogPage, () => void loadCatalogPage())
 function catalogGotoPage(delta: number) {
   catalogPage.value = Math.min(catalogPageCount.value, Math.max(1, catalogPage.value + delta))
 }
@@ -438,6 +539,8 @@ function observerFallback(): Omit<ObserverLocation, 'status'> {
 }
 
 function requestObserverLocation() {
+  if (observerLocationRequested) return
+  observerLocationRequested = true
   if (!navigator.geolocation) {
     observerLocation.value = { ...fallbackObserver, status: 'fallback' }
     observerFocusRevision.value += 1
@@ -467,7 +570,11 @@ function focusObserver() {
   selection.value = null
   observerViewActive.value = true
   observerFocusRevision.value += 1
-  if (observerLocation.value.status !== 'located') requestObserverLocation()
+  if (observerLocation.value.status !== 'located') {
+    // 用户主动点击时才允许再次尝试定位；封面和无关页面绝不触发权限请求。
+    observerLocationRequested = false
+    requestObserverLocation()
+  }
 }
 
 function selectFromScene(nextSelection: Selection) {
@@ -506,6 +613,9 @@ async function setSurface(nextSurface: AppSurface) {
     : nextSurface === 'moon' ? 'AURORA · MOON'
     : nextSurface === 'mars' ? 'AURORA · MARS' : 'AURORA · EARTH'
   if (nextSurface === 'orbit') {
+    void ensureOrbitOverview()
+    void loadCatalogPage()
+    requestObserverLocation()
     orbitPageActive.value = true
     headerExpanded.value = false // 进入 ORBIT 默认收起页头（悬停屏幕顶部可展开）
     // 挂载即隐藏首屏 DOM 元素（黑幕中完成淡出）——若等到 revealTick 才置 false，
@@ -545,9 +655,13 @@ function enterSolarSystem() {
   solarEnterFromMoon.value = false // 封面进入：两个来源标志都清空
   solarEnterFromMars.value = false // 封面进入：火星来源标志同样清空
   window.history.pushState(null, '', '#solar-system')
+  preloadSurfaceComponent('solar-system')
+  preloadSolarTextures()
+  void ensureOrbitOverview()
   preloadOrbitTextures() // 提前预热地球纹理，为下一步进入 ORBIT 做准备
   // 封面进入太阳系：星野页面（星空插图）渐入 → 停留（对应原黑屏时间）→ 渐亮揭示推镜
   cancelPendingTransition()
+  const generation = navigationGeneration
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   const exitMs = reduced ? 40 : 20 // 星野渐入 20ms（近乎瞬切——用户指定）
   const dwellMs = reduced ? 0 : 880 // 星野停留 880ms（渐入缩到 20ms 后补回时长：总黑幕保持 900ms 与原来一致，
@@ -564,7 +678,7 @@ function enterSolarSystem() {
   // 渐亮揭示时推镜正在中途（SolarSystem 侧同源就绪信号启动推镜）
   let revealed = false
   const reveal = () => {
-    if (revealed) return
+    if (revealed || !isCurrentNavigation(generation) || surface.value !== 'solar-system') return
     revealed = true
     transitionTimer = undefined
     if (surfaceFromHash() !== 'solar-system') {
@@ -579,14 +693,16 @@ function enterSolarSystem() {
       // 全亮时刻 ≈ 推镜路程 70%（剩 1/3 距离）；其后推镜最后 1/3 全是清晰画面
       veilActive.value = false
     })
-    transitionTimer = window.setTimeout(() => {
+    transitionTimer = scheduleForNavigation(generation, () => {
       shellTransitioning.value = false
       transitionTimer = undefined
     }, 400 + 60)
   }
-  transitionTimer = window.setTimeout(() => {
-    solarTexturesReady().then(reveal)
-    window.setTimeout(reveal, 2500) // 兜底：加载异常时最迟 2.5s 揭示
+  transitionTimer = scheduleForNavigation(generation, () => {
+    solarTexturesReady().then(() => {
+      if (isCurrentNavigation(generation)) reveal()
+    })
+    scheduleForNavigation(generation, reveal, 2500) // 兜底：加载异常时最迟 2.5s 揭示
   }, exitMs + dwellMs)
 }
 
@@ -602,6 +718,7 @@ function returnToSolarSystem(skipPush = false) {
 /** ORBIT → 太阳系（skipPush = 浏览器返回路径，hash 已是目标不重复入栈） */
 function enterSolarSystemFromOrbit(skipPush = false) {
   if (!skipPush) window.history.pushState(null, '', '#solar-system')
+  preloadSurfaceComponent('solar-system')
   preloadSolarTextures()
   cancelPendingTransition()
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -662,9 +779,11 @@ function exitPlanetToCover(skipPush = false) {
   cancelPendingTransition()
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   const fromMoon = surface.value === 'moon'
+  const fromMars = surface.value === 'mars'
   // 阶段 1：滚回主视图 + 信息/栏目淡出（页头随之上滑），只留裸星球
   window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' })
   if (fromMoon) moonLeaving.value = true
+  else if (fromMars) marsLeaving.value = true
   else orbitSectionLeaving.value = true
   headerExpanded.value = false
   suppressHeaderReveal = true
@@ -683,6 +802,7 @@ function exitPlanetToCover(skipPush = false) {
         return
       }
       if (fromMoon) moonLeaving.value = false
+      else if (fromMars) marsLeaving.value = false
       else orbitSectionLeaving.value = false
       void setSurface('cover')
       requestAnimationFrame(() => {
@@ -691,7 +811,7 @@ function exitPlanetToCover(skipPush = false) {
       })
       transitionTimer = undefined
     })
-  }, reduced ? 20 : (fromMoon ? 450 : 420))
+  }, reduced ? 20 : ((fromMoon || fromMars) ? 450 : 420))
 }
 
 // ---- 太阳系 → 地球：镜头在太阳系内放大地球 → 变暗 → 切页 ----
@@ -699,31 +819,35 @@ function exitPlanetToCover(skipPush = false) {
 /** 点击地球瞬间：URL 切到 #earth，开始预热 ORBIT 资源 */
 function onEarthFlyStart() {
   window.history.pushState(null, '', '#earth')
+  preloadSurfaceComponent('orbit')
   preloadOrbitTextures()
+  void ensureOrbitOverview()
+  requestObserverLocation()
   cancelPendingTransition()
 }
 
 /** 地球放大到一定程度：遮罩快速变暗（尽量缩短黑屏时间） */
 function onEarthFlyZoom() {
   if (surface.value === 'orbit') return // 已切页（幂等保护）；不再依赖 hash——该环境 pushState 不生效
+  const generation = navigationGeneration
   veilDuration.value = '0.22s'
   veilActive.value = true
   // 遮罩完全变黑后（+800ms，黑屏留足余量）才开始 8k 解码——主线程解码/GPU 上传都发生在黑屏中；
   // 解码完成才换页（3s 超时兜底）
-  window.setTimeout(() => {
-    orbitTexturesReady().then(() => onEarthSelect())
-    window.setTimeout(() => onEarthSelect(), 3000)
+  scheduleForNavigation(generation, () => {
+    orbitTexturesReady().then(() => onEarthSelect(generation))
+    scheduleForNavigation(generation, () => onEarthSelect(generation), 3000)
   }, 800)
 }
 
 /** 地球放大完成（遮罩已黑）：换页，等首帧贴图 GPU 上传完成再渐亮 */
-function onEarthSelect() {
-  if (surface.value === 'orbit') return // 已切页（幂等保护）；不再依赖 hash——该环境 pushState 不生效
+function onEarthSelect(generation = navigationGeneration) {
+  if (!isCurrentNavigation(generation) || surface.value !== 'solar-system') return
   veilActive.value = true
   void setSurface('orbit')
   let revealDone = false
   const reveal = () => {
-    if (revealDone) return // 防止兜底超时与信号重复触发
+    if (revealDone || !isCurrentNavigation(generation) || surface.value !== 'orbit') return
     revealDone = true
     pendingOrbitReveal = null
     requestAnimationFrame(() => {
@@ -736,7 +860,7 @@ function onEarthSelect() {
   if (orbitSceneReadyFlag.value) reveal()
   else {
     pendingOrbitReveal = reveal
-    window.setTimeout(reveal, 3000) // 兜底：上传异常时最迟 3s 揭示
+    scheduleForNavigation(generation, reveal, 3000) // 兜底：上传异常时最迟 3s 揭示
   }
 }
 
@@ -750,6 +874,7 @@ function onOrbitSceneReady() {
 function onMoonFlyStart() {
   window.history.pushState(null, '', '#moon')
   cancelPendingTransition()
+  preloadSurfaceComponent('moon')
   preloadMoonHdTexture() // 预热 8k 月球贴图（本地资源，提前解码避免切换后卡顿）
   moonEnterFromSolar.value = true // 入场路径：月球页分阶段揭示（每次进入都从纯月球开始）
   moonLeaving.value = false // 重置返回清空状态（否则第二次进入残留 true，清空流程失效）
@@ -758,24 +883,25 @@ function onMoonFlyStart() {
 /** 月球放大到一定程度：遮罩快速变暗 */
 function onMoonFlyZoom() {
   if (surface.value === 'moon') return // 已切页（幂等保护）；不再依赖 hash——该环境 pushState 不生效
+  const generation = navigationGeneration
   veilDuration.value = '0.22s'
   veilActive.value = true
   // 遮罩完全变黑后（+800ms，黑屏留足余量）才开始 16k 解码——主线程解码/GPU 上传都发生在黑屏中
-  window.setTimeout(() => {
-    moonHdReady().then(() => onMoonSelect())
-    window.setTimeout(() => onMoonSelect(), 3000)
+  scheduleForNavigation(generation, () => {
+    moonHdReady().then(() => onMoonSelect(generation))
+    scheduleForNavigation(generation, () => onMoonSelect(generation), 3000)
   }, 800)
 }
 
 /** 月球放大完成（遮罩已黑）：换页，等首帧贴图 GPU 上传完成再渐亮 */
-function onMoonSelect() {
-  if (surface.value === 'moon') return // 已切页（幂等保护）；不再依赖 hash——该环境 pushState 不生效
+function onMoonSelect(generation = navigationGeneration) {
+  if (!isCurrentNavigation(generation) || surface.value !== 'solar-system') return
   veilActive.value = true
   solarEnterFromMoon.value = false
   void setSurface('moon')
   let revealDone = false
   const reveal = () => {
-    if (revealDone) return // 防止兜底超时与信号重复触发
+    if (revealDone || !isCurrentNavigation(generation) || surface.value !== 'moon') return
     revealDone = true
     pendingMoonReveal = null
     requestAnimationFrame(() => {
@@ -788,7 +914,7 @@ function onMoonSelect() {
   if (moonSceneReadyFlag.value) reveal()
   else {
     pendingMoonReveal = reveal
-    window.setTimeout(reveal, 3000) // 兜底
+    scheduleForNavigation(generation, reveal, 3000) // 兜底
   }
 }
 
@@ -802,6 +928,7 @@ function onMoonSceneReady() {
 function onMarsFlyStart() {
   window.history.pushState(null, '', '#mars')
   cancelPendingTransition()
+  preloadSurfaceComponent('mars')
   preloadMarsHdTexture() // 预热 8k 火星贴图（本地资源，提前解码避免切换后卡顿）
   marsEnterFromSolar.value = true // 入场路径：火星页分阶段揭示（每次进入都从纯火星开始）
   marsLeaving.value = false // 重置返回清空状态（否则第二次进入残留 true，清空流程失效）
@@ -810,23 +937,24 @@ function onMarsFlyStart() {
 /** 火星放大到一定程度：遮罩快速变暗 */
 function onMarsFlyZoom() {
   if (surface.value === 'mars') return // 已切页（幂等保护）
+  const generation = navigationGeneration
   veilDuration.value = '0.22s'
   veilActive.value = true
-  window.setTimeout(() => {
-    marsHdReady().then(() => onMarsSelect())
-    window.setTimeout(() => onMarsSelect(), 3000)
+  scheduleForNavigation(generation, () => {
+    marsHdReady().then(() => onMarsSelect(generation))
+    scheduleForNavigation(generation, () => onMarsSelect(generation), 3000)
   }, 800)
 }
 
 /** 火星放大完成（遮罩已黑）：换页，等首帧贴图 GPU 上传完成再渐亮 */
-function onMarsSelect() {
-  if (surface.value === 'mars') return // 已切页（幂等保护）
+function onMarsSelect(generation = navigationGeneration) {
+  if (!isCurrentNavigation(generation) || surface.value !== 'solar-system') return
   veilActive.value = true
   solarEnterFromMars.value = false
   void setSurface('mars')
   let revealDone = false
   const reveal = () => {
-    if (revealDone) return // 防止兜底超时与信号重复触发
+    if (revealDone || !isCurrentNavigation(generation) || surface.value !== 'mars') return
     revealDone = true
     pendingMarsReveal = null
     requestAnimationFrame(() => {
@@ -839,7 +967,7 @@ function onMarsSelect() {
   if (marsSceneReadyFlag.value) reveal()
   else {
     pendingMarsReveal = reveal
-    window.setTimeout(reveal, 3000) // 兜底
+    scheduleForNavigation(generation, reveal, 3000) // 兜底
   }
 }
 
@@ -852,6 +980,7 @@ function onMarsSceneReady() {
 /** 火星 → 太阳系（skipPush = 浏览器返回路径） */
 function enterSolarSystemFromMars(skipPush = false) {
   if (!skipPush) window.history.pushState(null, '', '#solar-system')
+  preloadSurfaceComponent('solar-system')
   preloadSolarTextures()
   cancelPendingTransition()
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -888,6 +1017,7 @@ function enterSolarSystemFromMars(skipPush = false) {
 /** 月球 → 太阳系（skipPush = 浏览器返回路径） */
 function enterSolarSystemFromMoon(skipPush = false) {
   if (!skipPush) window.history.pushState(null, '', '#solar-system')
+  preloadSurfaceComponent('solar-system')
   preloadSolarTextures()
   cancelPendingTransition()
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -1056,6 +1186,17 @@ function formatCoordinate(value: number, positive: string, negative: string) {
   return `${Math.abs(value).toFixed(2)}° ${value >= 0 ? positive : negative}`
 }
 
+let overviewRequest: Promise<void> | null = null
+
+function ensureOrbitOverview() {
+  if (overview.value) return Promise.resolve()
+  if (overviewRequest) return overviewRequest
+  overviewRequest = load().finally(() => {
+    overviewRequest = null
+  })
+  return overviewRequest
+}
+
 async function load() {
   loading.value = true
   error.value = ''
@@ -1104,14 +1245,29 @@ function onGlobalKeydown(event: KeyboardEvent) {
 onMounted(() => {
   window.addEventListener('popstate', onPopState)
   window.addEventListener('keydown', onGlobalKeydown)
-  preloadSolarTextures() // 预热太阳系纹理，让首次进入不出现加载卡顿
+  // 首页保持轻量、无权限请求；只有用户进入深空路径或直接打开相应页面时才预热。
+  if (surface.value === 'solar-system') {
+    preloadSurfaceComponent('solar-system')
+    preloadSolarTextures()
+    void ensureOrbitOverview()
+  } else if (surface.value === 'orbit') {
+    preloadSurfaceComponent('orbit')
+    preloadOrbitTextures()
+    void ensureOrbitOverview()
+    requestObserverLocation()
+  } else if (surface.value === 'moon') {
+    preloadSurfaceComponent('moon')
+    preloadMoonHdTexture()
+  } else if (surface.value === 'mars') {
+    preloadSurfaceComponent('mars')
+    preloadMarsHdTexture()
+  }
+  if (surface.value === 'orbit') void loadCatalogPage()
   document.title = surface.value === 'cover'
     ? 'AURORA'
     : surface.value === 'solar-system' ? 'AURORA · 太阳系'
     : surface.value === 'moon' ? 'AURORA · MOON'
     : surface.value === 'mars' ? 'AURORA · MARS' : 'AURORA · EARTH'
-  load()
-  requestObserverLocation()
   updateActivePage()
   scheduleHeaderCollapse()
   window.addEventListener('pointermove', handleWindowPointerMove, { passive: true })
@@ -1127,6 +1283,8 @@ onBeforeUnmount(() => {
   if (pageSurfaceFrame) window.cancelAnimationFrame(pageSurfaceFrame)
   clearHeaderIdleTimer()
   cancelPendingTransition()
+  catalogRequest?.abort()
+  if (catalogQueryTimer !== undefined) window.clearTimeout(catalogQueryTimer)
   window.removeEventListener('pointermove', handleWindowPointerMove)
   window.removeEventListener('pointerdown', registerHeaderActivity)
   window.removeEventListener('wheel', registerHeaderActivity)
@@ -1304,7 +1462,7 @@ onBeforeUnmount(() => {
               <label><span>运营方</span><select v-model="operatorFilter"><option value="all">全部运营方</option><option v-for="operator in operators" :key="operator" :value="operator">{{ operator }}</option></select></label>
               <label><span>排序</span><select v-model="objectSort"><option value="name">名称</option><option value="norad">NORAD 编号</option><option value="operator">运营方</option></select></label>
             </div>
-            <p v-if="catalogResult.error" class="query-error">{{ catalogResult.error }}</p>
+            <p v-if="catalogResult.error || catalogRequestError" class="query-error">{{ catalogResult.error || catalogRequestError }}</p>
             <div class="object-table" role="table" aria-label="航天器查询结果">
               <div class="object-table-head" role="row"><span>NORAD</span><span>对象</span><span>运营方</span><span>类型</span><span>轨道历元</span></div>
               <button v-for="craft in pagedCatalogItems" :key="craft.id" class="object-row" role="row" @click="selectAndFocus({ kind: craft.kind, id: craft.id })">
@@ -1314,9 +1472,10 @@ onBeforeUnmount(() => {
                 <span>{{ craft.category }}</span>
                 <span>{{ formatUTCDate(craft.orbitEpoch) }}</span>
               </button>
-              <div v-if="!catalogResult.items.length" class="catalog-empty">没有符合当前条件的航天器。请修改搜索词或筛选条件。</div>
+              <div v-if="catalogLoading" class="catalog-empty">正在查询航天器目录…</div>
+              <div v-else-if="!pagedCatalogItems.length" class="catalog-empty">没有符合当前条件的航天器。请修改搜索词或筛选条件。</div>
             </div>
-            <div class="pagination-space"><span>第 {{ catalogPage }} / {{ catalogPageCount }} 页 · {{ catalogResult.items.length }} 个航天器</span><div><button :disabled="catalogPage <= 1" @click="catalogGotoPage(-1)">上一页</button><button :disabled="catalogPage >= catalogPageCount" @click="catalogGotoPage(1)">下一页</button></div></div>
+            <div class="pagination-space"><span>第 {{ catalogPage }} / {{ catalogPageCount }} 页 · {{ catalogTotal }} 个航天器</span><div><button :disabled="catalogPage <= 1 || catalogLoading" @click="catalogGotoPage(-1)">上一页</button><button :disabled="catalogPage >= catalogPageCount || catalogLoading" @click="catalogGotoPage(1)">下一页</button></div></div>
           </div>
         </div>
       </section>
