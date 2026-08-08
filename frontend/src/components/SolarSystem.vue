@@ -9,7 +9,7 @@ import { bilingualName } from '../bilingual'
 import type { DeepSpaceProbe } from '../types'
 import type { ProbeData } from '../solar/scene'
 
-const props = defineProps<{ enterFromOrbit?: boolean; enterFromMoon?: boolean; enterFromMars?: boolean; flyDelay?: number; playEntryFly?: boolean }>()
+const props = defineProps<{ enterFromOrbit?: boolean; enterFromMoon?: boolean; enterFromMars?: boolean; enterFromVenus?: boolean; enterFromSaturn?: boolean; enterFromJupiter?: boolean; enterFromMercury?: boolean; enterFromUranus?: boolean; enterFromNeptune?: boolean; enterFromSun?: boolean; flyDelay?: number; playEntryFly?: boolean }>()
 
 const emit = defineEmits<{
   'select-earth': []
@@ -21,16 +21,41 @@ const emit = defineEmits<{
   'select-mars': []
   'mars-fly-start': []
   'mars-fly-zoom': []
+  'select-venus': []
+  'venus-fly-start': []
+  'venus-fly-zoom': []
+  'select-saturn': []
+  'saturn-fly-start': []
+  'saturn-fly-zoom': []
+  'select-jupiter': []
+  'jupiter-fly-start': []
+  'jupiter-fly-zoom': []
+  'select-mercury': []
+  'mercury-fly-start': []
+  'mercury-fly-zoom': []
+  'select-uranus': []
+  'uranus-fly-start': []
+  'uranus-fly-zoom': []
+  'select-neptune': []
+  'neptune-fly-start': []
+  'neptune-fly-zoom': []
+  'select-sun': []
+  'sun-fly-start': []
+  'sun-fly-zoom': []
 }>()
 
 const canvasHost = ref<HTMLDivElement | null>(null)
-// 选中光标：默认地球；从地球/月球返回时恢复对应星球（组件重新挂载，props 决定初始选中）
-const activeId = ref(props.enterFromMars ? 'mars' : props.enterFromMoon ? 'moon' : props.enterFromOrbit ? 'earth' : 'earth')
+// 选中光标：默认地球；从行星/月球返回时恢复对应星球（组件重新挂载，props 决定初始选中）
+const activeId = ref(
+  props.enterFromSun ? 'sun'
+    : props.enterFromNeptune ? 'neptune' : props.enterFromUranus ? 'uranus' : props.enterFromMercury ? 'mercury'
+    : props.enterFromJupiter ? 'jupiter' : props.enterFromSaturn ? 'saturn' : props.enterFromVenus ? 'venus'
+    : props.enterFromMars ? 'mars' : props.enterFromMoon ? 'moon' : props.enterFromOrbit ? 'earth' : 'earth',
+)
 const labels = ref<SolarLabel[]>([])
 let scene: SolarSystemScene | undefined
-/** 当前飞行动画的目标：moon = 月球 / mars = 火星（事件回调据此分发）；其余 = 地球 */
-let moonFlight = false
-let marsFlight = false
+/** 当前飞行动画的目标（事件回调据此分发） */
+let flightPlanet: 'moon' | 'mars' | 'venus' | 'saturn' | 'jupiter' | 'mercury' | 'uranus' | 'neptune' | 'sun' | null = null
 /** 组件已卸载标记（fetch 回调守卫，避免向已 dispose 的 scene 写数据） */
 let unmounted = false
 /** 深空探测器（JPL Horizons 日同步，/api/v1/voyage/probes） */
@@ -80,24 +105,56 @@ function choosePlanet(id: string) {
   scene?.clearProbeSelection()
   if (id === 'earth') {
     // 地球：先在太阳系场景内放大地球，飞行到位后再由 App 切换页面
-    moonFlight = false
+    flightPlanet = null
     scene?.flyToEarth()
     emit('earth-fly-start')
   } else if (id === 'moon') {
     // 月球：镜像地球流程——太阳系内推近月球 → 渐暗 → 切到月球页面
-    moonFlight = true
-    marsFlight = false
+    flightPlanet = 'moon'
     scene?.flyToMoon()
     emit('moon-fly-start')
   } else if (id === 'mars') {
     // 火星：镜像月球流程——太阳系内推近火星 → 渐暗 → 切到火星页面
-    marsFlight = true
-    moonFlight = false
+    flightPlanet = 'mars'
     scene?.flyToMars()
     emit('mars-fly-start')
+  } else if (id === 'venus') {
+    // 金星：镜像月球/火星流程——太阳系内推近金星 → 渐暗 → 切到金星页面
+    flightPlanet = 'venus'
+    scene?.flyToVenus()
+    emit('venus-fly-start')
+  } else if (id === 'saturn') {
+    // 土星：镜像月球/火星流程——太阳系内推近土星 → 渐暗 → 切到土星页面
+    flightPlanet = 'saturn'
+    scene?.flyToSaturn()
+    emit('saturn-fly-start')
+  } else if (id === 'jupiter') {
+    // 木星：镜像月球/火星流程——太阳系内推近木星 → 渐暗 → 切到木星页面
+    flightPlanet = 'jupiter'
+    scene?.flyToJupiter()
+    emit('jupiter-fly-start')
+  } else if (id === 'mercury') {
+    // 水星：镜像月球/火星流程——太阳系内推近水星 → 渐暗 → 切到水星页面
+    flightPlanet = 'mercury'
+    scene?.flyToMercury()
+    emit('mercury-fly-start')
+  } else if (id === 'uranus') {
+    // 天王星：镜像月球/火星流程——太阳系内推近天王星 → 渐暗 → 切到天王星页面
+    flightPlanet = 'uranus'
+    scene?.flyToUranus()
+    emit('uranus-fly-start')
+  } else if (id === 'neptune') {
+    // 海王星：镜像月球/火星流程——太阳系内推近海王星 → 渐暗 → 切到海王星页面
+    flightPlanet = 'neptune'
+    scene?.flyToNeptune()
+    emit('neptune-fly-start')
+  } else if (id === 'sun') {
+    // 太阳：镜像月球/火星流程——太阳系内推近太阳 → 渐暗 → 切到太阳页面
+    flightPlanet = 'sun'
+    scene?.flyToSun()
+    emit('sun-fly-start')
   }
 }
-
 /** 探测器标签悬停/移开：点亮/熄灭对应探测器轨迹（与悬停 3D 标记一致） */
 function hoverProbe(id: string | null) {
   scene?.setHover(id)
@@ -145,10 +202,10 @@ const LABEL_OFFSET_Y = 0.87
 
 /** 标签放在球体轮廓之外：沿排列线法向（右下）偏移 */
 function planetLabelStyle(label: SolarLabel) {
-  // 月球与地球在这张总览图中有意保持真实邻近关系；标签则向左上独立避让，
-  // 不能覆盖“进入地球”的主入口（覆盖时视觉读到地球，实际点到月球）。
+  // 月球与地球在这张总览图中有意保持真实邻近关系；标签略向左上避让，
+  // 既不盖住地球入口，也保持紧贴月球轮廓。
   if (label.id === 'moon') {
-    return { opacity: label.opacity, transform: `translate(calc(${label.x - 58}px - 50%), ${label.y - label.radiusPx - 42}px)` }
+    return { opacity: label.opacity, transform: `translate(calc(${label.x - 24}px - 50%), ${label.y - label.radiusPx - 18}px)` }
   }
   const offset = label.radiusPx + 14
   return { opacity: label.opacity, transform: `translate(calc(${label.x + offset * LABEL_OFFSET_X}px - 50%), ${label.y + offset * LABEL_OFFSET_Y}px)` }
@@ -189,13 +246,27 @@ onMounted(() => {
       },
       onSelect: choosePlanet,
       onFlyZoom: () => {
-        if (moonFlight) emit('moon-fly-zoom')
-        else if (marsFlight) emit('mars-fly-zoom')
+        if (flightPlanet === 'moon') emit('moon-fly-zoom')
+        else if (flightPlanet === 'mars') emit('mars-fly-zoom')
+        else if (flightPlanet === 'venus') emit('venus-fly-zoom')
+        else if (flightPlanet === 'saturn') emit('saturn-fly-zoom')
+        else if (flightPlanet === 'jupiter') emit('jupiter-fly-zoom')
+        else if (flightPlanet === 'mercury') emit('mercury-fly-zoom')
+        else if (flightPlanet === 'uranus') emit('uranus-fly-zoom')
+        else if (flightPlanet === 'neptune') emit('neptune-fly-zoom')
+        else if (flightPlanet === 'sun') emit('sun-fly-zoom')
         else emit('earth-fly-zoom')
       },
       onFlyComplete: () => {
-        if (moonFlight) emit('select-moon')
-        else if (marsFlight) emit('select-mars')
+        if (flightPlanet === 'moon') emit('select-moon')
+        else if (flightPlanet === 'mars') emit('select-mars')
+        else if (flightPlanet === 'venus') emit('select-venus')
+        else if (flightPlanet === 'saturn') emit('select-saturn')
+        else if (flightPlanet === 'jupiter') emit('select-jupiter')
+        else if (flightPlanet === 'mercury') emit('select-mercury')
+        else if (flightPlanet === 'uranus') emit('select-uranus')
+        else if (flightPlanet === 'neptune') emit('select-neptune')
+        else if (flightPlanet === 'sun') emit('select-sun')
         else emit('select-earth')
       },
     },
@@ -205,7 +276,28 @@ onMounted(() => {
   )
   // 会话记忆：上次是"真实公转位置"模式则直接恢复（无动画）；刷新/首次访问为默认排布
   if (!alignedPositions.value) scene.setRealPositions()
-  if (props.enterFromMars) {
+  if (props.enterFromSun) {
+    // 从太阳页面返回：镜头从太阳近景拉回默认构图（太阳缩回太阳系）
+    scene.flyFromSun()
+  } else if (props.enterFromMercury) {
+    // 从水星页面返回：镜头从水星近景拉回默认构图（水星缩回太阳系）
+    scene.flyFromMercury()
+  } else if (props.enterFromUranus) {
+    // 从天王星页面返回：镜头从天王星近景拉回默认构图（天王星缩回太阳系）
+    scene.flyFromUranus()
+  } else if (props.enterFromNeptune) {
+    // 从海王星页面返回：镜头从海王星近景拉回默认构图（海王星缩回太阳系）
+    scene.flyFromNeptune()
+  } else if (props.enterFromVenus) {
+    // 从金星页面返回：镜头从金星近景拉回默认构图（金星缩回太阳系）
+    scene.flyFromVenus()
+  } else if (props.enterFromSaturn) {
+    // 从土星页面返回：镜头从土星近景拉回默认构图（土星缩回太阳系）
+    scene.flyFromSaturn()
+  } else if (props.enterFromJupiter) {
+    // 从木星页面返回：镜头从木星近景拉回默认构图（木星缩回太阳系）
+    scene.flyFromJupiter()
+  } else if (props.enterFromMars) {
     // 从火星页面返回：镜头从火星近景拉回默认构图（火星缩回太阳系）
     scene.flyFromMars()
   } else if (props.enterFromMoon) {
@@ -276,6 +368,13 @@ function onKeydown(event: KeyboardEvent) {
     if (activeId.value === 'earth') choosePlanet('earth')
     else if (activeId.value === 'moon') choosePlanet('moon')
     else if (activeId.value === 'mars') choosePlanet('mars')
+    else if (activeId.value === 'venus') choosePlanet('venus')
+    else if (activeId.value === 'saturn') choosePlanet('saturn')
+    else if (activeId.value === 'jupiter') choosePlanet('jupiter')
+    else if (activeId.value === 'mercury') choosePlanet('mercury')
+    else if (activeId.value === 'uranus') choosePlanet('uranus')
+    else if (activeId.value === 'neptune') choosePlanet('neptune')
+    else if (activeId.value === 'sun') choosePlanet('sun')
   }
 }
 
@@ -340,7 +439,11 @@ defineExpose({ resetView })
         class="solar-label sun-label"
         :class="{ active: activeId === 'sun' }"
         :style="sunLabelStyle(sunLabel)"
-        aria-hidden="true"
+        role="button"
+        tabindex="0"
+        :aria-label="'进入太阳页面'"
+        @click="choosePlanet('sun')"
+        @keydown.enter="choosePlanet('sun')"
       >
         <strong>太阳</strong>
         <small>SUN</small>
@@ -503,11 +606,11 @@ defineExpose({ resetView })
   pointer-events: none;
 }
 .you-marker strong {
-  color: rgba(190, 232, 247, .82);
-  font: 500 7px var(--font-mono);
+  color: rgba(214, 240, 250, .95);
+  font: 600 9px var(--font-mono);
   letter-spacing: .14em;
   text-transform: uppercase;
-  text-shadow: 0 1px 6px rgba(0, 0, 0, .85);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, .9), 0 0 12px rgba(120, 200, 235, .45);
 }
 .you-marker svg { width: 22px; height: 13px; overflow: visible; }
 .you-marker path {

@@ -9,6 +9,7 @@ FORM: progressive observatory, the assigned seventh Operate structure; dense dat
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { CATALOG_PAGE_SIZE, LAUNCH_SITE_PAGE_SIZE } from './catalog'
 import { bilingualName } from './bilingual'
+import { JUPITER_PAGE, MERCURY_PAGE, NEPTUNE_PAGE, SATURN_PAGE, SUN_PAGE, URANUS_PAGE, VENUS_PAGE } from './planetPages'
 import AuroraCover from './components/AuroraCover.vue'
 import SolarSystemItem from './components/SolarSystemItem.vue'
 import { fetchOrbitOverview, fetchSpacecraftCatalog } from './api'
@@ -24,10 +25,12 @@ const loadOrbitScene = () => import('./components/OrbitScene.vue')
 const loadSolarSystem = () => import('./components/SolarSystem.vue')
 const loadMoonScene = () => import('./components/MoonScene.vue')
 const loadMarsScene = () => import('./components/MarsScene.vue')
+const loadPlanetScene = () => import('./components/PlanetScene.vue')
 const OrbitScene = defineAsyncComponent({ loader: loadOrbitScene, suspensible: false })
 const SolarSystem = defineAsyncComponent({ loader: loadSolarSystem, suspensible: false })
 const MoonScene = defineAsyncComponent({ loader: loadMoonScene, suspensible: false })
 const MarsScene = defineAsyncComponent({ loader: loadMarsScene, suspensible: false })
+const PlanetScene = defineAsyncComponent({ loader: loadPlanetScene, suspensible: false })
 
 type ObserverLocationStatus = 'locating' | 'located' | 'fallback'
 
@@ -53,7 +56,7 @@ const observerFocusRevision = ref(0)
 const observerViewActive = ref(false)
 let observerLocationRequested = false
 const dayNightEnabled = ref(false)
-type AppSurface = 'cover' | 'solar-system' | 'orbit' | 'moon' | 'mars'
+type AppSurface = 'cover' | 'solar-system' | 'orbit' | 'moon' | 'mars' | 'mercury' | 'venus' | 'saturn' | 'jupiter' | 'uranus' | 'neptune' | 'sun'
 
 // 初始页面：纯 hash 决定（无 hash = 首页；#earth/#moon/#solar-system = 对应页）。
 // 不用 sessionStorage 恢复——打开网站应总是首页（上次会话的页面残留会导致"打开就是 #solar-system"）
@@ -88,12 +91,26 @@ watch(headerExpanded, animateToolbarShift, { immediate: true })
 const orbitPageActive = ref(true)
 const moonPageActive = ref(true)
 const marsPageActive = ref(true)
+const venusPageActive = ref(true)
+const saturnPageActive = ref(true)
+const jupiterPageActive = ref(true)
+const mercuryPageActive = ref(true)
+const uranusPageActive = ref(true)
+const neptunePageActive = ref(true)
+const sunPageActive = ref(true)
 
-/** 页头可收起逻辑当前是否生效（地球主视图 / 月球页 / 火星页） */
+/** 页头可收起逻辑当前是否生效（地球主视图 / 月球页 / 火星页 / 金星土星木星页） */
 function collapsibleHeaderActive() {
   if (surface.value === 'orbit') return orbitPageActive.value
   if (surface.value === 'moon') return moonPageActive.value
   if (surface.value === 'mars') return marsPageActive.value
+  if (surface.value === 'venus') return venusPageActive.value
+  if (surface.value === 'saturn') return saturnPageActive.value
+  if (surface.value === 'jupiter') return jupiterPageActive.value
+  if (surface.value === 'mercury') return mercuryPageActive.value
+  if (surface.value === 'uranus') return uranusPageActive.value
+  if (surface.value === 'neptune') return neptunePageActive.value
+  if (surface.value === 'sun') return sunPageActive.value
   return false
 }
 const orbitSectionLeaving = ref(false)
@@ -116,6 +133,13 @@ watch(orbitRevealTick, (tick) => {
 const solarEnterFromOrbit = ref(false)
 const solarEnterFromMoon = ref(false)
 const solarEnterFromMars = ref(false)
+const solarEnterFromVenus = ref(false)
+const solarEnterFromSaturn = ref(false)
+const solarEnterFromJupiter = ref(false)
+const solarEnterFromMercury = ref(false)
+const solarEnterFromUranus = ref(false)
+const solarEnterFromNeptune = ref(false)
+const solarEnterFromSun = ref(false)
 /** 月球页面"进入边界"信号：遮罩开始淡出时递增，MoonScene 据此渐亮 */
 const moonRevealTick = ref(0)
 /** 从太阳系进入月球：true 时月球页从"纯月球"开始分阶段揭示 */
@@ -128,6 +152,28 @@ const marsRevealTick = ref(0)
 const marsEnterFromSolar = ref(false)
 /** 返回太阳系：true 时火星页清空火星以外元素（只留球体） */
 const marsLeaving = ref(false)
+/** 金星/土星/木星页（共享 PlanetScene 组件）：状态三件套 ×3 */
+const venusRevealTick = ref(0)
+const venusEnterFromSolar = ref(false)
+const venusLeaving = ref(false)
+const saturnRevealTick = ref(0)
+const saturnEnterFromSolar = ref(false)
+const saturnLeaving = ref(false)
+const jupiterRevealTick = ref(0)
+const jupiterEnterFromSolar = ref(false)
+const jupiterLeaving = ref(false)
+const mercuryRevealTick = ref(0)
+const mercuryEnterFromSolar = ref(false)
+const mercuryLeaving = ref(false)
+const uranusRevealTick = ref(0)
+const uranusEnterFromSolar = ref(false)
+const uranusLeaving = ref(false)
+const neptuneRevealTick = ref(0)
+const neptuneEnterFromSolar = ref(false)
+const neptuneLeaving = ref(false)
+const sunRevealTick = ref(0)
+const sunEnterFromSolar = ref(false)
+const sunLeaving = ref(false)
 const siteHeader = ref<HTMLElement | null>(null)
 const orbitSection = ref<HTMLElement | null>(null)
 const orbitSceneFrame = ref<HTMLElement | null>(null)
@@ -191,10 +237,24 @@ const solarFlyDelay = ref(0)
 const orbitSceneReadyFlag = ref(false)
 const moonSceneReadyFlag = ref(false)
 const marsSceneReadyFlag = ref(false)
+const venusSceneReadyFlag = ref(false)
+const saturnSceneReadyFlag = ref(false)
+const jupiterSceneReadyFlag = ref(false)
+const mercurySceneReadyFlag = ref(false)
+const uranusSceneReadyFlag = ref(false)
+const neptuneSceneReadyFlag = ref(false)
+const sunSceneReadyFlag = ref(false)
 /** 等待组件就绪后再渐亮的回调（onEarthSelect/onMoonSelect/onMarsSelect 注册，组件信号或超时触发） */
 let pendingOrbitReveal: (() => void) | null = null
 let pendingMoonReveal: (() => void) | null = null
 let pendingMarsReveal: (() => void) | null = null
+let pendingVenusReveal: (() => void) | null = null
+let pendingSaturnReveal: (() => void) | null = null
+let pendingJupiterReveal: (() => void) | null = null
+let pendingMercuryReveal: (() => void) | null = null
+let pendingUranusReveal: (() => void) | null = null
+let pendingNeptuneReveal: (() => void) | null = null
+let pendingSunReveal: (() => void) | null = null
 /** 封面路径进入时播放入场推镜；刷新/直接加载不播（静态恢复现场） */
 const solarEntryFly = ref(false)
 const shellZoom = ref(1)
@@ -241,6 +301,7 @@ function preloadSurfaceComponent(target: AppSurface) {
   else if (target === 'orbit') void loadOrbitScene()
   else if (target === 'moon') void loadMoonScene()
   else if (target === 'mars') void loadMarsScene()
+  else if (target === 'venus' || target === 'saturn' || target === 'jupiter' || target === 'mercury' || target === 'uranus' || target === 'neptune') void loadPlanetScene()
 }
 
 /** 取消进行中的过渡（含定时器与动画帧），恢复无过渡状态 */
@@ -264,9 +325,23 @@ function cancelPendingTransition() {
   orbitSectionLeaving.value = false
   moonLeaving.value = false
   marsLeaving.value = false
+  venusLeaving.value = false
+  saturnLeaving.value = false
+  jupiterLeaving.value = false
+  mercuryLeaving.value = false
+  uranusLeaving.value = false
+  neptuneLeaving.value = false
+  sunLeaving.value = false
   pendingOrbitReveal = null
   pendingMoonReveal = null
   pendingMarsReveal = null
+  pendingVenusReveal = null
+  pendingSaturnReveal = null
+  pendingJupiterReveal = null
+  pendingMercuryReveal = null
+  pendingUranusReveal = null
+  pendingNeptuneReveal = null
+  pendingSunReveal = null
   suppressHeaderReveal = false // 中止返回：页头恢复可 hover 唤回（保持收起态，与正常 orbit 行为一致）
 }
 
@@ -321,6 +396,13 @@ function surfaceFromHash(): AppSurface {
   if (window.location.hash === '#solar-system') return 'solar-system'
   if (['#moon', '#moon-scene', '#moon-objects', '#moon-sites'].includes(window.location.hash)) return 'moon'
   if (['#mars', '#mars-scene', '#mars-objects', '#mars-sites'].includes(window.location.hash)) return 'mars'
+  if (['#venus', '#venus-scene', '#venus-profile'].includes(window.location.hash)) return 'venus'
+  if (['#saturn', '#saturn-scene', '#saturn-profile'].includes(window.location.hash)) return 'saturn'
+  if (['#jupiter', '#jupiter-scene', '#jupiter-profile'].includes(window.location.hash)) return 'jupiter'
+  if (['#mercury', '#mercury-scene', '#mercury-profile'].includes(window.location.hash)) return 'mercury'
+  if (['#uranus', '#uranus-scene', '#uranus-profile'].includes(window.location.hash)) return 'uranus'
+  if (['#neptune', '#neptune-scene', '#neptune-profile'].includes(window.location.hash)) return 'neptune'
+  if (['#sun', '#sun-scene', '#sun-profile'].includes(window.location.hash)) return 'sun'
   if (['#earth', '#objects', '#sites', '#launches'].includes(window.location.hash)) return 'orbit'
   return 'cover'
 }
@@ -611,7 +693,14 @@ async function setSurface(nextSurface: AppSurface) {
     ? 'AURORA'
     : nextSurface === 'solar-system' ? 'AURORA · 太阳系'
     : nextSurface === 'moon' ? 'AURORA · MOON'
-    : nextSurface === 'mars' ? 'AURORA · MARS' : 'AURORA · EARTH'
+    : nextSurface === 'mars' ? 'AURORA · MARS'
+    : nextSurface === 'venus' ? 'AURORA · VENUS'
+    : nextSurface === 'saturn' ? 'AURORA · SATURN'
+    : nextSurface === 'jupiter' ? 'AURORA · JUPITER'
+    : nextSurface === 'mercury' ? 'AURORA · MERCURY'
+    : nextSurface === 'uranus' ? 'AURORA · URANUS'
+    : nextSurface === 'neptune' ? 'AURORA · NEPTUNE'
+    : nextSurface === 'sun' ? 'AURORA · SUN' : 'AURORA · EARTH'
   if (nextSurface === 'orbit') {
     void ensureOrbitOverview()
     void loadCatalogPage()
@@ -627,6 +716,16 @@ async function setSurface(nextSurface: AppSurface) {
   } else if (nextSurface === 'mars') {
     marsPageActive.value = true
     headerExpanded.value = false // 火星页同样默认收起页头
+  } else if (nextSurface === 'venus' || nextSurface === 'saturn' || nextSurface === 'jupiter' || nextSurface === 'mercury' || nextSurface === 'uranus' || nextSurface === 'neptune' || nextSurface === 'sun') {
+    // 金星/土星/木星/水星/天王星/海王星/太阳页：默认收起页头（与月球/火星一致）
+    if (nextSurface === 'venus') venusPageActive.value = true
+    else if (nextSurface === 'saturn') saturnPageActive.value = true
+    else if (nextSurface === 'jupiter') jupiterPageActive.value = true
+    else if (nextSurface === 'mercury') mercuryPageActive.value = true
+    else if (nextSurface === 'uranus') uranusPageActive.value = true
+    else if (nextSurface === 'neptune') neptunePageActive.value = true
+    else sunPageActive.value = true
+    headerExpanded.value = false
   } else {
     headerExpanded.value = true
     suppressHeaderReveal = false // 切到太阳系/封面：页头恢复正常唤回
@@ -634,7 +733,7 @@ async function setSurface(nextSurface: AppSurface) {
   await nextTick()
   window.scrollTo({ top: 0, behavior: 'instant' })
   updateActivePage()
-  if (nextSurface === 'orbit' || nextSurface === 'moon' || nextSurface === 'mars') scheduleHeaderCollapse()
+  if (nextSurface === 'orbit' || nextSurface === 'moon' || nextSurface === 'mars' || nextSurface === 'venus' || nextSurface === 'saturn' || nextSurface === 'jupiter' || nextSurface === 'mercury' || nextSurface === 'uranus' || nextSurface === 'neptune' || nextSurface === 'sun') scheduleHeaderCollapse()
   else clearHeaderIdleTimer()
 }
 
@@ -651,9 +750,44 @@ function enterSolarSystem() {
     enterSolarSystemFromMars()
     return
   }
+  if (surface.value === 'venus') {
+    enterSolarSystemFromVenus()
+    return
+  }
+  if (surface.value === 'saturn') {
+    enterSolarSystemFromSaturn()
+    return
+  }
+  if (surface.value === 'jupiter') {
+    enterSolarSystemFromJupiter()
+    return
+  }
+  if (surface.value === 'mercury') {
+    enterSolarSystemFromMercury()
+    return
+  }
+  if (surface.value === 'uranus') {
+    enterSolarSystemFromUranus()
+    return
+  }
+  if (surface.value === 'neptune') {
+    enterSolarSystemFromNeptune()
+    return
+  }
+  if (surface.value === 'sun') {
+    enterSolarSystemFromSun()
+    return
+  }
   solarEnterFromOrbit.value = false
   solarEnterFromMoon.value = false // 封面进入：两个来源标志都清空
   solarEnterFromMars.value = false // 封面进入：火星来源标志同样清空
+  solarEnterFromVenus.value = false
+  solarEnterFromSaturn.value = false
+  solarEnterFromJupiter.value = false
+  solarEnterFromMercury.value = false
+  solarEnterFromUranus.value = false
+  solarEnterFromNeptune.value = false
+  solarEnterFromSun.value = false
   window.history.pushState(null, '', '#solar-system')
   preloadSurfaceComponent('solar-system')
   preloadSolarTextures()
@@ -713,6 +847,13 @@ function returnToSolarSystem(skipPush = false) {
   if (surface.value === 'orbit') enterSolarSystemFromOrbit(skipPush)
   else if (surface.value === 'moon') enterSolarSystemFromMoon(skipPush)
   else if (surface.value === 'mars') enterSolarSystemFromMars(skipPush)
+  else if (surface.value === 'venus') enterSolarSystemFromVenus(skipPush)
+  else if (surface.value === 'saturn') enterSolarSystemFromSaturn(skipPush)
+  else if (surface.value === 'jupiter') enterSolarSystemFromJupiter(skipPush)
+  else if (surface.value === 'mercury') enterSolarSystemFromMercury(skipPush)
+  else if (surface.value === 'uranus') enterSolarSystemFromUranus(skipPush)
+  else if (surface.value === 'neptune') enterSolarSystemFromNeptune(skipPush)
+  else if (surface.value === 'sun') enterSolarSystemFromSun(skipPush)
 }
 
 /** ORBIT → 太阳系（skipPush = 浏览器返回路径，hash 已是目标不重复入栈） */
@@ -731,6 +872,9 @@ function enterSolarSystemFromOrbit(skipPush = false) {
   solarEnterFromOrbit.value = true
   solarEnterFromMoon.value = false // 关键：清空月球来源遗留——否则 SolarSystem 误执行 flyFromMoon（起点=放大月球）
   solarEnterFromMars.value = false // 清空火星来源遗留（同理）
+  solarEnterFromVenus.value = false // 清空金星来源遗留（同理）
+  solarEnterFromSaturn.value = false // 清空土星来源遗留（同理）
+  solarEnterFromJupiter.value = false // 清空木星来源遗留（同理）
   // 阶段 2：变暗，盖住地球界面
   transitionTimer = window.setTimeout(() => {
     if (surfaceFromHash() !== 'solar-system') {
@@ -765,7 +909,7 @@ function enterOrbit() {
 }
 
 function returnToCover(skipPush = false) {
-  if (surface.value === 'orbit' || surface.value === 'moon' || surface.value === 'mars') {
+  if (surface.value === 'orbit' || surface.value === 'moon' || surface.value === 'mars' || surface.value === 'venus' || surface.value === 'saturn' || surface.value === 'jupiter' || surface.value === 'mercury' || surface.value === 'uranus' || surface.value === 'neptune' || surface.value === 'sun') {
     exitPlanetToCover(skipPush) // 行星界面：完整退出动画（栏目淡出 → 裸星球 → 渐暗 → 封面）
     return
   }
@@ -780,10 +924,24 @@ function exitPlanetToCover(skipPush = false) {
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   const fromMoon = surface.value === 'moon'
   const fromMars = surface.value === 'mars'
+  const fromVenus = surface.value === 'venus'
+  const fromSaturn = surface.value === 'saturn'
+  const fromJupiter = surface.value === 'jupiter'
+  const fromMercury = surface.value === 'mercury'
+  const fromUranus = surface.value === 'uranus'
+  const fromNeptune = surface.value === 'neptune'
+  const fromSun = surface.value === 'sun'
   // 阶段 1：滚回主视图 + 信息/栏目淡出（页头随之上滑），只留裸星球
   window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' })
   if (fromMoon) moonLeaving.value = true
   else if (fromMars) marsLeaving.value = true
+  else if (fromVenus) venusLeaving.value = true
+  else if (fromSaturn) saturnLeaving.value = true
+  else if (fromJupiter) jupiterLeaving.value = true
+  else if (fromMercury) mercuryLeaving.value = true
+  else if (fromUranus) uranusLeaving.value = true
+  else if (fromNeptune) neptuneLeaving.value = true
+  else if (fromSun) sunLeaving.value = true
   else orbitSectionLeaving.value = true
   headerExpanded.value = false
   suppressHeaderReveal = true
@@ -803,6 +961,13 @@ function exitPlanetToCover(skipPush = false) {
       }
       if (fromMoon) moonLeaving.value = false
       else if (fromMars) marsLeaving.value = false
+      else if (fromVenus) venusLeaving.value = false
+      else if (fromSaturn) saturnLeaving.value = false
+      else if (fromJupiter) jupiterLeaving.value = false
+      else if (fromMercury) mercuryLeaving.value = false
+      else if (fromUranus) uranusLeaving.value = false
+      else if (fromNeptune) neptuneLeaving.value = false
+      else if (fromSun) sunLeaving.value = false
       else orbitSectionLeaving.value = false
       void setSurface('cover')
       requestAnimationFrame(() => {
@@ -811,7 +976,7 @@ function exitPlanetToCover(skipPush = false) {
       })
       transitionTimer = undefined
     })
-  }, reduced ? 20 : ((fromMoon || fromMars) ? 450 : 420))
+  }, reduced ? 20 : ((fromMoon || fromMars || fromVenus || fromSaturn || fromJupiter || fromMercury || fromUranus || fromNeptune || fromSun) ? 450 : 420))
 }
 
 // ---- 太阳系 → 地球：镜头在太阳系内放大地球 → 变暗 → 切页 ----
@@ -977,6 +1142,137 @@ function onMarsSceneReady() {
   if (pendingMarsReveal) pendingMarsReveal()
 }
 
+// ---- 金星/土星/木星（共享 PlanetScene 组件）：与月球/火星同款 fly-start → fly-zoom → select 链路 ----
+
+/** 外行星（水星/金星/土星/木星/天王星/海王星）共享的太阳系进入处理器（fly 链路 + reveal 信号）。
+ *  数据驱动：每颗行星的 ref 状态（enterFromSolar/leaving/revealTick/readyFlag/pendingReveal）由注册表提供，
+ *  模板绑定只引用最终的 onXxxFlyStart/onXxxFlyZoom/onXxxSelect/onXxxSceneReady。 */
+type OuterPlanetKey2 = 'mercury' | 'venus' | 'saturn' | 'jupiter' | 'uranus' | 'neptune' | 'sun'
+
+/** 读取某颗外行星的 pending reveal 回调（let 变量无法按引用传递，用 key 分发） */
+function getPendingReveal(key: OuterPlanetKey2): (() => void) | null {
+  if (key === 'mercury') return pendingMercuryReveal
+  if (key === 'venus') return pendingVenusReveal
+  if (key === 'saturn') return pendingSaturnReveal
+  if (key === 'jupiter') return pendingJupiterReveal
+  if (key === 'uranus') return pendingUranusReveal
+  if (key === 'neptune') return pendingNeptuneReveal
+  return pendingSunReveal
+}
+
+/** 设置某颗外行星的 pending reveal 回调 */
+function setPendingReveal(key: OuterPlanetKey2, fn: (() => void) | null) {
+  if (key === 'mercury') pendingMercuryReveal = fn
+  else if (key === 'venus') pendingVenusReveal = fn
+  else if (key === 'saturn') pendingSaturnReveal = fn
+  else if (key === 'jupiter') pendingJupiterReveal = fn
+  else if (key === 'uranus') pendingUranusReveal = fn
+  else if (key === 'neptune') pendingNeptuneReveal = fn
+  else pendingSunReveal = fn
+}
+
+/** 太阳系来源标志（SolarSystem 据此恢复初始选中）：置当前行星 true，其余全部清空 */
+function setSolarEnterFromOuter(key: OuterPlanetKey2) {
+  solarEnterFromMercury.value = key === 'mercury'
+  solarEnterFromVenus.value = key === 'venus'
+  solarEnterFromSaturn.value = key === 'saturn'
+  solarEnterFromJupiter.value = key === 'jupiter'
+  solarEnterFromUranus.value = key === 'uranus'
+  solarEnterFromNeptune.value = key === 'neptune'
+  solarEnterFromSun.value = key === 'sun'
+}
+
+function createOuterPlanetHandlers(key: OuterPlanetKey2) {
+  const enterFromSolar = { mercury: mercuryEnterFromSolar, venus: venusEnterFromSolar, saturn: saturnEnterFromSolar, jupiter: jupiterEnterFromSolar, uranus: uranusEnterFromSolar, neptune: neptuneEnterFromSolar, sun: sunEnterFromSolar }[key]
+  const leaving = { mercury: mercuryLeaving, venus: venusLeaving, saturn: saturnLeaving, jupiter: jupiterLeaving, uranus: uranusLeaving, neptune: neptuneLeaving, sun: sunLeaving }[key]
+  const revealTick = { mercury: mercuryRevealTick, venus: venusRevealTick, saturn: saturnRevealTick, jupiter: jupiterRevealTick, uranus: uranusRevealTick, neptune: neptuneRevealTick, sun: sunRevealTick }[key]
+  const readyFlag = { mercury: mercurySceneReadyFlag, venus: venusSceneReadyFlag, saturn: saturnSceneReadyFlag, jupiter: jupiterSceneReadyFlag, uranus: uranusSceneReadyFlag, neptune: neptuneSceneReadyFlag, sun: sunSceneReadyFlag }[key]
+
+  const onFlyStart = () => {
+    window.history.pushState(null, '', `#${key}`)
+    cancelPendingTransition()
+    preloadSurfaceComponent(key)
+    enterFromSolar.value = true
+    leaving.value = false
+  }
+
+  const onFlyZoom = () => {
+    if (surface.value === key) return
+    const generation = navigationGeneration
+    veilDuration.value = '0.22s'
+    veilActive.value = true
+    scheduleForNavigation(generation, () => onSelect(generation), 800)
+  }
+
+  const onSelect = (generation = navigationGeneration) => {
+    if (!isCurrentNavigation(generation) || surface.value !== 'solar-system') return
+    veilActive.value = true
+    setSolarEnterFromOuter(key)
+    void setSurface(key)
+    let revealDone = false
+    const reveal = () => {
+      if (revealDone || !isCurrentNavigation(generation) || surface.value !== key) return
+      revealDone = true
+      setPendingReveal(key, null)
+      requestAnimationFrame(() => {
+        veilDuration.value = '0.3s'
+        veilActive.value = false
+        revealTick.value += 1
+      })
+    }
+    if (readyFlag.value) reveal()
+    else {
+      setPendingReveal(key, reveal)
+      scheduleForNavigation(generation, reveal, 3000)
+    }
+  }
+
+  const onSceneReady = () => {
+    readyFlag.value = true
+    const pending = getPendingReveal(key)
+    if (pending) pending()
+  }
+
+  return { onFlyStart, onFlyZoom, onSelect, onSceneReady, surface: key }
+}
+
+const mercuryHandlers = createOuterPlanetHandlers('mercury')
+const venusHandlers = createOuterPlanetHandlers('venus')
+const saturnHandlers = createOuterPlanetHandlers('saturn')
+const jupiterHandlers = createOuterPlanetHandlers('jupiter')
+const uranusHandlers = createOuterPlanetHandlers('uranus')
+const neptuneHandlers = createOuterPlanetHandlers('neptune')
+const sunHandlers = createOuterPlanetHandlers('sun')
+
+const onVenusFlyStart = venusHandlers.onFlyStart
+const onVenusFlyZoom = venusHandlers.onFlyZoom
+const onVenusSelect = venusHandlers.onSelect
+const onVenusSceneReady = venusHandlers.onSceneReady
+const onSaturnFlyStart = saturnHandlers.onFlyStart
+const onSaturnFlyZoom = saturnHandlers.onFlyZoom
+const onSaturnSelect = saturnHandlers.onSelect
+const onSaturnSceneReady = saturnHandlers.onSceneReady
+const onJupiterFlyStart = jupiterHandlers.onFlyStart
+const onJupiterFlyZoom = jupiterHandlers.onFlyZoom
+const onJupiterSelect = jupiterHandlers.onSelect
+const onJupiterSceneReady = jupiterHandlers.onSceneReady
+const onMercuryFlyStart = mercuryHandlers.onFlyStart
+const onMercuryFlyZoom = mercuryHandlers.onFlyZoom
+const onMercurySelect = mercuryHandlers.onSelect
+const onMercurySceneReady = mercuryHandlers.onSceneReady
+const onUranusFlyStart = uranusHandlers.onFlyStart
+const onUranusFlyZoom = uranusHandlers.onFlyZoom
+const onUranusSelect = uranusHandlers.onSelect
+const onUranusSceneReady = uranusHandlers.onSceneReady
+const onNeptuneFlyStart = neptuneHandlers.onFlyStart
+const onNeptuneFlyZoom = neptuneHandlers.onFlyZoom
+const onNeptuneSelect = neptuneHandlers.onSelect
+const onNeptuneSceneReady = neptuneHandlers.onSceneReady
+const onSunFlyStart = sunHandlers.onFlyStart
+const onSunFlyZoom = sunHandlers.onFlyZoom
+const onSunSelect = sunHandlers.onSelect
+const onSunSceneReady = sunHandlers.onSceneReady
+
 /** 火星 → 太阳系（skipPush = 浏览器返回路径） */
 function enterSolarSystemFromMars(skipPush = false) {
   if (!skipPush) window.history.pushState(null, '', '#solar-system')
@@ -987,6 +1283,9 @@ function enterSolarSystemFromMars(skipPush = false) {
   solarEnterFromMars.value = true
   solarEnterFromOrbit.value = false // 清空地球来源遗留
   solarEnterFromMoon.value = false // 清空月球来源遗留
+  solarEnterFromVenus.value = false // 清空金星来源遗留
+  solarEnterFromSaturn.value = false // 清空土星来源遗留
+  solarEnterFromJupiter.value = false // 清空木星来源遗留
   // 阶段 1：滚回火星主视图 + 清空火星以外的所有元素（标记/飞行器/标签），只留火星球体；
   // 页头若展开则随之上滑消失（与地球/月球返回一致），过渡期间 hover 不唤回
   window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' })
@@ -1013,6 +1312,79 @@ function enterSolarSystemFromMars(skipPush = false) {
   }, reduced ? 20 : 450)
 }
 
+/** 外行星页（金星/土星/木星/水星/天王星/海王星）→ 太阳系（skipPush = 浏览器返回路径） */
+function enterSolarSystemFromOuterPlanet(key: 'venus' | 'saturn' | 'jupiter' | 'mercury' | 'uranus' | 'neptune' | 'sun', skipPush = false) {
+  if (!skipPush) window.history.pushState(null, '', '#solar-system')
+  preloadSurfaceComponent('solar-system')
+  preloadSolarTextures()
+  cancelPendingTransition()
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  // 来源标志：置当前行星 true，其余全部清空（SolarSystem 据此恢复初始选中）
+  setSolarEnterFromOuter(key)
+  solarEnterFromOrbit.value = false
+  solarEnterFromMoon.value = false
+  solarEnterFromMars.value = false
+  window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' })
+  const leavingRefs: Record<string, ReturnType<typeof ref<boolean>>> = {
+    venus: venusLeaving, saturn: saturnLeaving, jupiter: jupiterLeaving,
+    mercury: mercuryLeaving, uranus: uranusLeaving, neptune: neptuneLeaving, sun: sunLeaving,
+  }
+  leavingRefs[key].value = true
+  headerExpanded.value = false
+  suppressHeaderReveal = true
+  transitionTimer = window.setTimeout(() => {
+    veilDuration.value = reduced ? '0.01s' : '0.3s'
+    veilActive.value = true
+    waitUntilFullBlack(() => {
+      if (surfaceFromHash() !== 'solar-system') {
+        cancelPendingTransition()
+        return
+      }
+      void setSurface('solar-system')
+      requestAnimationFrame(() => {
+        veilDuration.value = reduced ? '0.01s' : '0.3s'
+        veilActive.value = false
+      })
+      transitionTimer = undefined
+    })
+  }, reduced ? 20 : 450)
+}
+
+/** 金星 → 太阳系（skipPush = 浏览器返回路径） */
+function enterSolarSystemFromVenus(skipPush = false) {
+  enterSolarSystemFromOuterPlanet('venus', skipPush)
+}
+
+/** 土星 → 太阳系（skipPush = 浏览器返回路径） */
+function enterSolarSystemFromSaturn(skipPush = false) {
+  enterSolarSystemFromOuterPlanet('saturn', skipPush)
+}
+
+/** 木星 → 太阳系（skipPush = 浏览器返回路径） */
+function enterSolarSystemFromJupiter(skipPush = false) {
+  enterSolarSystemFromOuterPlanet('jupiter', skipPush)
+}
+
+/** 水星 → 太阳系（skipPush = 浏览器返回路径） */
+function enterSolarSystemFromMercury(skipPush = false) {
+  enterSolarSystemFromOuterPlanet('mercury', skipPush)
+}
+
+/** 天王星 → 太阳系（skipPush = 浏览器返回路径） */
+function enterSolarSystemFromUranus(skipPush = false) {
+  enterSolarSystemFromOuterPlanet('uranus', skipPush)
+}
+
+/** 海王星 → 太阳系（skipPush = 浏览器返回路径） */
+function enterSolarSystemFromNeptune(skipPush = false) {
+  enterSolarSystemFromOuterPlanet('neptune', skipPush)
+}
+
+/** 太阳 → 太阳系（skipPush = 浏览器返回路径） */
+function enterSolarSystemFromSun(skipPush = false) {
+  enterSolarSystemFromOuterPlanet('sun', skipPush)
+}
+
 /** 月球 → 太阳系：渐暗 → 切页（太阳系从月球近景拉回）→ 渐亮 */
 /** 月球 → 太阳系（skipPush = 浏览器返回路径） */
 function enterSolarSystemFromMoon(skipPush = false) {
@@ -1024,6 +1396,9 @@ function enterSolarSystemFromMoon(skipPush = false) {
   solarEnterFromMoon.value = true
   solarEnterFromOrbit.value = false // 清空地球来源遗留
   solarEnterFromMars.value = false // 清空火星来源遗留
+  solarEnterFromVenus.value = false // 清空金星来源遗留
+  solarEnterFromSaturn.value = false // 清空土星来源遗留
+  solarEnterFromJupiter.value = false // 清空木星来源遗留
   // 阶段 1：滚回月球主视图 + 清空月球以外的所有元素（标记/飞行器/标签），只留月球球体；
   // 页头若展开则随之上滑消失（与地球返回一致），过渡期间 hover 不唤回
   window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' })
@@ -1111,6 +1486,25 @@ function collapseHeaderFromScene() {
 
 function updateActivePage() {
   pageSurfaceFrame = 0
+  if (surface.value === 'venus' || surface.value === 'saturn' || surface.value === 'jupiter' || surface.value === 'mercury' || surface.value === 'uranus' || surface.value === 'neptune' || surface.value === 'sun') {
+    // 主视图 = #<planet>-profile（第一个板块）顶部仍在视口下半区；滑到第一个板块即展开页头
+    const planetKey = surface.value
+    const profileSection = document.getElementById(`${planetKey}-profile`)
+    const profileTop = profileSection?.getBoundingClientRect().top ?? window.innerHeight
+    const nextPageActive = profileTop > window.innerHeight / 2
+    const activeRef = planetKey === 'venus' ? venusPageActive : planetKey === 'saturn' ? saturnPageActive
+      : planetKey === 'jupiter' ? jupiterPageActive : planetKey === 'mercury' ? mercuryPageActive
+      : planetKey === 'uranus' ? uranusPageActive : planetKey === 'neptune' ? neptunePageActive : sunPageActive
+    if (nextPageActive === activeRef.value) {
+      if (activeRef.value && headerExpanded.value) scheduleHeaderCollapse()
+      return
+    }
+    activeRef.value = nextPageActive
+    clearHeaderIdleTimer()
+    headerExpanded.value = !nextPageActive
+    if (activeRef.value && headerExpanded.value) scheduleHeaderCollapse()
+    return
+  }
   if (surface.value === 'moon') {
     // 主视图 = #moon-objects（第一个板块）顶部仍在视口下半区；滑到第一个板块即展开页头
     const moonObjects = document.getElementById('moon-objects')
@@ -1127,8 +1521,8 @@ function updateActivePage() {
     return
   }
   if (surface.value === 'mars') {
-    // 主视图 = #mars-objects（第一个板块）顶部仍在视口下半区；滑到第一个板块即展开页头
-    const marsObjects = document.getElementById('mars-objects')
+    // 主视图 = #mars-profile（第一个板块）顶部仍在视口下半区；滑到第一个板块即展开页头
+    const marsObjects = document.getElementById('mars-profile')
     const objectsTop = marsObjects?.getBoundingClientRect().top ?? window.innerHeight
     const nextMarsPageActive = objectsTop > window.innerHeight / 2
     if (nextMarsPageActive === marsPageActive.value) {
@@ -1217,6 +1611,13 @@ function onPopState() {
     if (surface.value === 'orbit') enterSolarSystemFromOrbit(true)
     else if (surface.value === 'moon') enterSolarSystemFromMoon(true)
     else if (surface.value === 'mars') enterSolarSystemFromMars(true)
+    else if (surface.value === 'venus') enterSolarSystemFromVenus(true)
+    else if (surface.value === 'saturn') enterSolarSystemFromSaturn(true)
+    else if (surface.value === 'jupiter') enterSolarSystemFromJupiter(true)
+    else if (surface.value === 'mercury') enterSolarSystemFromMercury(true)
+    else if (surface.value === 'uranus') enterSolarSystemFromUranus(true)
+    else if (surface.value === 'neptune') enterSolarSystemFromNeptune(true)
+    else if (surface.value === 'sun') enterSolarSystemFromSun(true)
   } else if (target === 'cover') {
     returnToCover(true)
   } else if (target === 'orbit') {
@@ -1228,6 +1629,9 @@ function onPopState() {
   } else if (target === 'mars') {
     cancelPendingTransition()
     void setSurface('mars')
+  } else if (target === 'venus' || target === 'saturn' || target === 'jupiter' || target === 'mercury' || target === 'uranus' || target === 'neptune' || target === 'sun') {
+    cancelPendingTransition()
+    void setSurface(target)
   }
 }
 
@@ -1236,7 +1640,7 @@ function onGlobalKeydown(event: KeyboardEvent) {
   if (event.key !== 'Escape') return
   const target = event.target as HTMLElement | null
   if (target && ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName)) return
-  if (surface.value === 'orbit' || surface.value === 'moon' || surface.value === 'mars') {
+  if (surface.value === 'orbit' || surface.value === 'moon' || surface.value === 'mars' || surface.value === 'venus' || surface.value === 'saturn' || surface.value === 'jupiter' || surface.value === 'mercury' || surface.value === 'uranus' || surface.value === 'neptune' || surface.value === 'sun') {
     event.preventDefault()
     returnToSolarSystem()
   }
@@ -1261,13 +1665,23 @@ onMounted(() => {
   } else if (surface.value === 'mars') {
     preloadSurfaceComponent('mars')
     preloadMarsHdTexture()
+  } else if (surface.value === 'venus' || surface.value === 'saturn' || surface.value === 'jupiter' || surface.value === 'mercury' || surface.value === 'uranus' || surface.value === 'neptune' || surface.value === 'sun') {
+    preloadSurfaceComponent(surface.value)
+    preloadSolarTextures() // 纹理与太阳系同源（ALL_TEXTURE_URLS 已含），复用预热
   }
   if (surface.value === 'orbit') void loadCatalogPage()
   document.title = surface.value === 'cover'
     ? 'AURORA'
     : surface.value === 'solar-system' ? 'AURORA · 太阳系'
     : surface.value === 'moon' ? 'AURORA · MOON'
-    : surface.value === 'mars' ? 'AURORA · MARS' : 'AURORA · EARTH'
+    : surface.value === 'mars' ? 'AURORA · MARS'
+    : surface.value === 'venus' ? 'AURORA · VENUS'
+    : surface.value === 'saturn' ? 'AURORA · SATURN'
+    : surface.value === 'jupiter' ? 'AURORA · JUPITER'
+    : surface.value === 'mercury' ? 'AURORA · MERCURY'
+    : surface.value === 'uranus' ? 'AURORA · URANUS'
+    : surface.value === 'neptune' ? 'AURORA · NEPTUNE'
+    : surface.value === 'sun' ? 'AURORA · SUN' : 'AURORA · EARTH'
   updateActivePage()
   scheduleHeaderCollapse()
   window.addEventListener('pointermove', handleWindowPointerMove, { passive: true })
@@ -1310,7 +1724,7 @@ onBeforeUnmount(() => {
       @explore="enterSolarSystem"
     />
 
-    <div v-show="surface !== 'cover' || coverLingering" class="desktop-app" :class="{ 'header-collapsed': !headerExpanded, moon: surface === 'moon', mars: surface === 'mars' }">
+    <div v-show="surface !== 'cover' || coverLingering" class="desktop-app" :class="{ 'header-collapsed': !headerExpanded, moon: surface === 'moon', mars: surface === 'mars', venus: surface === 'venus', saturn: surface === 'saturn', jupiter: surface === 'jupiter', mercury: surface === 'mercury', uranus: surface === 'uranus', neptune: surface === 'neptune', sun: surface === 'sun' }">
       <header
         ref="siteHeader"
         class="site-header"
@@ -1328,7 +1742,7 @@ onBeforeUnmount(() => {
               <span class="brand-mark"><i /><i /><i /></span>
               <span><strong>AURORA</strong><small>ORBITAL OBSERVATORY</small></span>
             </a>
-            <SolarSystemItem v-if="surface === 'orbit' || surface === 'moon' || surface === 'mars'" title="太阳系" :icon-size="30" :animated="true" @click="enterSolarSystem" />
+            <SolarSystemItem v-if="surface === 'orbit' || surface === 'moon' || surface === 'mars' || surface === 'venus' || surface === 'saturn' || surface === 'jupiter' || surface === 'mercury' || surface === 'uranus' || surface === 'neptune' || surface === 'sun'" title="太阳系" :icon-size="30" :animated="true" @click="enterSolarSystem" />
           </div>
           <nav v-if="surface === 'orbit'" aria-label="页面导航">
             <a href="#earth"><i class="nav-num">Ⅰ</i>地球</a>
@@ -1343,8 +1757,37 @@ onBeforeUnmount(() => {
           </nav>
           <nav v-else-if="surface === 'mars'" aria-label="页面导航">
             <a href="#mars-scene"><i class="nav-num">Ⅰ</i>火星</a>
-            <a href="#mars-objects"><i class="nav-num">Ⅱ</i>航天器</a>
-            <a href="#mars-sites"><i class="nav-num">Ⅲ</i>着陆点</a>
+            <a href="#mars-profile"><i class="nav-num">Ⅱ</i>档案</a>
+            <a href="#mars-objects"><i class="nav-num">Ⅲ</i>航天器</a>
+            <a href="#mars-sites"><i class="nav-num">Ⅳ</i>着陆点</a>
+          </nav>
+          <nav v-else-if="surface === 'venus'" aria-label="页面导航">
+            <a href="#venus-scene"><i class="nav-num">Ⅰ</i>金星</a>
+            <a href="#venus-profile"><i class="nav-num">Ⅱ</i>档案</a>
+          </nav>
+          <nav v-else-if="surface === 'saturn'" aria-label="页面导航">
+            <a href="#saturn-scene"><i class="nav-num">Ⅰ</i>土星</a>
+            <a href="#saturn-profile"><i class="nav-num">Ⅱ</i>档案</a>
+          </nav>
+          <nav v-else-if="surface === 'jupiter'" aria-label="页面导航">
+            <a href="#jupiter-scene"><i class="nav-num">Ⅰ</i>木星</a>
+            <a href="#jupiter-profile"><i class="nav-num">Ⅱ</i>档案</a>
+          </nav>
+          <nav v-else-if="surface === 'mercury'" aria-label="页面导航">
+            <a href="#mercury-scene"><i class="nav-num">Ⅰ</i>水星</a>
+            <a href="#mercury-profile"><i class="nav-num">Ⅱ</i>档案</a>
+          </nav>
+          <nav v-else-if="surface === 'uranus'" aria-label="页面导航">
+            <a href="#uranus-scene"><i class="nav-num">Ⅰ</i>天王星</a>
+            <a href="#uranus-profile"><i class="nav-num">Ⅱ</i>档案</a>
+          </nav>
+          <nav v-else-if="surface === 'neptune'" aria-label="页面导航">
+            <a href="#neptune-scene"><i class="nav-num">Ⅰ</i>海王星</a>
+            <a href="#neptune-profile"><i class="nav-num">Ⅱ</i>档案</a>
+          </nav>
+          <nav v-else-if="surface === 'sun'" aria-label="页面导航">
+            <a href="#sun-scene"><i class="nav-num">Ⅰ</i>太阳</a>
+            <a href="#sun-profile"><i class="nav-num">Ⅱ</i>档案</a>
           </nav>
           <nav v-else-if="surface === 'solar-system'" aria-label="当前位置">
             <SolarSystemItem title="太阳系" :icon-size="30" :active="true" :animated="true" @click="solarSystemRef?.resetView?.()" />
@@ -1358,7 +1801,7 @@ onBeforeUnmount(() => {
             <strong>{{ timeOnly(now) }} UTC+8</strong>
           </div>
           <div v-else class="live-status solar-clock">
-            <span>{{ surface === 'moon' ? '月球 · MOON' : surface === 'mars' ? '火星 · MARS' : '地球 · EARTH' }}</span>
+            <span>{{ surface === 'moon' ? '月球 · MOON' : surface === 'mars' ? '火星 · MARS' : surface === 'venus' ? '金星 · VENUS' : surface === 'saturn' ? '土星 · SATURN' : surface === 'jupiter' ? '木星 · JUPITER' : surface === 'mercury' ? '水星 · MERCURY' : surface === 'uranus' ? '天王星 · URANUS' : surface === 'neptune' ? '海王星 · NEPTUNE' : surface === 'sun' ? '太阳 · SUN' : '地球 · EARTH' }}</span>
           </div>
         </div>
       </header>
@@ -1367,12 +1810,96 @@ onBeforeUnmount(() => {
 
       <MarsScene v-if="surface === 'mars'" :reveal-tick="marsRevealTick" :enter-from-solar="marsEnterFromSolar" :leaving="marsLeaving" :header-expanded="headerExpanded" @blank-click="collapseHeaderFromScene" @textures-ready="onMarsSceneReady" />
 
+      <PlanetScene
+        v-if="surface === 'venus'"
+        :planet="VENUS_PAGE"
+        :reveal-tick="venusRevealTick"
+        :enter-from-solar="venusEnterFromSolar"
+        :leaving="venusLeaving"
+        :header-expanded="headerExpanded"
+        @blank-click="collapseHeaderFromScene"
+        @textures-ready="onVenusSceneReady"
+      />
+
+      <PlanetScene
+        v-if="surface === 'saturn'"
+        :planet="SATURN_PAGE"
+        :reveal-tick="saturnRevealTick"
+        :enter-from-solar="saturnEnterFromSolar"
+        :leaving="saturnLeaving"
+        :header-expanded="headerExpanded"
+        @blank-click="collapseHeaderFromScene"
+        @textures-ready="onSaturnSceneReady"
+      />
+
+      <PlanetScene
+        v-if="surface === 'jupiter'"
+        :planet="JUPITER_PAGE"
+        :reveal-tick="jupiterRevealTick"
+        :enter-from-solar="jupiterEnterFromSolar"
+        :leaving="jupiterLeaving"
+        :header-expanded="headerExpanded"
+        @blank-click="collapseHeaderFromScene"
+        @textures-ready="onJupiterSceneReady"
+      />
+
+      <PlanetScene
+        v-if="surface === 'mercury'"
+        :planet="MERCURY_PAGE"
+        :reveal-tick="mercuryRevealTick"
+        :enter-from-solar="mercuryEnterFromSolar"
+        :leaving="mercuryLeaving"
+        :header-expanded="headerExpanded"
+        @blank-click="collapseHeaderFromScene"
+        @textures-ready="onMercurySceneReady"
+      />
+
+      <PlanetScene
+        v-if="surface === 'uranus'"
+        :planet="URANUS_PAGE"
+        :reveal-tick="uranusRevealTick"
+        :enter-from-solar="uranusEnterFromSolar"
+        :leaving="uranusLeaving"
+        :header-expanded="headerExpanded"
+        @blank-click="collapseHeaderFromScene"
+        @textures-ready="onUranusSceneReady"
+      />
+
+      <PlanetScene
+        v-if="surface === 'neptune'"
+        :planet="NEPTUNE_PAGE"
+        :reveal-tick="neptuneRevealTick"
+        :enter-from-solar="neptuneEnterFromSolar"
+        :leaving="neptuneLeaving"
+        :header-expanded="headerExpanded"
+        @blank-click="collapseHeaderFromScene"
+        @textures-ready="onNeptuneSceneReady"
+      />
+
+      <PlanetScene
+        v-if="surface === 'sun'"
+        :planet="SUN_PAGE"
+        :reveal-tick="sunRevealTick"
+        :enter-from-solar="sunEnterFromSolar"
+        :leaving="sunLeaving"
+        :header-expanded="headerExpanded"
+        @blank-click="collapseHeaderFromScene"
+        @textures-ready="onSunSceneReady"
+      />
+
       <SolarSystem
         ref="solarSystemRef"
         v-if="surface === 'solar-system'"
         :enter-from-orbit="solarEnterFromOrbit"
         :enter-from-moon="solarEnterFromMoon"
         :enter-from-mars="solarEnterFromMars"
+        :enter-from-venus="solarEnterFromVenus"
+        :enter-from-saturn="solarEnterFromSaturn"
+        :enter-from-jupiter="solarEnterFromJupiter"
+        :enter-from-mercury="solarEnterFromMercury"
+        :enter-from-uranus="solarEnterFromUranus"
+        :enter-from-neptune="solarEnterFromNeptune"
+        :enter-from-sun="solarEnterFromSun"
         :fly-delay="solarFlyDelay"
         :play-entry-fly="solarEntryFly"
         @select-earth="onEarthSelect"
@@ -1384,6 +1911,27 @@ onBeforeUnmount(() => {
         @mars-fly-start="onMarsFlyStart"
         @mars-fly-zoom="onMarsFlyZoom"
         @select-mars="onMarsSelect"
+        @venus-fly-start="onVenusFlyStart"
+        @venus-fly-zoom="onVenusFlyZoom"
+        @select-venus="onVenusSelect"
+        @saturn-fly-start="onSaturnFlyStart"
+        @saturn-fly-zoom="onSaturnFlyZoom"
+        @select-saturn="onSaturnSelect"
+        @jupiter-fly-start="onJupiterFlyStart"
+        @jupiter-fly-zoom="onJupiterFlyZoom"
+        @select-jupiter="onJupiterSelect"
+        @mercury-fly-start="onMercuryFlyStart"
+        @mercury-fly-zoom="onMercuryFlyZoom"
+        @select-mercury="onMercurySelect"
+        @uranus-fly-start="onUranusFlyStart"
+        @uranus-fly-zoom="onUranusFlyZoom"
+        @select-uranus="onUranusSelect"
+        @neptune-fly-start="onNeptuneFlyStart"
+        @neptune-fly-zoom="onNeptuneFlyZoom"
+        @select-neptune="onNeptuneSelect"
+        @sun-fly-start="onSunFlyStart"
+        @sun-fly-zoom="onSunFlyZoom"
+        @select-sun="onSunSelect"
       />
 
       <template v-else-if="surface === 'orbit'">

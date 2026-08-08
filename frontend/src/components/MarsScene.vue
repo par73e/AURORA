@@ -103,11 +103,33 @@
     </div>
   </section>
 
+  <!-- 下方：火星档案板块（与金星/土星/木星页同款：真实静态数据，延续可滚动框架） -->
+  <section id="mars-profile" class="content-section mars-profile-section">
+    <div class="page-frame">
+      <div class="section-heading">
+        <div><p class="section-kicker">MARS PROFILE</p><h2><i class="sec-num">Ⅱ</i>火星档案</h2></div>
+      </div>
+      <div class="profile-grid">
+        <dl class="profile-table">
+          <div><dt>直径</dt><dd>6,780 km</dd></div>
+          <div><dt>距日</dt><dd>1.5 AU</dd></div>
+          <div><dt>自转周期</dt><dd>24.6 小时</dd></div>
+          <div><dt>太阳日</dt><dd>24.7 小时（1 sol）</dd></div>
+          <div><dt>公转周期</dt><dd>687 天（669.6 sols）</dd></div>
+          <div><dt>轴倾角</dt><dd>25°</dd></div>
+          <div><dt>卫星</dt><dd>2（Phobos / Deimos）</dd></div>
+          <div><dt>环</dt><dd>无</dd></div>
+          <div class="profile-intro-row"><dt>简介</dt><dd>因氧化铁而呈现红色的沙漠世界，拥有太阳系最大的火山（奥林帕斯山）与峡谷（水手号峡谷）。</dd></div>
+        </dl>
+      </div>
+    </div>
+  </section>
+
   <!-- 下方：火星航天器搜索板块（模仿地球的航天器工作区） -->
   <section id="mars-objects" class="content-section mars-objects-section">
     <div class="page-frame">
       <div class="section-heading">
-        <div><p class="section-kicker">MARS SPACECRAFT</p><h2><i class="sec-num">Ⅱ</i>航天器</h2><p class="section-sub">飞行器 · 环绕火星运行的航天器</p></div>
+        <div><p class="section-kicker">MARS SPACECRAFT</p><h2><i class="sec-num">Ⅲ</i>航天器</h2><p class="section-sub">飞行器 · 环绕火星运行的航天器</p></div>
       </div>
       <div class="catalog-workspace">
         <div class="catalog-controls">
@@ -140,7 +162,7 @@
   <section id="mars-sites" class="content-section mars-sites-section">
     <div class="page-frame">
       <div class="section-heading">
-        <div><p class="section-kicker">MARS LANDING SITES</p><h2><i class="sec-num">Ⅲ</i>着陆点</h2><p class="section-sub">着陆器 · 在火星表面着陆的航天器</p></div>
+        <div><p class="section-kicker">MARS LANDING SITES</p><h2><i class="sec-num">Ⅳ</i>着陆点</h2><p class="section-sub">着陆器 · 在火星表面着陆的航天器</p></div>
       </div>
       <div class="catalog-workspace">
         <div class="catalog-controls">
@@ -172,7 +194,10 @@
 
   <!-- 页脚：数据源同步时间（与地球页脚一致；右对齐） -->
   <footer class="mars-page-footer">
-    <div class="page-frame source-list"><span><i :class="{ healthy: !!syncedAt }" />{{ orbitDataCaption }}<template v-if="syncedAt"> · 上次成功同步 {{ formatEpochUTC(syncedAt) }}</template></span></div>
+    <div class="page-frame footer-inner">
+      <div><strong>AURORA / MARS</strong></div>
+      <div class="source-list"><span><i :class="{ healthy: !!syncedAt }" />{{ orbitDataCaption }}<template v-if="syncedAt"> · {{ formatEpochUTC(syncedAt) }}</template></span></div>
+    </div>
   </footer>
 </template>
 
@@ -280,11 +305,11 @@ let marsSpinStopAt = 0
 let marsSpinStopFrom = 0
 /** 元素弹出延迟 = 旋转停稳（≈1.45s）+ 50ms 缓冲 */
 const MARS_ELEMENTS_DELAY_MS = 1500
-/** 标记点距离补偿基准（默认相机距离 ≈ 11.6）：部分透视补偿（远小近大不过度） */
-const MARS_MARKER_REF_DISTANCE = 11.6
+/** 标记点距离补偿基准（默认相机距离 ≈ 9）：部分透视补偿（远小近大不过度） */
+const MARS_MARKER_REF_DISTANCE = 9
 /** 距离透明度（与地球统一）：远处（默认视角及更远）70% 半透明，放大到极限后渐变为实色 */
 function distOpacity(d: number): number {
-  return 0.7 + 0.3 * THREE.MathUtils.clamp((MARS_MARKER_REF_DISTANCE - d) / (MARS_MARKER_REF_DISTANCE - 4.2), 0, 1)
+  return 0.7 + 0.3 * THREE.MathUtils.clamp((MARS_MARKER_REF_DISTANCE - d) / (MARS_MARKER_REF_DISTANCE - 2.2), 0, 1)
 }
 function animateElements(to: number, duration: number) {
   elementsAnim = { from: elementsFade, to, startedAt: performance.now(), duration }
@@ -360,9 +385,8 @@ const craftById = (id: string) => crafts.value.find((c) => c.id === id)
 /** 当前选中飞行器（模板多次取用） */
 const selectedCraftInfo = computed(() => (selectedCraft.value ? craftById(selectedCraft.value) : undefined))
 const orbitDataCaption = computed(() => {
-  const snapshots = crafts.value.filter((craft) => craft.snapshot).length
   if (!crafts.value.length) return '火星轨道数据'
-  return snapshots === crafts.value.length ? 'JPL Horizons 轨道快照' : `JPL Horizons 快照 / 标称轨道（${snapshots}/${crafts.value.length}）`
+  return 'JPL Horizons'
 })
 
 /** 轨道历元统一 UTC 显示（与探测器面板同步时间格式一致，避免本地/UTC 混用） */
@@ -477,6 +501,8 @@ let scene: THREE.Scene | undefined
 let camera: THREE.PerspectiveCamera | undefined
 let controls: OrbitControls | undefined
 let marsMesh: THREE.Mesh | undefined
+/** 轴倾角组：rotation.z = 25.19°（真实火星轴倾角，与太阳系场景轴向一致），自转轴随之倾斜 */
+let tiltPivot: THREE.Object3D | undefined
 /** 自转轴：marsMesh 挂其下，rotation.y 自西向东慢速推进（火星真实自转方向）；着陆点/轨迹随球面转 */
 let swingPivot: THREE.Object3D | undefined
 let marsMaterial: THREE.MeshStandardMaterial | undefined
@@ -531,9 +557,9 @@ onMounted(() => {
 
   scene = new THREE.Scene()
   camera = new THREE.PerspectiveCamera(MARS_FOV, initialWidth / initialHeight, 0.1, 2000)
-  // 初始视角：距火星中心 11.6（视半径 ~14.8°）——接近地球页（~15.8°），
-  // 体现"地球 ≥ 火星 > 月球"的观感（用户要求默认状态下火星接近地球大小）
-  camera.position.set(0, 1.8, 11.6)
+  // 初始视角：距火星中心 9（视半径 ~10°）——与类地行星同距离基准（金星 13.5° > 火星 10° > 水星 8.5° > 月球 7.1°），
+  // 只要求大小关系正确（火星 < 地球 < 金星），不做严格比例
+  camera.position.set(0, 0.95, 9)
 
   resizeObserver = new ResizeObserver(() => {
     const width = host.clientWidth
@@ -559,8 +585,8 @@ onMounted(() => {
   controls.addEventListener('start', () => {
     dragResetTarget = true
   })
-  controls.minDistance = 4.2 // 拉近极限（与地球视大小一致）：地球 3.0 → 视半径 45.8°；火星 4.2 → 45.8°（间隙 1.2）
-  controls.maxDistance = 20 // 缩到最远：与地球视大小统一（地球 12 → 视半径 10.3°；火星 20 → 8.6°）——需 > 天问一号远心 r≈18，保证镜头能越过飞行器聚焦
+  controls.minDistance = MARS_RADIUS * 1.4 // 拉近极限（与地球视大小一致）：地球 3.0 → 视半径 45.8°；火星 2.2 → 45.8°
+  controls.maxDistance = 12 // 缩到最远：与地球视大小统一（地球 12 → 视半径 10.3°；火星 12 → 7.5°）——需 > 天问一号远心（新尺度 ≈9.4），保证镜头能越过飞行器聚焦
 
   // 火星本体：8k 贴图 + PBR 材质（保留质感，同地球模式）
   const texture = solarTexture(MARS_HD.textureUrl, () => emitTexturesReady())
@@ -568,14 +594,23 @@ onMounted(() => {
   texture.anisotropy = 16
   marsMaterial = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.95, metalness: 0.02 })
   // 细分 256 段：8k 贴图在 96 段球体上贴面时三角形过粗导致模糊，256 段显著提升贴面清晰度
-  marsMesh = new THREE.Mesh(new THREE.SphereGeometry(3.0, 256, 256), marsMaterial)
-  // 初始朝向：lon 0° 子午线朝向相机（任意初始姿态，着陆点作为子节点随球面转）
-  marsMesh.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), camera.position.clone().normalize())
+  marsMesh = new THREE.Mesh(new THREE.SphereGeometry(MARS_RADIUS, 256, 256), marsMaterial)
+  // 初始朝向：绕自转轴（局部 Y）旋转，让 lon 0° 子午线朝向相机——
+  // 用绕 Y 轴的四元数（北极保持在局部 +Y = 自转轴，不产生极轴漂移；
+  // 不能 setFromUnitVectors((1,0,0), cameraDir)——那会把北极也转离自转轴）
+  marsMesh.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(-camera.position.z, camera.position.x))
+  // 轴倾角组：rotation.z = 25.19°（真实火星轴倾角，黄道面参考；与太阳系场景 axial 一致）。
+  // 层级 = tiltPivot(轴倾角) → swingPivot(自转) → marsMesh，自转绕倾斜后的火星极轴。
+  tiltPivot = new THREE.Object3D()
+  tiltPivot.name = 'mars-tilt-pivot'
+  tiltPivot.rotation.order = 'ZYX'
+  tiltPivot.rotation.z = 25.19 * DEG
   // 自转轴：火星自西向东慢速自转（真实周期 24.6h，场景做慢速可见旋转）
   swingPivot = new THREE.Object3D()
   swingPivot.name = 'mars-swing-pivot'
   swingPivot.add(marsMesh)
-  scene.add(swingPivot)
+  tiltPivot.add(swingPivot)
+  scene.add(tiltPivot)
 
   // 光照（镜像地球）：固定环境光 + 太阳方向光 + 跟随相机的观测光（360° 全亮，无晨昏线）
   ambientLight = new THREE.AmbientLight(0x3a2a22, 0.8)
@@ -675,7 +710,7 @@ onMounted(() => {
       }
     }
 
-    // 动态拖动灵敏度（与地球一致）：近处降敏、远处提速；默认视角 11.6 处 ≈ 0.46
+    // 动态拖动灵敏度（与地球一致）：近处降敏、远处提速；默认视角 9 处 ≈ 0.46
     if (controls && camera) {
       const t = THREE.MathUtils.clamp((camera.position.length() - controls.minDistance) / (controls.maxDistance - controls.minDistance), 0, 1)
       controls.rotateSpeed = 0.2 + t * 0.5
@@ -715,15 +750,16 @@ onMounted(() => {
   animate()
 })
 
-/** 场景单位 ↔ 真实尺寸：火星半径 3.0（场景）↔ 3389.5 km（真实） */
-const MARS_SCENE_SCALE = 3.0 / 3389.5
+/** 场景单位 ↔ 真实尺寸：火星半径 1.57（场景，按地球 2.15 的 sqrt 压缩）↔ 3389.5 km（真实） */
+const MARS_RADIUS = 1.57
+const MARS_SCENE_SCALE = MARS_RADIUS / 3389.5
 /** 轨道高度夸张（与地球 ALTITUDE_EXAGGERATION=3.2 同思路）：超出火面的部分放大 1.5 倍——
  *  MRO 真实轨道仅高出火面 ~8% 半径，视觉上贴面飞行；MAVEN/天问一号轨道本身达 2–3 倍
  *  半径，夸张取 1.5 兼顾可辨识度与取景 */
 const MARS_ALTITUDE_EXAGGERATION = 1.5
 /** 轨道半径（场景单位，含高度夸张）：火心 + 超出火面部分 × 夸张系数 */
 function exaggeratedA(a: number) {
-  return 3.0 + Math.max(0, a - 3.0) * MARS_ALTITUDE_EXAGGERATION
+  return MARS_RADIUS + Math.max(0, a - MARS_RADIUS) * MARS_ALTITUDE_EXAGGERATION
 }
 
 /** 平近点角 → 真近点角（Kepler 方程，牛顿迭代） */
@@ -826,9 +862,9 @@ function buildSiteMarkers() {
       new THREE.SphereGeometry(0.024, 12, 12),
       new THREE.MeshBasicMaterial({ color, transparent: true, opacity: elementsFade }),
     )
-    // 球心落在火面半径上（3.0）：球体一半嵌进表面（被火星深度遮挡）、一半露出——
+    // 球心落在火面半径上（1.57）：球体一半嵌进表面（被火星深度遮挡）、一半露出——
     // "镶嵌"在火面上的观感；露出半球深度 < 表面 → 通过深度测试，无 z-fighting
-    marker.position.copy(sitePosition(site.latitude, site.longitude, 3.0))
+    marker.position.copy(sitePosition(site.latitude, site.longitude, MARS_RADIUS))
     marker.userData = { kind: 'landing-site', siteId: site.id }
     marsMesh.add(marker)
     siteMarkers.set(site.id, marker)
@@ -842,7 +878,7 @@ function buildSiteMarkers() {
 
     // 火星车行驶轨迹：虚线折线（示意图，数据存库可替换真实遥测）
     if (site.track && site.track.length >= 2) {
-      const points = site.track.map(([lat, lon]) => sitePosition(lat, lon, 3.0 * 1.008))
+      const points = site.track.map(([lat, lon]) => sitePosition(lat, lon, MARS_RADIUS * 1.008))
       const trackLine = new THREE.Line(
         new THREE.BufferGeometry().setFromPoints(points),
         new THREE.LineDashedMaterial({ color, dashSize: 0.055, gapSize: 0.05, transparent: true, opacity: elementsFade * 0.85 }),
@@ -1084,7 +1120,7 @@ function isNearMars(clientX: number, clientY: number) {
   const projectedCenter = new THREE.Vector3(0, 0, 0).project(camera)
   const cameraRight = new THREE.Vector3(1, 0, 0)
     .applyQuaternion(camera.quaternion)
-    .multiplyScalar(3.0 * 1.08)
+    .multiplyScalar(MARS_RADIUS * 1.08)
     .project(camera)
   const centerX = bounds.left + (projectedCenter.x * 0.5 + 0.5) * bounds.width
   const centerY = bounds.top + (-projectedCenter.y * 0.5 + 0.5) * bounds.height
@@ -1092,15 +1128,15 @@ function isNearMars(clientX: number, clientY: number) {
   return Math.hypot(clientX - centerX, clientY - centerY) <= radius * 1.12
 }
 
-/** 飞行器是否被火星遮挡：视线段（相机→飞行器）与火星球体（半径 3.0）相交 */
+/** 飞行器是否被火星遮挡：视线段（相机→飞行器）与火星球体（半径 MARS_RADIUS）相交 */
 function isCraftOccluded(world: THREE.Vector3) {
   if (!camera) return false
-  // 0) 位于火星内部（大偏心轨道近日段 r<3.0，如 MOM 近日 r≈0.97）：球内绝不可见。
+  // 0) 位于火星内部（大偏心轨道近日段 r<MARS_RADIUS，如 MOM 近日 r≈0.97）：球内绝不可见。
   //    射线-球体判定对"球体与相机之间的球内点"会漏判（最近点越过目标点）。
   //    严格按球面 3.0 判定（留 1e-3 浮点余量，cos²+sin² 表面点可能 ≈2.9999）——
   //    不能带 3.04 圆点余量：着陆点在表面上 r=3.0，带余量会把全部着陆点误隐藏
-  if (world.length() < 3.0 - 1e-3) return true
-  // 1) 视线段与火星球体相交（含掠射带 3.04 = 星球 3.0 + 圆点半径 0.04）：
+  if (world.length() < MARS_RADIUS - 1e-3) return true
+  // 1) 视线段与火星球体相交（含掠射带 1.61 = 星球 1.57 + 圆点半径 0.04）：
   //    与地球 isOccludedByEarth / 月球 isCraftOccluded 同款"射线-球体"判定——
   //    视线被球挡住才隐藏，飞行器一出火星边缘立即可见（透明圆点另由 GPU 深度兜底盘面像素）。
   //    （历史：曾加过"背半球判定 world·camera<0"，会把飞行器藏到越过球心平面才显示，
@@ -1110,7 +1146,7 @@ function isCraftOccluded(world: THREE.Vector3) {
   const t = -camera.position.dot(dir)
   if (t > 0 && t < toDot.length()) {
     const closest = camera.position.clone().addScaledVector(dir, t)
-    if (closest.length() < 3.04) return true
+    if (closest.length() < MARS_RADIUS + 0.04) return true
   }
   return false
 }
@@ -1270,6 +1306,53 @@ onBeforeUnmount(() => {
 }
 .mars-objects-section .section-kicker,
 .mars-sites-section .section-kicker { color: #d0a080; }
+/* 火星档案板块（与金星/土星/木星页同款 profile-grid，主题色陶土红） */
+.mars-profile-section .section-kicker { color: #d0a080; }
+.mars-profile-section .sec-num { color: #c09070; }
+.mars-profile-section .profile-grid {
+  max-width: 640px;
+  padding: 28px 0 44px;
+}
+.mars-profile-section .profile-table {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  border: 1px solid rgba(224, 168, 120, .22);
+  border-radius: 8px;
+  background: rgba(20, 12, 7, .55);
+  overflow: hidden;
+}
+.mars-profile-section .profile-table > div {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 16px;
+  align-items: baseline;
+  padding: 12px 18px;
+  border-bottom: 1px solid rgba(224, 168, 120, .22);
+}
+.mars-profile-section .profile-table > div:last-child { border-bottom: 0; }
+.mars-profile-section .profile-table dt {
+  color: #b09880;
+  font: 500 10px var(--font-mono);
+  letter-spacing: .1em;
+  padding-top: 2px;
+}
+.mars-profile-section .profile-table dd {
+  margin: 0;
+  color: #ecd9c8;
+  font-size: 13px;
+  line-height: 1.6;
+}
+/* 简介行：并入表格最后一行（消除右侧独立文字），文字用 quiet 色、放宽行距更耐读 */
+.mars-profile-section .profile-intro-row {
+  align-items: start;
+  background: rgba(255, 255, 255, .02);
+}
+.mars-profile-section .profile-intro-row dd {
+  color: #b09880;
+  font-size: 12px;
+  line-height: 1.9;
+}
 /* 板块小字标注：航天器=飞行器 / 着陆点=着陆器 */
 .mars-objects-section .section-sub,
 .mars-sites-section .section-sub {

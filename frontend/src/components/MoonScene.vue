@@ -172,7 +172,10 @@
 
   <!-- 页脚：数据源同步时间（与地球页脚一致；右对齐） -->
   <footer class="moon-page-footer">
-    <div class="page-frame source-list"><span><i :class="{ healthy: !!syncedAt }" />{{ orbitDataCaption }}<template v-if="syncedAt"> · 上次成功同步 {{ formatEpochUTC(syncedAt) }}</template></span></div>
+    <div class="page-frame footer-inner">
+      <div><strong>AURORA / MOON</strong></div>
+      <div class="source-list"><span><i :class="{ healthy: !!syncedAt }" />{{ orbitDataCaption }}<template v-if="syncedAt"> · {{ formatEpochUTC(syncedAt) }}</template></span></div>
+    </div>
   </footer>
 </template>
 
@@ -281,11 +284,11 @@ let moonSpinStopAt = 0
 let moonSpinStopFrom = 0
 /** 元素弹出延迟 = 旋转停稳（≈1.80s）+ 50ms 缓冲 */
 const MOON_ELEMENTS_DELAY_MS = 1850
-/** 标记点距离补偿基准（默认相机距离 ≈ 13.6）：部分透视补偿（远小近大不过度） */
-const MOON_MARKER_REF_DISTANCE = 13.6
+/** 标记点距离补偿基准（默认相机距离 ≈ 9）：部分透视补偿（远小近大不过度） */
+const MOON_MARKER_REF_DISTANCE = 9
 /** 距离透明度（与地球统一）：远处（默认视角及更远）70% 半透明，放大到极限后渐变为实色 */
 function distOpacity(d: number): number {
-  return 0.7 + 0.3 * THREE.MathUtils.clamp((MOON_MARKER_REF_DISTANCE - d) / (MOON_MARKER_REF_DISTANCE - 3.63), 0, 1)
+  return 0.7 + 0.3 * THREE.MathUtils.clamp((MOON_MARKER_REF_DISTANCE - d) / (MOON_MARKER_REF_DISTANCE - 1.57), 0, 1)
 }
 function animateElements(to: number, duration: number) {
   elementsAnim = { from: elementsFade, to, startedAt: performance.now(), duration }
@@ -360,9 +363,8 @@ const craftById = (id: string) => crafts.value.find((c) => c.id === id)
 /** 当前选中飞行器（模板多次取用） */
 const selectedCraftInfo = computed(() => (selectedCraft.value ? craftById(selectedCraft.value) : undefined))
 const orbitDataCaption = computed(() => {
-  const snapshots = crafts.value.filter((craft) => craft.snapshot).length
   if (!crafts.value.length) return '月球轨道数据'
-  return snapshots === crafts.value.length ? 'JPL Horizons 轨道快照' : `JPL Horizons 快照 / 标称轨道（${snapshots}/${crafts.value.length}）`
+  return 'JPL Horizons'
 })
 
 /** 轨道历元统一 UTC 显示（与探测器面板同步时间格式一致，避免本地/UTC 混用） */
@@ -446,7 +448,7 @@ function planFocusMotion(targetPos: THREE.Vector3, targetDistance: number) {
 }
 
 /** 飞行器聚焦：方向对准飞行器，观察距离取"当前距离与 8 的较小值"——稍作放大
- *  （初始 13.5 → 8，不至于太小；已放大时保持用户距离） */
+ *  （初始 9 → 8，不至于太小；已放大时保持用户距离） */
 function startCraftFocus(id: string) {
   const runtime = craftRuntimes.find((r) => r.spec.id === id)
   if (!runtime || !camera) return
@@ -527,9 +529,9 @@ onMounted(() => {
 
   scene = new THREE.Scene()
   camera = new THREE.PerspectiveCamera(MOON_FOV, initialWidth / initialHeight, 0.1, 2000)
-  // 初始视角：距月球中心 13.5（视半径 ~10.9°）——比地球页初始（15.8°）小约 1/3，
-  // 体现"月球比地球小"的比例感
-  camera.position.set(0, 1.6, 13.5)
+  // 初始视角：距月球中心 9（视半径 ~7.1°）——与类地行星同距离基准，
+  // 只要求大小关系正确（月球 < 火星 < 水星），不做严格比例
+  camera.position.set(0, 0.69, 9)
 
   resizeObserver = new ResizeObserver(() => {
     const width = host.clientWidth
@@ -555,8 +557,8 @@ onMounted(() => {
   controls.addEventListener('start', () => {
     dragResetTarget = true
   })
-  controls.minDistance = 3.63 // 拉近极限（与地球视大小一致）：地球 3.0 → 视半径 45.8°；月球 3.63 → 45.8°（间隙 1.03）
-  controls.maxDistance = 15.5 // 缩到最远：与地球视大小统一（地球 12 → 视半径 10.3°；月球 15.5 → 9.7°）
+  controls.minDistance = MOON_RADIUS * 1.4 // 拉近极限（与地球视大小一致）：地球 3.0 → 视半径 45.8°；月球 1.57 → 45.8°
+  controls.maxDistance = 15.5 // 缩到最远：与地球视大小统一（地球 12 → 视半径 10.3°；月球 15.5 → 4.1°）——需 > 默认距离 9
 
   // 月球本体：8k 贴图 + PBR 材质（保留质感，同地球模式）
   const texture = solarTexture(MOON_HD.textureUrl, () => emitTexturesReady())
@@ -564,7 +566,7 @@ onMounted(() => {
   texture.anisotropy = 16
   moonMaterial = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.92, metalness: 0.02 })
   // 细分 256 段：8k 贴图在 96 段球体上贴面时三角形过粗导致模糊，256 段显著提升贴面清晰度
-  moonMesh = new THREE.Mesh(new THREE.SphereGeometry(2.6, 256, 256), moonMaterial)
+  moonMesh = new THREE.Mesh(new THREE.SphereGeometry(MOON_RADIUS, 256, 256), moonMaterial)
   // 潮汐锁定：月球近地面（lon 0°，即 sitePosition(0,0) 的 +X 方向）默认对准相机，
   // 进入页面即可看到熟悉的正面（大片月海）；着陆点/轨迹作为子节点随球面一起转
   moonMesh.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), camera.position.clone().normalize())
@@ -666,7 +668,7 @@ onMounted(() => {
       }
     }
 
-    // 动态拖动灵敏度（与地球一致）：近处降敏、远处提速；默认视角 13.5 处 ≈ 0.62
+    // 动态拖动灵敏度（与地球一致）：近处降敏、远处提速；默认视角 9 处 ≈ 0.62
     if (controls && camera) {
       const t = THREE.MathUtils.clamp((camera.position.length() - controls.minDistance) / (controls.maxDistance - controls.minDistance), 0, 1)
       controls.rotateSpeed = 0.2 + t * 0.5
@@ -707,14 +709,15 @@ onMounted(() => {
   animate()
 })
 
-/** 场景单位 ↔ 真实尺寸：月球半径 2.6（场景）↔ 1737.4 km（真实） */
-const MOON_SCENE_SCALE = 2.6 / 1737.4
+/** 场景单位 ↔ 真实尺寸：月球半径 1.12（场景，按地球 2.15 的 sqrt 压缩）↔ 1737.4 km（真实） */
+const MOON_RADIUS = 1.12
+const MOON_SCENE_SCALE = MOON_RADIUS / 1737.4
 /** 轨道高度夸张（与地球 ALTITUDE_EXAGGERATION=3.2 同思路）：超出月面的部分放大 3 倍——
  *  真实 LRO 轨道仅高出月面 5% 半径，视觉上贴脸飞行，聚焦时像"月球放大"而非"绕月飞行" */
 const MOON_ALTITUDE_EXAGGERATION = 3
 /** 轨道半径（场景单位，含高度夸张）：月心 + 超出月面部分 × 夸张系数 */
 function exaggeratedA(a: number) {
-  return 2.6 + Math.max(0, a - 2.6) * MOON_ALTITUDE_EXAGGERATION
+  return MOON_RADIUS + Math.max(0, a - MOON_RADIUS) * MOON_ALTITUDE_EXAGGERATION
 }
 
 /** 平近点角 → 真近点角（Kepler 方程，牛顿迭代） */
@@ -815,9 +818,9 @@ function buildSiteMarkers() {
       new THREE.SphereGeometry(0.024, 12, 12),
       new THREE.MeshBasicMaterial({ color, transparent: true, opacity: elementsFade }),
     )
-    // 球心落在月面半径上（2.6）：球体一半嵌进表面（被月球深度遮挡）、一半露出——
+    // 球心落在月面半径上（1.12）：球体一半嵌进表面（被月球深度遮挡）、一半露出——
     // "镶嵌"在月面上的观感；露出半球深度 < 表面 → 通过深度测试，无 z-fighting
-    marker.position.copy(sitePosition(site.latitude, site.longitude, 2.6))
+    marker.position.copy(sitePosition(site.latitude, site.longitude, MOON_RADIUS))
     marker.userData = { kind: 'landing-site', siteId: site.id }
     moonMesh.add(marker)
     siteMarkers.set(site.id, marker)
@@ -831,7 +834,7 @@ function buildSiteMarkers() {
 
     // 月球车行驶轨迹：虚线折线（示意图，数据存库可替换真实遥测）
     if (site.track && site.track.length >= 2) {
-      const points = site.track.map(([lat, lon]) => sitePosition(lat, lon, 2.6 * 1.008))
+      const points = site.track.map(([lat, lon]) => sitePosition(lat, lon, MOON_RADIUS * 1.008))
       const trackLine = new THREE.Line(
         new THREE.BufferGeometry().setFromPoints(points),
         new THREE.LineDashedMaterial({ color, dashSize: 0.055, gapSize: 0.05, transparent: true, opacity: elementsFade * 0.85 }),
@@ -1070,7 +1073,7 @@ function isNearMoon(clientX: number, clientY: number) {
   const projectedCenter = new THREE.Vector3(0, 0, 0).project(camera)
   const cameraRight = new THREE.Vector3(1, 0, 0)
     .applyQuaternion(camera.quaternion)
-    .multiplyScalar(2.6 * 1.08)
+    .multiplyScalar(MOON_RADIUS * 1.08)
     .project(camera)
   const centerX = bounds.left + (projectedCenter.x * 0.5 + 0.5) * bounds.width
   const centerY = bounds.top + (-projectedCenter.y * 0.5 + 0.5) * bounds.height
@@ -1078,7 +1081,7 @@ function isNearMoon(clientX: number, clientY: number) {
   return Math.hypot(clientX - centerX, clientY - centerY) <= radius * 1.12
 }
 
-/** 飞行器是否被月球遮挡：视线段（相机→飞行器）与月球球体（半径 2.6）相交 */
+/** 飞行器是否被月球遮挡：视线段（相机→飞行器）与月球球体（半径 MOON_RADIUS）相交 */
 function isCraftOccluded(world: THREE.Vector3) {
   if (!camera) return false
   const dir = world.clone().sub(camera.position)
@@ -1088,7 +1091,7 @@ function isCraftOccluded(world: THREE.Vector3) {
   const t = -camera.position.dot(dir)
   if (t <= 0 || t >= distance) return false
   const closest = camera.position.clone().addScaledVector(dir, t)
-  return closest.length() < 2.6
+  return closest.length() < MOON_RADIUS
 }
 
 /** 滚轮：在月球上 → 缩放月球；在边缘区域 → 交给页面滚动（与地球一致） */

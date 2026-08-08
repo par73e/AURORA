@@ -1,0 +1,1158 @@
+<template>
+  <section class="planet-section" :class="planet.themeKey" :aria-labelledby="`${planet.key}-title`">
+    <div :id="`${planet.key}-scene`" class="planet-scene-frame">
+      <div ref="canvasHost" class="planet-scene-host" :class="{ revealed: sceneRevealed }" role="group" :aria-label="`${planet.name}三维视图，左上角可返回太阳系`">
+        <!-- 工具栏：与地球/月球/火星同一套 scene-toolbar 结构（仅晨昏线开关，颜色走行星主题覆盖） -->
+        <div ref="sceneToolbarRef" class="scene-toolbar" :class="{ 'leaving-fade': leaving }" aria-label="场景图层">
+          <span>图层</span>
+          <!-- 恒星（太阳）无昼夜，隐藏晨昏线开关 -->
+          <label v-if="!planet.star"><input v-model="terminatorEnabled" type="checkbox"><i class="terminator" />晨昏线</label>
+          <!-- 有着陆点/任务终点的行星：足迹开关（金星 8 个着陆点、水星 MESSENGER 撞击点） -->
+          <label v-if="planet.exploration"><input v-model="sitesEnabled" type="checkbox"><i class="sites" />{{ planet.exploration.title }}</label>
+        </div>
+
+        <!-- 足迹标签：有坐标的着陆点/撞击点（大气坠毁无坐标不画） -->
+        <div
+          v-for="label in siteLabels"
+          :key="label.id"
+          class="planet-site-label"
+          :data-icon="label.icon"
+          :class="{ selected: selectedSite === label.id, 'leaving-fade': leaving }"
+          :style="labelStyle(label)"
+          @click.stop="selectSite(label.id)"
+        >
+          <span class="planet-site-glyph" v-html="siteGlyph(label.icon)" />
+          <span><strong>{{ label.name }}</strong><small>{{ label.mission }}</small></span>
+        </div>
+
+        <!-- 选中着陆点/撞击点的信息卡 -->
+        <aside v-if="selectedSite && siteById(selectedSite)" class="planet-site-panel" :class="{ visible: sceneRevealed }">
+          <button class="planet-site-panel-close" aria-label="关闭" @click="selectedSite = null">×</button>
+          <div class="planet-site-panel-head">
+            <span class="planet-site-glyph large" v-html="siteGlyph(siteById(selectedSite)?.icon ?? 'lander')" />
+            <div>
+              <h3>{{ siteById(selectedSite)?.name }}</h3>
+              <p>{{ siteById(selectedSite)?.nameEn }}</p>
+            </div>
+          </div>
+          <dl>
+            <div><dt>类型</dt><dd>{{ siteKindLabel(siteById(selectedSite)?.kind) }}</dd></div>
+            <div><dt>任务</dt><dd>{{ siteById(selectedSite)?.mission }}</dd></div>
+            <div><dt>日期</dt><dd>{{ siteById(selectedSite)?.date }}</dd></div>
+            <div><dt>机构</dt><dd>{{ siteById(selectedSite)?.operator }}</dd></div>
+            <div v-if="siteById(selectedSite)?.latitude != null && siteById(selectedSite)?.longitude != null"><dt>坐标</dt><dd>{{ formatCoordinate(siteById(selectedSite)!.latitude!, siteById(selectedSite)!.longitude!) }}</dd></div>
+            <div><dt>简介</dt><dd>{{ siteById(selectedSite)?.description }}</dd></div>
+          </dl>
+        </aside>
+
+        <!-- 左下角读数：常驻行星（返回时随元素一起淡出） -->
+        <div class="planet-readout" :class="{ 'leaving-fade': leaving }" aria-live="polite">
+          <span>{{ planet.nameEn }} ORBIT</span>
+          <strong>{{ planet.name }}</strong>
+        </div>
+
+        <!-- 右下角：纹理署名（SSS CC BY 4.0，与太阳系页同位置；返回时随元素一起淡出） -->
+        <div class="planet-credits" :class="{ 'leaving-fade': leaving }" aria-hidden="true">Solar System Scope · CC BY 4.0</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 下方：行星档案板块（简单静态真实数据，延续月球/火星页面可滚动框架） -->
+  <section :id="`${planet.key}-profile`" class="content-section planet-profile-section" :class="planet.themeKey">
+    <div class="page-frame">
+      <div class="section-heading">
+        <div><p class="section-kicker">{{ planet.profile.kicker }}</p><h2><i class="sec-num">Ⅱ</i>{{ planet.name }}档案</h2></div>
+      </div>
+      <div class="profile-grid">
+        <dl class="profile-table">
+          <div><dt>直径</dt><dd>{{ planet.profile.diameter }}</dd></div>
+          <div><dt>距日</dt><dd>{{ planet.profile.distance }}</dd></div>
+          <div><dt>自转周期</dt><dd>{{ planet.profile.rotation }}</dd></div>
+          <div><dt>太阳日</dt><dd>{{ planet.profile.solarDay }}</dd></div>
+          <div><dt>公转周期</dt><dd>{{ planet.profile.orbit }}</dd></div>
+          <div><dt>轴倾角</dt><dd>{{ planet.profile.axialTilt }}</dd></div>
+          <div><dt>卫星</dt><dd>{{ planet.profile.moons }}</dd></div>
+          <div><dt>环</dt><dd>{{ planet.profile.rings }}</dd></div>
+          <div class="profile-intro-row"><dt>简介</dt><dd>{{ planet.profile.description }}</dd></div>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <!-- 下方：人类探索板块（着陆点/任务终点；有坐标的点击 → 返回场景并放大居中该点） -->
+  <section v-if="planet.exploration" :id="`${planet.key}-sites`" class="content-section planet-sites-section" :class="planet.themeKey">
+    <div class="page-frame">
+      <div class="section-heading">
+        <div><p class="section-kicker">{{ planet.exploration.kicker }}</p><h2><i class="sec-num">Ⅲ</i>{{ planet.exploration.title }}</h2><p class="section-sub">{{ planet.exploration.sub }}</p></div>
+      </div>
+      <div class="catalog-workspace">
+        <div class="catalog-controls">
+          <label class="search-field">
+            <span>名称、任务或机构</span>
+            <input v-model="siteQuery" type="search" :placeholder="`输入 ${planet.exploration.sites[0]?.name ?? ''}…`" spellcheck="false" />
+          </label>
+        </div>
+        <div class="catalog-meta">
+          <span>{{ filteredSites.length }} 个记录</span>
+          <span>真实历史坐标 · 人类探索足迹</span>
+        </div>
+        <div class="object-table" role="table" :aria-label="`${planet.name}${planet.exploration.title}列表`">
+          <div class="object-table-head" role="row"><span>名称</span><span>任务</span><span>日期</span><span>类型</span></div>
+          <button v-for="site in pagedSites" :key="site.id" class="object-row site-row" :data-icon="site.icon" role="row" @click="focusSite(site.id)">
+            <span class="site-row-name">
+              <span class="planet-site-glyph" v-html="siteGlyph(site.icon)" />
+              <span><strong>{{ site.name }}</strong><small v-if="site.nameEn !== site.name">{{ site.nameEn }}</small></span>
+            </span>
+            <span>{{ site.mission }}<small>{{ site.operator }}</small></span>
+            <span>{{ site.date }}</span>
+            <span><small>{{ siteKindLabel(site.kind) }}</small></span>
+          </button>
+          <div v-if="!filteredSites.length" class="catalog-empty">没有符合条件的记录。请修改搜索词。</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 页脚：仅品牌（纹理署名在场景右下角 planet-credits，与火星/月球一致，不在页脚重复） -->
+  <footer class="planet-page-footer">
+    <div class="page-frame footer-inner">
+      <div><strong>AURORA / {{ planet.nameEn }}</strong></div>
+    </div>
+  </footer>
+</template>
+
+<script setup lang="ts">
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import * as THREE from 'three'
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { solarTexture } from '../solar/textures'
+import { type PlanetPageConfig } from '../planetPages'
+
+const props = defineProps<{ planet: PlanetPageConfig; revealTick?: number; enterFromSolar?: boolean; leaving?: boolean; headerExpanded?: boolean }>()
+const emit = defineEmits<{
+  'blank-click': []
+  /** 场景首帧贴图渲染完成（解码 + GPU 上传后）——过渡遮罩等待此信号再揭示 */
+  'textures-ready': []
+}>()
+
+let texturesReadySent = false
+/** 纹理上传完成信号：双 rAF（等 renderer.render 真正把贴图传到 GPU 之后） */
+function emitTexturesReady() {
+  if (texturesReadySent) return
+  texturesReadySent = true
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      emit('textures-ready')
+    })
+  })
+}
+
+const canvasHost = ref<HTMLDivElement | null>(null)
+const terminatorEnabled = ref(false)
+/** 着陆点/任务终点开关（金星着陆点、水星撞击点等；大气坠毁无坐标不画标记只入目录） */
+const sitesEnabled = ref(true)
+const selectedSite = ref<string | null>(null)
+const siteQuery = ref('')
+
+/** 有坐标的足迹（可画 3D 标记 + 标签）：landing/impact 有坐标，atmospheric 无 */
+const markerSites = computed(() => props.planet.exploration?.sites.filter((s) => s.latitude != null && s.longitude != null) ?? [])
+/** 标签 overlay 数据（含屏幕投影坐标，rAF 更新） */
+const siteLabels = ref<{ id: string; name: string; mission: string; icon: 'lander' | 'probe' | 'impact'; x: number; y: number; visible: boolean }[]>([])
+
+/** 目录搜索过滤 */
+const filteredSites = computed(() => {
+  const q = siteQuery.value.trim().toLowerCase()
+  const sites = props.planet.exploration?.sites ?? []
+  if (!q) return sites
+  return sites.filter(
+    (s) =>
+      s.name.toLowerCase().includes(q) ||
+      s.nameEn.toLowerCase().includes(q) ||
+      s.mission.toLowerCase().includes(q) ||
+      s.operator.toLowerCase().includes(q),
+  )
+})
+const PAGE_SIZE = 8
+const sitePage = ref(1)
+const pagedSites = computed(() => {
+  const start = (sitePage.value - 1) * PAGE_SIZE
+  return filteredSites.value.slice(start, start + PAGE_SIZE)
+})
+watch(filteredSites, () => {
+  sitePage.value = 1
+})
+
+function siteById(id: string) {
+  return props.planet.exploration?.sites.find((s) => s.id === id)
+}
+function siteKindLabel(kind?: 'landing' | 'impact' | 'atmospheric') {
+  return kind === 'landing' ? '软着陆' : kind === 'impact' ? '表面撞击' : kind === 'atmospheric' ? '大气层坠毁' : ''
+}
+function formatCoordinate(lat: number, lon: number) {
+  return `${Math.abs(lat).toFixed(2)}°${lat >= 0 ? 'N' : 'S'} ${lon.toFixed(2)}°E`
+}
+function siteGlyph(icon: 'lander' | 'probe' | 'impact') {
+  const stroke = 'currentColor'
+  switch (icon) {
+    case 'impact':
+      return `<svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="${stroke}" stroke-width="1.1" stroke-linecap="round"><circle cx="6" cy="6" r="4.2"/><path d="M6 2.6v2.2M6 7.2v2.2M2.6 6h2.2M7.2 6h2.2"/></svg>`
+    case 'probe':
+      return `<svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="${stroke}" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="1.6"/><path d="M6 1.8v1.6M6 8.6v1.6M1.8 6h1.6M8.6 6h1.6"/></svg>`
+    default:
+      return `<svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="${stroke}" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"><path d="M6 1.6 9.4 10.4H2.6z"/><path d="M6 5.4v5"/></svg>`
+  }
+}
+
+/** 标签样式：屏幕坐标定位 */
+function labelStyle(label: { x: number; y: number; visible: boolean }) {
+  return { display: label.visible ? '' : 'none', transform: `translate(calc(${label.x}px - 50%), ${label.y + 14}px)` }
+}
+
+/** 选中站点（点击标签或目录行） */
+function selectSite(id: string) {
+  selectedSite.value = id
+  if (siteById(id)?.latitude != null) startSiteFocus(id)
+}
+/** 目录点击：返回场景 + 选中 + 镜头放大居中该点（镜像火星 focusSite） */
+function focusSite(id: string) {
+  emit('blank-click') // 收起页头并滚动回场景
+  selectSite(id)
+}
+/** 聚焦动画：镜头移动到站点正上方（有坐标的站点；大气坠毁只显示信息卡不聚焦） */
+function startSiteFocus(id: string) {
+  const site = siteById(id)
+  if (!site || site.latitude == null || site.longitude == null || !camera || !controls) return
+  const target = sitePosition(site.latitude, site.longitude, props.planet.radius * 1.5)
+  focusTmp.copy(target)
+  const startPos = camera.position.clone()
+  const startTarget = controls.target.clone()
+  const duration = 900
+  const begin = performance.now()
+  const tick = (now: number) => {
+    const t = Math.min(1, (now - begin) / duration)
+    const eased = 1 - Math.pow(1 - t, 3)
+    camera!.position.lerpVectors(startPos, target, eased)
+    controls!.target.lerpVectors(startTarget, new THREE.Vector3(0, 0, 0), eased)
+    controls!.update()
+    if (t < 1) focusAnimId = requestAnimationFrame(tick)
+  }
+  if (focusAnimId) cancelAnimationFrame(focusAnimId)
+  focusAnimId = requestAnimationFrame(tick)
+}
+const focusTmp = new THREE.Vector3()
+let focusAnimId = 0
+
+/** 入场渐亮：从太阳系进入（enterFromSolar）时等待 revealTick 递增；直接加载默认已亮。
+ *  不能用 revealTick 判初始态——它只增不减，第二次进入时非 0 会误判为"直接加载" */
+const sceneRevealed = ref(!props.enterFromSolar)
+
+/** 入场自转（镜像火星 8014e13）：
+ *  转速 14.4°/s（≈1.45s 转正），渐入开始时从 ±18° 偏角匀速转，
+ *  角度剩减速位移时线性匀减速，终点 0°（初始姿态）。
+ *  方向与太阳系场景一致（绕倾斜后的极轴正方向自转；金星的逆向由 177.4° 轴倾角表达）。 */
+const SPIN_SPEED = THREE.MathUtils.degToRad(14.4) // ≈14.4°/s
+const SPIN_DECEL_MS = 400 // 匀减速段
+const SPIN_DECEL_SWEEP = (SPIN_SPEED * SPIN_DECEL_MS) / 2000 // ≈2.88°（匀减速位移）
+// 预设偏角与速度方向相反（火星 -18° + 正速度 → 转回 0°）；金星 177.4° 轴倾角已表达逆向，
+// 自转方向与太阳系一致（spinSign 恒为 +1，入场与持续方向统一为正方向）
+const SPIN_OFFSET = -THREE.MathUtils.degToRad(18) * props.planet.spinSign
+let spinPhase: 'spin' | 'stop' | 'done' = 'done'
+let spinStartAt = 0
+let spinStopAt = 0
+let spinStopFrom = 0
+
+watch(
+  () => props.revealTick,
+  (tick) => {
+    if (tick) sceneRevealed.value = true
+  },
+)
+
+function startSpin() {
+  if (!swingPivot || spinPhase !== 'done') return
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  spinPhase = reduced ? 'done' : 'spin'
+  spinStartAt = performance.now()
+  swingPivot.rotation.y = SPIN_OFFSET
+}
+/** 入场自转推进：匀速（自西向东）→ 角度剩减速位移时线性匀减速 → 终点 0°（初始姿态） */
+function updateSpin(now: number) {
+  if (!swingPivot || spinPhase === 'done') return
+  if (spinPhase === 'spin') {
+    const t = Math.max(0, (now - spinStartAt) / 1000)
+    swingPivot.rotation.y = SPIN_OFFSET + SPIN_SPEED * props.planet.spinSign * t
+    // 终点精确落在 0°（初始姿态）：进入减速段时对齐精确阈值，不受帧偏差/后台标签页帧迟到影响
+    if (Math.abs(swingPivot.rotation.y) <= SPIN_DECEL_SWEEP) {
+      spinPhase = 'stop'
+      spinStopAt = now
+      spinStopFrom = -SPIN_DECEL_SWEEP * props.planet.spinSign
+    }
+  } else {
+    const t = Math.min(1, (now - spinStopAt) / SPIN_DECEL_MS)
+    swingPivot.rotation.y = spinStopFrom + SPIN_SPEED * props.planet.spinSign * (SPIN_DECEL_MS / 1000) * (t - (t * t) / 2)
+    if (t >= 1) spinPhase = 'done'
+  }
+}
+
+// 进入：星球渐入（scene-host）完成即启动入场自转（无航天器/着陆点，无元素弹出阶段）
+watch(sceneRevealed, (revealed) => {
+  if (!revealed) return
+  startSpin()
+})
+
+/** 工具栏被页头"推下/推回"：rAF 逐帧插值（CSS transition 被系统减弱动态效果禁用，JS 动画不受影响） */
+const sceneToolbarRef = ref<HTMLElement | null>(null)
+let toolbarShift = 0
+let toolbarAnim: number | undefined
+watch(
+  () => props.headerExpanded,
+  (expanded) => {
+    if (toolbarAnim !== undefined) cancelAnimationFrame(toolbarAnim)
+    const target = expanded ? 76 : 0
+    const from = toolbarShift
+    const start = performance.now()
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / 380)
+      const eased = 1 - Math.pow(1 - t, 3)
+      toolbarShift = from + (target - from) * eased
+      if (sceneToolbarRef.value) {
+        sceneToolbarRef.value.style.transform = toolbarShift > 0.5 ? `translateY(${toolbarShift.toFixed(2)}px)` : ''
+      }
+      toolbarAnim = t < 1 ? requestAnimationFrame(tick) : undefined
+    }
+    toolbarAnim = requestAnimationFrame(tick)
+  },
+)
+
+let renderer: THREE.WebGLRenderer | undefined
+let scene: THREE.Scene | undefined
+let camera: THREE.PerspectiveCamera | undefined
+let controls: OrbitControls | undefined
+let planetMesh: THREE.Mesh | undefined
+/** 自转轴：tiltPivot（真实轴倾角）→ swingPivot（入场自转绕倾斜后的极轴）→ 行星 */
+let tiltPivot: THREE.Object3D | undefined
+let swingPivot: THREE.Object3D | undefined
+let planetMaterial: THREE.MeshStandardMaterial | THREE.MeshBasicMaterial | undefined
+let ambientLight: THREE.AmbientLight | undefined
+let sunLight: THREE.DirectionalLight | undefined
+let observationLight: THREE.DirectionalLight | undefined
+let resizeObserver: ResizeObserver | undefined
+let frameId = 0
+let lastSunUpdate = 0
+/** 拖拽后注视点滑回行星中心 */
+let dragResetTarget = false
+
+const FOV = 42
+const DEG = Math.PI / 180
+
+const pointerStart = new THREE.Vector2()
+
+/** 把 RingGeometry 的平面 UV 改写为径向条带 UV（u = 内缘 → 外缘），以匹配环带纹理 */
+function radialRingGeometry(inner: number, outer: number, segments: number) {
+  const geometry = new THREE.RingGeometry(inner, outer, segments, 1)
+  const position = geometry.attributes.position as THREE.BufferAttribute
+  const uv = geometry.attributes.uv as THREE.BufferAttribute
+  for (let i = 0; i < position.count; i += 1) {
+    const x = position.getX(i)
+    const y = position.getY(i)
+    const radius = Math.sqrt(x * x + y * y)
+    uv.setXY(i, (radius - inner) / (outer - inner), 0.5)
+  }
+  return geometry
+}
+
+/** 程序化生成天王星环纹理：13 条细环（Zeta/6/5/4/α/β/η/γ/δ/λ/ε/ν/μ，由内到外），
+ *  环间暗隙 + 细环亮线，模拟真实 Uranus ring system（NASA 命名）。
+ *  输入为环径向位置（以行星半径为单位，内缘→外缘归一化 0..1），输出 CanvasTexture 供径向 UV 使用。 */
+function proceduralUranusRingTexture(inner: number, outer: number): THREE.CanvasTexture {
+  // 13 条环的真实径向位置（Uranus 半径单位；ε 环最亮、μ/ν 是外侧两条弱环）
+  const ringPositions = [
+    1.592, 1.604, 1.612, 1.625, 1.657, 1.681, 1.703, 1.723, 1.742, // 9 条内环（Zeta..δ）
+    1.954, // ε（最亮）
+    2.136, // ν
+    2.377, // μ
+  ]
+  const width = 1024
+  const height = 4
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('canvas 2d unavailable')
+  ctx.clearRect(0, 0, width, height)
+  const span = outer - inner
+  for (const r of ringPositions) {
+    const t = (r - inner) / span // 0..1 归一化
+    if (t < -0.02 || t > 1.02) continue
+    const x = Math.round(t * (width - 1))
+    // 每条环 2-3px 宽（ε 环更宽更亮）；细环线用半透明白，α 通道决定亮度
+    const isEpsilon = Math.abs(r - 1.954) < 0.01
+    const isOuter = r > 2.1
+    const bandWidth = isEpsilon ? 6 : 3
+    const alpha = isEpsilon ? 0.95 : isOuter ? 0.4 : 0.75
+    ctx.fillStyle = `rgba(210, 225, 235, ${alpha})`
+    ctx.fillRect(x - bandWidth / 2, 0, bandWidth, height)
+  }
+  // ε 环外缘的微弱晕（稀薄尘埃）
+  ctx.fillStyle = 'rgba(180, 200, 215, 0.12)'
+  ctx.fillRect(Math.round(((1.95 - inner) / span) * width), 0, Math.round(((2.05 - inner) / span) * width), height)
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.wrapS = THREE.ClampToEdgeWrapping
+  texture.colorSpace = THREE.SRGBColorSpace
+  return texture
+}
+
+onMounted(() => {
+  const host = canvasHost.value
+  if (!host) return
+
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' })
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+  const initialWidth = host.clientWidth || window.innerWidth
+  const initialHeight = host.clientHeight || window.innerHeight
+  renderer.setSize(initialWidth, initialHeight)
+  renderer.outputColorSpace = THREE.SRGBColorSpace
+  renderer.setClearColor(0x010307, 1)
+  host.appendChild(renderer.domElement)
+
+  scene = new THREE.Scene()
+  camera = new THREE.PerspectiveCamera(FOV, initialWidth / initialHeight, 0.1, 2000)
+  // 初始视角：距行星中心 defaultDistance（视半径与火星页接近；土星带环略远保证环完整入画）
+  camera.position.set(0, 1.8, props.planet.defaultDistance)
+
+  resizeObserver = new ResizeObserver(() => {
+    const width = host.clientWidth
+    const height = host.clientHeight
+    if (width === 0 || height === 0 || !renderer || !camera) return
+    camera.aspect = width / height
+    camera.updateProjectionMatrix()
+    renderer.setSize(width, height)
+  })
+  resizeObserver.observe(host)
+  renderer.domElement.addEventListener('wheel', onSceneWheel, { passive: false })
+  renderer.domElement.addEventListener('pointerdown', onPointerDown)
+  renderer.domElement.addEventListener('pointerup', onPointerUp)
+
+  controls = new OrbitControls(camera, renderer.domElement)
+  controls.enableDamping = true
+  controls.dampingFactor = 0.06
+  controls.enablePan = false
+  controls.enableZoom = false
+  controls.addEventListener('start', () => {
+    dragResetTarget = true
+  })
+  // 拉近极限：视半径上限与火星一致（45.8°，即近限 = 半径×1.4）；有环行星近限必须 > 环外缘，
+  // 避免镜头穿入环平面造成"环横贯画面"的观感（土星环外缘 6.6×2.33≈15.4，天王星环 4.3×2.4≈10.3）
+  controls.minDistance = Math.max(
+    props.planet.radius * 1.4,
+    props.planet.ring ? props.planet.radius * props.planet.ring.outer * 1.08 : 0,
+  )
+  // 缩到最远：保持"缩到最远视大小统一"（约 8.5°，即最远 = 半径×6.7，与地球 12/2.15 同档）；
+  // 且不小于默认距离（水星 1.33×6.7≈8.9 < 默认 9，OrbitControls 要求 max ≥ 当前位置）
+  controls.maxDistance = Math.max(props.planet.radius * 6.7, props.planet.defaultDistance)
+
+  // 行星本体：行星用 PBR 材质（受光照，晨昏线依赖明暗）；恒星（太阳）用自发光 Basic 材质（不受光照）
+  const texture = solarTexture(props.planet.textureUrl, () => emitTexturesReady())
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.anisotropy = 16
+  planetMaterial = props.planet.star
+    ? new THREE.MeshBasicMaterial({ map: texture })
+    : new THREE.MeshStandardMaterial({ map: texture, roughness: 0.95, metalness: 0.02 })
+  planetMesh = new THREE.Mesh(new THREE.SphereGeometry(props.planet.radius, 256, 256), planetMaterial)
+  // 初始朝向：绕自转轴（局部 Y）旋转，让 lon 0° 子午线朝向相机——
+  // 用绕 Y 轴的四元数（北极保持在局部 +Y = 自转轴，不产生极轴漂移；
+  // 不能 setFromUnitVectors((1,0,0), cameraDir)——那会把北极也转离自转轴）
+  planetMesh.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(-camera.position.z, camera.position.x))
+
+  // 轴倾角组（真实轴倾角；金星 177.4° = 倒置自转轴）→ 自转组（入场自转绕倾斜后的极轴）
+  tiltPivot = new THREE.Object3D()
+  tiltPivot.name = `${props.planet.key}-tilt-pivot`
+  tiltPivot.rotation.order = 'ZYX'
+  tiltPivot.rotation.z = props.planet.axialTiltDeg * DEG
+  swingPivot = new THREE.Object3D()
+  swingPivot.name = `${props.planet.key}-swing-pivot`
+  swingPivot.add(planetMesh)
+
+  // 行星环：土星用环带纹理（径向条带 UV），天王星用程序化 13 细环纹理（模拟真实环系）。
+  // 挂在自转组下随轴倾角倾斜（与太阳系场景同实现）。
+  if (props.planet.ring) {
+    const inner = props.planet.radius * props.planet.ring.inner
+    const outer = props.planet.radius * props.planet.ring.outer
+    const ringGeometry = radialRingGeometry(inner, outer, 256)
+    const ringMaterial = new THREE.MeshBasicMaterial({
+      color: props.planet.ring.color ?? 0xd8c9a3,
+      transparent: true,
+      opacity: 0.9,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    })
+    const ringMesh = new THREE.Mesh(ringGeometry, ringMaterial)
+    ringMesh.name = `${props.planet.key}-ring`
+    if (props.planet.ring.kind === 'uranus') {
+      // 程序化 13 细环：Canvas 生成（真实环系位置），无外部素材依赖
+      const ringTexture = proceduralUranusRingTexture(props.planet.ring.inner, props.planet.ring.outer)
+      ringMaterial.map = ringTexture
+      ringMaterial.needsUpdate = true
+    } else if (props.planet.ring.textureUrl) {
+      const ringTexture = solarTexture(props.planet.ring.textureUrl, (t: THREE.Texture) => {
+        if (!ringMesh.material) return
+        ringMaterial.map = t
+        ringMaterial.needsUpdate = true
+      })
+      ringTexture.colorSpace = THREE.SRGBColorSpace
+      ringTexture.anisotropy = 4
+      if (ringTexture.image) {
+        ringMaterial.map = ringTexture
+        ringMaterial.needsUpdate = true
+      }
+    }
+    swingPivot.add(ringMesh)
+  }
+
+  tiltPivot.add(swingPivot)
+  scene.add(tiltPivot)
+
+  // 人类足迹标记（着陆点/撞击点）：小圆球嵌在行星表面（与火星着陆点同实现）。
+  // 挂在 swingPivot 下随行星自转/轴倾角；大气坠毁（气态行星无表面坐标）不画标记
+  const siteMarkers = new Map<string, THREE.Mesh>()
+  for (const site of markerSites.value) {
+    const marker = new THREE.Mesh(
+      new THREE.SphereGeometry(0.02 * Math.max(1, props.planet.radius / 2.1), 12, 12),
+      new THREE.MeshBasicMaterial({ color: 0xf5d9a8, transparent: true, opacity: 0.95 }),
+    )
+    // 球心落在行星表面半径上：球体一半嵌进表面、一半露出（被行星深度遮挡，无 z-fighting）
+    marker.position.copy(sitePosition(site.latitude!, site.longitude!, props.planet.radius))
+    marker.userData = { kind: 'planet-site', siteId: site.id }
+    swingPivot.add(marker)
+    siteMarkers.set(site.id, marker)
+    // 拾取球：扩大点击命中区域
+    const hit = new THREE.Mesh(
+      new THREE.SphereGeometry(0.14 * Math.max(1, props.planet.radius / 2.1), 8, 8),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
+    )
+    hit.userData.siteId = site.id
+    marker.add(hit)
+  }
+  // 开关联动：隐藏/显示标记
+  watch(sitesEnabled, (enabled) => {
+    for (const marker of siteMarkers.values()) marker.visible = enabled
+    if (!enabled) selectedSite.value = null
+  })
+
+  // 标签 overlay 投影更新（每帧）：标记的世界坐标 → 屏幕坐标
+  const labelTmp = new THREE.Vector3()
+  const updateSiteLabels = () => {
+    if (!renderer || !camera) return
+    const cam = camera
+    const bounds = renderer.domElement.getBoundingClientRect()
+    const labels = markerSites.value
+      .map((site) => {
+        const marker = siteMarkers.get(site.id)
+        if (!marker) return null
+        marker.getWorldPosition(labelTmp)
+        labelTmp.project(cam)
+        if (labelTmp.z > 1) return null // 在相机后方
+        return {
+          id: site.id,
+          name: site.name,
+          mission: site.mission,
+          icon: site.icon,
+          x: bounds.left + (labelTmp.x * 0.5 + 0.5) * bounds.width,
+          y: bounds.top + (-labelTmp.y * 0.5 + 0.5) * bounds.height,
+          visible: true,
+        }
+      })
+      .filter((l): l is NonNullable<typeof l> => l !== null)
+    siteLabels.value = labels
+  }
+
+  // 光照：行星用固定环境光 + 太阳方向光 + 跟随相机的观测光（360° 全亮，无晨昏线）；
+  // 恒星（太阳）自发光，无需任何光照
+  if (!props.planet.star) {
+    ambientLight = new THREE.AmbientLight(0x3a2a22, 0.8)
+    scene.add(ambientLight)
+    observationLight = new THREE.DirectionalLight(0xfff3dd, 3.1)
+    observationLight.position.copy(camera.position)
+    scene.add(observationLight)
+    sunLight = new THREE.DirectionalLight(0xfff3dd, 0)
+    sunLight.position.set(-6, 4, 8)
+    scene.add(sunLight)
+  }
+
+  // 星空粒子球（镜像地球/火星）：3000 颗、壳层 60–150
+  const starGeometry = new THREE.BufferGeometry()
+  const starData: number[] = []
+  for (let index = 0; index < 3000; index += 1) {
+    const radius = 60 + Math.random() * 90
+    const theta = Math.random() * Math.PI * 2
+    const phi = Math.acos(2 * Math.random() - 1)
+    starData.push(radius * Math.sin(phi) * Math.cos(theta), radius * Math.cos(phi), radius * Math.sin(phi) * Math.sin(theta))
+  }
+  starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starData, 3))
+  // 背景星空挂在相机上：屏幕固定，不随星球/相机旋转
+  const starPoints = new THREE.Points(starGeometry, new THREE.PointsMaterial({ color: 0xc7d1db, size: 0.15, transparent: true, opacity: 0.75 }))
+  starPoints.name = 'background-stars'
+  scene.add(camera)
+  camera.add(starPoints)
+
+  renderer.render(scene, camera)
+
+  let lastTime = performance.now()
+  const animate = () => {
+    frameId = requestAnimationFrame(animate)
+    if (!renderer || !scene || !camera) return
+    const now = performance.now()
+    lastTime = now
+
+    // 入场自转（按行星真实自转方向，停稳后静止）
+    updateSpin(now)
+
+    // 观测光跟随相机：明暗边界始终落在球体轮廓之外（关闭晨昏线时 360° 全亮）
+    if (observationLight && camera) observationLight.position.copy(camera.position)
+    // 晨昏线开启：太阳方向按行星太阳日持续推进（每 60s 刷新，与地球/火星同节奏）
+    if (terminatorEnabled.value && sunLight && now - lastSunUpdate > 60_000) {
+      lastSunUpdate = now
+      sunLight.position.copy(sunDirection()).multiplyScalar(10)
+    }
+
+    // 拖拽恢复：注视点滑回行星中心
+    if (controls && camera) {
+      if (dragResetTarget) {
+        controls.target.lerp(new THREE.Vector3(0, 0, 0), 0.12)
+        if (controls.target.lengthSq() < 0.002) {
+          controls.target.set(0, 0, 0)
+          dragResetTarget = false
+        }
+      }
+      // 动态拖动灵敏度（与地球/火星一致）：近处降敏、远处提速
+      const t = THREE.MathUtils.clamp((camera.position.length() - controls.minDistance) / (controls.maxDistance - controls.minDistance), 0, 1)
+      controls.rotateSpeed = 0.2 + t * 0.5
+    }
+
+    // 着陆点/撞击点标签投影更新（每次渲染，保持贴行星表面）
+    updateSiteLabels()
+
+    controls?.update()
+    renderer.render(scene, camera)
+  }
+  animate()
+})
+
+/** 经纬度 → 球面坐标（与地球页 latLonToVector / 火星 sitePosition 同公式） */
+function sitePosition(latitude: number, longitude: number, radius: number) {
+  const lat = latitude * DEG
+  const lon = longitude * DEG
+  return new THREE.Vector3(
+    radius * Math.cos(lat) * Math.cos(lon),
+    radius * Math.sin(lat),
+    -radius * Math.cos(lat) * Math.sin(lon),
+  )
+}
+
+/** 真实太阳方向（行星参数）：按当前日期/时刻计算太阳在行星固连坐标系中的方向
+ *  （北 = +y），用于晨昏线——子日点黄经按太阳日推进（360/太阳日每小时），
+ *  赤纬按行星季节（黄赤交角 · sin 季节相位，锚定真实春分/近似锚点）；
+ *  经行星网格世界四元数变换，晨昏线落在行星正确位置（镜像火星 marsSunDirection） */
+function sunDirection(): THREE.Vector3 {
+  const now = new Date()
+  const sun = props.planet.sun
+  // 等效季节倾角：顺行行星（轴倾角 ≤90°）直接用轴倾角（水星 0.03°/火星 25.19°/土星 26.73°）；
+  // 逆向行星（轴倾角 >90°，金星 177.4°/天王星 97.77°）用 |180-轴倾角|（金星 2.64°/天王星 82.23°，季节反转）
+  const effectiveTilt = Math.abs(sun.axialTiltDeg) > 90 ? 180 - Math.abs(sun.axialTiltDeg) : Math.abs(sun.axialTiltDeg)
+  const daysSinceAnchor = (now.getTime() - sun.seasonAnchorMs) / 86_400_000
+  const declination = effectiveTilt * Math.sin(DEG * ((360 / sun.seasonPeriodDays) * daysSinceAnchor))
+  const utcHours = now.getUTCHours() + now.getUTCMinutes() / 60 + now.getUTCSeconds() / 3600
+  const subsolarLongitude = 180 - utcHours * (360 / sun.solarDayHours)
+  const dir = sitePosition(declination, subsolarLongitude, 10)
+  const q = new THREE.Quaternion()
+  if (planetMesh) planetMesh.getWorldQuaternion(q)
+  return dir.applyQuaternion(q)
+}
+
+watch(terminatorEnabled, (enabled) => {
+  if (!observationLight || !sunLight) return
+  if (props.planet.star) return // 恒星自发光，无昼夜
+  observationLight.intensity = enabled ? 0 : 3.1
+  sunLight.intensity = enabled ? 3.1 : 0
+  if (enabled) {
+    // 真实昼夜方向：晨昏线位置 = 此刻太阳方位（严格按时间，昼夜随行星太阳日推进）
+    sunLight.position.copy(sunDirection()).multiplyScalar(10)
+  }
+})
+
+// 返回太阳系：工具栏/读数/署名由 .leaving-fade 300ms 一次性淡出（CSS），只留裸行星——
+// 随后由 App 遮罩完成星球渐暗切页；离开被中止（hash 守卫失败）时 leaving 回 false → 恢复显示
+watch(
+  () => props.leaving,
+  (leaving) => {
+    if (!leaving) return
+    spinPhase = 'done' // 退出时若入场自转仍在进行，立即停住（避免返回过渡期间继续转）
+  },
+)
+
+/** 按下瞬间：在行星表面 → 立即收起页头（与地球/火星一致） */
+function onPointerDown(event: PointerEvent) {
+  pointerStart.set(event.clientX, event.clientY)
+  if (isNearPlanet(event.clientX, event.clientY)) {
+    emit('blank-click')
+  }
+}
+
+/** 松开：未拖拽（点按）→ 拾取着陆点/撞击点标记，否则空白处清除并收起页头 */
+function onPointerUp(event: PointerEvent) {
+  if (!renderer || !camera) return
+  if (pointerStart.distanceTo(new THREE.Vector2(event.clientX, event.clientY)) > 5) return
+  // 拾取：优先命中足迹标记（火星同款：点标记 → 选中并聚焦，标签随选中出现）
+  const rect = renderer.domElement.getBoundingClientRect()
+  const ndc = new THREE.Vector2(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1)
+  const raycaster = new THREE.Raycaster()
+  raycaster.setFromCamera(ndc, camera)
+  const hits = raycaster.intersectObjects(swingPivot ? swingPivot.children : [], true)
+  for (const hit of hits) {
+    let obj: THREE.Object3D | null = hit.object
+    while (obj) {
+      const siteId = obj.userData?.siteId as string | undefined
+      if (siteId && sitesEnabled.value) {
+        selectSite(siteId)
+        return
+      }
+      obj = obj.parent
+    }
+  }
+  selectedSite.value = null
+  emit('blank-click')
+}
+
+/** 鼠标是否在行星投影范围内（镜像火星 isNearMars） */
+function isNearPlanet(clientX: number, clientY: number) {
+  if (!renderer || !camera) return false
+  const bounds = renderer.domElement.getBoundingClientRect()
+  const projectedCenter = new THREE.Vector3(0, 0, 0).project(camera)
+  const cameraRight = new THREE.Vector3(1, 0, 0)
+    .applyQuaternion(camera.quaternion)
+    .multiplyScalar(props.planet.radius * 1.08)
+    .project(camera)
+  const centerX = bounds.left + (projectedCenter.x * 0.5 + 0.5) * bounds.width
+  const centerY = bounds.top + (-projectedCenter.y * 0.5 + 0.5) * bounds.height
+  const radius = Math.abs(cameraRight.x - projectedCenter.x) * bounds.width * 0.5
+  return Math.hypot(clientX - centerX, clientY - centerY) <= radius * 1.12
+}
+
+/** 滚轮：在行星上 → 缩放行星；在边缘区域 → 交给页面滚动（与地球/火星一致） */
+function onSceneWheel(event: WheelEvent) {
+  if (!camera || !controls || !isNearPlanet(event.clientX, event.clientY)) return
+  event.preventDefault()
+  const normalizedDelta = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? event.deltaY * 16 : event.deltaY
+  const nextDistance = THREE.MathUtils.clamp(
+    camera.position.length() * Math.exp(normalizedDelta * 0.0012),
+    controls.minDistance,
+    controls.maxDistance,
+  )
+  camera.position.setLength(nextDistance)
+  controls.update()
+}
+
+onBeforeUnmount(() => {
+  cancelAnimationFrame(frameId)
+  if (focusAnimId) cancelAnimationFrame(focusAnimId)
+  resizeObserver?.disconnect()
+  renderer?.domElement.removeEventListener('wheel', onSceneWheel)
+  renderer?.domElement.removeEventListener('pointerdown', onPointerDown)
+  renderer?.domElement.removeEventListener('pointerup', onPointerUp)
+  controls?.dispose()
+  planetMaterial?.dispose()
+  planetMesh?.geometry.dispose()
+  renderer?.dispose()
+})
+</script>
+
+<style scoped>
+/* 行星主题色 CSS 变量：场景区（.planet-section）与档案区（.planet-profile-section）为兄弟节点，
+   两者都挂 themeKey class，变量在两处均可解析 */
+.planet-section,
+.planet-profile-section {
+  --planet-accent: #f0e0b2;
+  --planet-accent-dim: rgba(240, 224, 178, .4);
+  --planet-line: rgba(240, 224, 178, .22);
+  --planet-text: #f7efd8;
+  --planet-quiet: #c4b184;
+}
+.planet-section.saturn,
+.planet-profile-section.saturn {
+  --planet-accent: #e7c987;
+  --planet-accent-dim: rgba(231, 201, 135, .4);
+  --planet-line: rgba(231, 201, 135, .22);
+  --planet-text: #f5ead0;
+  --planet-quiet: #b39c6e;
+}
+.planet-section.jupiter,
+.planet-profile-section.jupiter {
+  --planet-accent: #cf9257;
+  --planet-accent-dim: rgba(207, 146, 87, .4);
+  --planet-line: rgba(207, 146, 87, .22);
+  --planet-text: #f0ddc4;
+  --planet-quiet: #a37c50;
+}
+.planet-section.mercury,
+.planet-profile-section.mercury {
+  --planet-accent: #c8b8a0;
+  --planet-accent-dim: rgba(200, 184, 160, .4);
+  --planet-line: rgba(200, 184, 160, .22);
+  --planet-text: #efe6d8;
+  --planet-quiet: #b3a48f;
+}
+.planet-section.uranus,
+.planet-profile-section.uranus {
+  --planet-accent: #8fd8d0;
+  --planet-accent-dim: rgba(143, 216, 208, .4);
+  --planet-line: rgba(143, 216, 208, .22);
+  --planet-text: #d8f2ee;
+  --planet-quiet: #8fb8b4;
+}
+.planet-section.neptune,
+.planet-profile-section.neptune {
+  --planet-accent: #6aa8e0;
+  --planet-accent-dim: rgba(106, 168, 224, .4);
+  --planet-line: rgba(106, 168, 224, .22);
+  --planet-text: #d8e8f8;
+  --planet-quiet: #8fb0d4;
+}
+.planet-section.sun,
+.planet-profile-section.sun {
+  --planet-accent: #ffb866;
+  --planet-accent-dim: rgba(255, 184, 102, .4);
+  --planet-line: rgba(255, 184, 102, .22);
+  --planet-text: #ffe8c8;
+  --planet-quiet: #d8a468;
+}
+
+/* 场景区布局（档案区为兄弟节点，不参与 sticky） */
+.planet-section {
+  position: relative;
+  height: 150dvh;
+  min-height: 990px;
+}
+
+/* 星野背景（按行星主题色，与火星暖红星野同构） */
+.planet-section {
+  background:
+    radial-gradient(1.2px 1.2px at 12% 22%, rgba(240, 224, 178, .4), transparent 100%),
+    radial-gradient(1px 1px at 23% 64%, rgba(240, 224, 178, .3), transparent 100%),
+    radial-gradient(.8px .8px at 31% 38%, rgba(240, 224, 178, .25), transparent 100%),
+    radial-gradient(1.4px 1.4px at 41% 82%, rgba(240, 224, 178, .36), transparent 100%),
+    radial-gradient(1px 1px at 55% 15%, rgba(240, 224, 178, .28), transparent 100%),
+    radial-gradient(.9px .9px at 62% 48%, rgba(240, 224, 178, .24), transparent 100%),
+    radial-gradient(1.3px 1.3px at 71% 74%, rgba(240, 224, 178, .32), transparent 100%),
+    radial-gradient(1px 1px at 79% 29%, rgba(240, 224, 178, .26), transparent 100%),
+    radial-gradient(.8px .8px at 88% 58%, rgba(240, 224, 178, .28), transparent 100%),
+    radial-gradient(1.1px 1.1px at 94% 12%, rgba(240, 224, 178, .32), transparent 100%),
+    radial-gradient(1px 1px at 7% 86%, rgba(240, 224, 178, .26), transparent 100%),
+    radial-gradient(.9px .9px at 49% 92%, rgba(240, 224, 178, .24), transparent 100%),
+    radial-gradient(1.2px 1.2px at 66% 4%, rgba(240, 224, 178, .3), transparent 100%),
+    radial-gradient(ellipse at 50% 50%, #14100a 0%, #050302 100%);
+}
+.planet-section.saturn {
+  background:
+    radial-gradient(1.2px 1.2px at 12% 22%, rgba(231, 201, 135, .4), transparent 100%),
+    radial-gradient(1px 1px at 23% 64%, rgba(231, 201, 135, .3), transparent 100%),
+    radial-gradient(.8px .8px at 31% 38%, rgba(231, 201, 135, .25), transparent 100%),
+    radial-gradient(1.4px 1.4px at 41% 82%, rgba(231, 201, 135, .36), transparent 100%),
+    radial-gradient(1px 1px at 55% 15%, rgba(231, 201, 135, .28), transparent 100%),
+    radial-gradient(.9px .9px at 62% 48%, rgba(231, 201, 135, .24), transparent 100%),
+    radial-gradient(1.3px 1.3px at 71% 74%, rgba(231, 201, 135, .32), transparent 100%),
+    radial-gradient(1px 1px at 79% 29%, rgba(231, 201, 135, .26), transparent 100%),
+    radial-gradient(.8px .8px at 88% 58%, rgba(231, 201, 135, .28), transparent 100%),
+    radial-gradient(1.1px 1.1px at 94% 12%, rgba(231, 201, 135, .32), transparent 100%),
+    radial-gradient(1px 1px at 7% 86%, rgba(231, 201, 135, .26), transparent 100%),
+    radial-gradient(.9px .9px at 49% 92%, rgba(231, 201, 135, .24), transparent 100%),
+    radial-gradient(1.2px 1.2px at 66% 4%, rgba(231, 201, 135, .3), transparent 100%),
+    radial-gradient(ellipse at 50% 50%, #171209 0%, #050302 100%);
+}
+.planet-section.jupiter {
+  background:
+    radial-gradient(1.2px 1.2px at 12% 22%, rgba(207, 146, 87, .4), transparent 100%),
+    radial-gradient(1px 1px at 23% 64%, rgba(207, 146, 87, .3), transparent 100%),
+    radial-gradient(.8px .8px at 31% 38%, rgba(207, 146, 87, .25), transparent 100%),
+    radial-gradient(1.4px 1.4px at 41% 82%, rgba(207, 146, 87, .36), transparent 100%),
+    radial-gradient(1px 1px at 55% 15%, rgba(207, 146, 87, .28), transparent 100%),
+    radial-gradient(.9px .9px at 62% 48%, rgba(207, 146, 87, .24), transparent 100%),
+    radial-gradient(1.3px 1.3px at 71% 74%, rgba(207, 146, 87, .32), transparent 100%),
+    radial-gradient(1px 1px at 79% 29%, rgba(207, 146, 87, .26), transparent 100%),
+    radial-gradient(.8px .8px at 88% 58%, rgba(207, 146, 87, .28), transparent 100%),
+    radial-gradient(1.1px 1.1px at 94% 12%, rgba(207, 146, 87, .32), transparent 100%),
+    radial-gradient(1px 1px at 7% 86%, rgba(207, 146, 87, .26), transparent 100%),
+    radial-gradient(.9px .9px at 49% 92%, rgba(207, 146, 87, .24), transparent 100%),
+    radial-gradient(1.2px 1.2px at 66% 4%, rgba(207, 146, 87, .3), transparent 100%),
+    radial-gradient(ellipse at 50% 50%, #160e06 0%, #050302 100%);
+}
+.planet-section.mercury {
+  --planet-accent: #c8b8a0;
+  --planet-accent-dim: rgba(200, 184, 160, .4);
+  --planet-line: rgba(200, 184, 160, .22);
+  --planet-text: #efe6d8;
+  --planet-quiet: #b3a48f;
+  background:
+    radial-gradient(1.2px 1.2px at 12% 22%, rgba(200, 184, 160, .4), transparent 100%),
+    radial-gradient(1px 1px at 23% 64%, rgba(200, 184, 160, .3), transparent 100%),
+    radial-gradient(.8px .8px at 31% 38%, rgba(200, 184, 160, .25), transparent 100%),
+    radial-gradient(1.4px 1.4px at 41% 82%, rgba(200, 184, 160, .36), transparent 100%),
+    radial-gradient(1px 1px at 55% 15%, rgba(200, 184, 160, .28), transparent 100%),
+    radial-gradient(.9px .9px at 62% 48%, rgba(200, 184, 160, .24), transparent 100%),
+    radial-gradient(1.3px 1.3px at 71% 74%, rgba(200, 184, 160, .32), transparent 100%),
+    radial-gradient(1px 1px at 79% 29%, rgba(200, 184, 160, .26), transparent 100%),
+    radial-gradient(.8px .8px at 88% 58%, rgba(200, 184, 160, .28), transparent 100%),
+    radial-gradient(1.1px 1.1px at 94% 12%, rgba(200, 184, 160, .32), transparent 100%),
+    radial-gradient(1px 1px at 7% 86%, rgba(200, 184, 160, .26), transparent 100%),
+    radial-gradient(.9px .9px at 49% 92%, rgba(200, 184, 160, .24), transparent 100%),
+    radial-gradient(1.2px 1.2px at 66% 4%, rgba(200, 184, 160, .3), transparent 100%),
+    radial-gradient(ellipse at 50% 50%, #17130d 0%, #050302 100%);
+}
+.planet-section.uranus {
+  --planet-accent: #8fd8d0;
+  --planet-accent-dim: rgba(143, 216, 208, .4);
+  --planet-line: rgba(143, 216, 208, .22);
+  --planet-text: #d8f2ee;
+  --planet-quiet: #8fb8b4;
+  background:
+    radial-gradient(1.2px 1.2px at 12% 22%, rgba(143, 216, 208, .4), transparent 100%),
+    radial-gradient(1px 1px at 23% 64%, rgba(143, 216, 208, .3), transparent 100%),
+    radial-gradient(.8px .8px at 31% 38%, rgba(143, 216, 208, .25), transparent 100%),
+    radial-gradient(1.4px 1.4px at 41% 82%, rgba(143, 216, 208, .36), transparent 100%),
+    radial-gradient(1px 1px at 55% 15%, rgba(143, 216, 208, .28), transparent 100%),
+    radial-gradient(.9px .9px at 62% 48%, rgba(143, 216, 208, .24), transparent 100%),
+    radial-gradient(1.3px 1.3px at 71% 74%, rgba(143, 216, 208, .32), transparent 100%),
+    radial-gradient(1px 1px at 79% 29%, rgba(143, 216, 208, .26), transparent 100%),
+    radial-gradient(.8px .8px at 88% 58%, rgba(143, 216, 208, .28), transparent 100%),
+    radial-gradient(1.1px 1.1px at 94% 12%, rgba(143, 216, 208, .32), transparent 100%),
+    radial-gradient(1px 1px at 7% 86%, rgba(143, 216, 208, .26), transparent 100%),
+    radial-gradient(.9px .9px at 49% 92%, rgba(143, 216, 208, .24), transparent 100%),
+    radial-gradient(1.2px 1.2px at 66% 4%, rgba(143, 216, 208, .3), transparent 100%),
+    radial-gradient(ellipse at 50% 50%, #0a1816 0%, #050302 100%);
+}
+.planet-section.neptune {
+  --planet-accent: #6aa8e0;
+  --planet-accent-dim: rgba(106, 168, 224, .4);
+  --planet-line: rgba(106, 168, 224, .22);
+  --planet-text: #d8e8f8;
+  --planet-quiet: #8fb0d4;
+  background:
+    radial-gradient(1.2px 1.2px at 12% 22%, rgba(106, 168, 224, .4), transparent 100%),
+    radial-gradient(1px 1px at 23% 64%, rgba(106, 168, 224, .3), transparent 100%),
+    radial-gradient(.8px .8px at 31% 38%, rgba(106, 168, 224, .25), transparent 100%),
+    radial-gradient(1.4px 1.4px at 41% 82%, rgba(106, 168, 224, .36), transparent 100%),
+    radial-gradient(1px 1px at 55% 15%, rgba(106, 168, 224, .28), transparent 100%),
+    radial-gradient(.9px .9px at 62% 48%, rgba(106, 168, 224, .24), transparent 100%),
+    radial-gradient(1.3px 1.3px at 71% 74%, rgba(106, 168, 224, .32), transparent 100%),
+    radial-gradient(1px 1px at 79% 29%, rgba(106, 168, 224, .26), transparent 100%),
+    radial-gradient(.8px .8px at 88% 58%, rgba(106, 168, 224, .28), transparent 100%),
+    radial-gradient(1.1px 1.1px at 94% 12%, rgba(106, 168, 224, .32), transparent 100%),
+    radial-gradient(1px 1px at 7% 86%, rgba(106, 168, 224, .26), transparent 100%),
+    radial-gradient(.9px .9px at 49% 92%, rgba(106, 168, 224, .24), transparent 100%),
+    radial-gradient(1.2px 1.2px at 66% 4%, rgba(106, 168, 224, .3), transparent 100%),
+    radial-gradient(ellipse at 50% 50%, #0a1420 0%, #050302 100%);
+}
+.planet-section.sun {
+  background:
+    radial-gradient(1.2px 1.2px at 12% 22%, rgba(255, 184, 102, .4), transparent 100%),
+    radial-gradient(1px 1px at 23% 64%, rgba(255, 184, 102, .3), transparent 100%),
+    radial-gradient(.8px .8px at 31% 38%, rgba(255, 184, 102, .25), transparent 100%),
+    radial-gradient(1.4px 1.4px at 41% 82%, rgba(255, 184, 102, .36), transparent 100%),
+    radial-gradient(1px 1px at 55% 15%, rgba(255, 184, 102, .28), transparent 100%),
+    radial-gradient(.9px .9px at 62% 48%, rgba(255, 184, 102, .24), transparent 100%),
+    radial-gradient(1.3px 1.3px at 71% 74%, rgba(255, 184, 102, .32), transparent 100%),
+    radial-gradient(1px 1px at 79% 29%, rgba(255, 184, 102, .26), transparent 100%),
+    radial-gradient(.8px .8px at 88% 58%, rgba(255, 184, 102, .28), transparent 100%),
+    radial-gradient(1.1px 1.1px at 94% 12%, rgba(255, 184, 102, .32), transparent 100%),
+    radial-gradient(1px 1px at 7% 86%, rgba(255, 184, 102, .26), transparent 100%),
+    radial-gradient(.9px .9px at 49% 92%, rgba(255, 184, 102, .24), transparent 100%),
+    radial-gradient(1.2px 1.2px at 66% 4%, rgba(255, 184, 102, .3), transparent 100%),
+    radial-gradient(ellipse at 50% 50%, #241505 0%, #050302 100%);
+}
+
+/* 粘性场景区：首屏 100dvh，下滑进入档案板块 */
+.planet-scene-frame {
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+  min-height: 660px;
+  overflow: hidden;
+}
+.planet-scene-host {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  cursor: grab;
+}
+.planet-scene-host.revealed {
+  opacity: 1;
+}
+.planet-scene-host canvas { display: block; }
+
+/* 档案板块：延续月球/火星板块框架（背景/边框/文字走行星主题色） */
+.planet-profile-section .section-kicker { color: var(--planet-accent); }
+.planet-profile-section .sec-num { color: var(--planet-accent); }
+.profile-grid {
+  max-width: 640px;
+  padding: 28px 0 44px;
+}
+.profile-table {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  border: 1px solid var(--planet-line);
+  border-radius: 8px;
+  background: rgba(8, 6, 4, .55);
+  overflow: hidden;
+}
+.profile-table > div {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 16px;
+  align-items: baseline;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--planet-line);
+}
+.profile-table > div:last-child { border-bottom: 0; }
+.profile-table dt {
+  color: var(--planet-quiet);
+  font: 500 10px var(--font-mono);
+  letter-spacing: .1em;
+  padding-top: 2px;
+}
+.profile-table dd {
+  margin: 0;
+  color: var(--planet-text);
+  font-size: 13px;
+  line-height: 1.6;
+}
+/* 简介行：并入表格最后一行（消除右侧独立文字），文字用 quiet 色、放宽行距更耐读 */
+.profile-intro-row {
+  align-items: start;
+  background: rgba(255, 255, 255, .02);
+}
+.profile-intro-row dd {
+  color: var(--planet-quiet);
+  font-size: 12px;
+  line-height: 1.9;
+}
+
+/* 返回渐隐：工具栏/读数/署名与标签同节奏淡出（只留裸行星，随后由遮罩完成星球渐暗） */
+.scene-toolbar.leaving-fade { opacity: 0; pointer-events: none; transition: opacity .3s ease; }
+.planet-readout.leaving-fade,
+.planet-credits.leaving-fade { opacity: 0; transition: opacity .3s ease; }
+
+/* 页脚：仅品牌（署名在场景右下角） */
+.planet-page-footer { padding: 10px 0 56px; }
+
+/* 右下角署名 */
+.planet-credits {
+  position: absolute;
+  z-index: 3;
+  right: 34px;
+  bottom: 30px;
+  color: var(--planet-quiet);
+  font: 400 7px var(--font-mono);
+  letter-spacing: .08em;
+  text-align: right;
+  pointer-events: none;
+}
+
+/* 读数区 */
+.planet-readout {
+  position: absolute;
+  z-index: 4;
+  left: 32px;
+  bottom: 28px;
+  color: var(--planet-text);
+}
+.planet-readout > span {
+  color: var(--planet-quiet);
+  font: 500 8px var(--font-mono);
+  letter-spacing: .15em;
+}
+.planet-readout strong {
+  display: block;
+  margin-top: 5px;
+  font-size: 17px;
+  font-weight: 500;
+}
+
+/* ===== 人类探索足迹：标签（贴行星表面，火星着陆点同款结构） ===== */
+.planet-site-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px;
+  border: 1px solid var(--planet-line);
+  border-radius: 6px;
+  background: rgba(4, 9, 15, .72);
+  backdrop-filter: blur(4px);
+  cursor: pointer;
+  pointer-events: auto;
+  transition: border-color .18s, color .18s;
+}
+.planet-site-label:hover { border-color: var(--planet-accent-dim); }
+.planet-site-label.selected { border-color: var(--planet-accent); box-shadow: 0 0 0 1px var(--planet-accent-dim); }
+.planet-site-label .planet-site-glyph { display: inline-flex; flex-shrink: 0; color: var(--planet-accent); }
+.planet-site-label strong { display: block; color: var(--planet-text); font-size: 11px; font-weight: 500; white-space: nowrap; }
+.planet-site-label small { display: block; margin-top: 1px; color: var(--planet-quiet); font: 400 8px var(--font-mono); letter-spacing: .04em; white-space: nowrap; }
+.planet-site-label.selected .planet-site-glyph { color: var(--planet-accent); }
+
+/* 足迹图标（沿用火星 SVG 风格，主题色描边） */
+.planet-site-glyph svg { display: block; }
+
+/* ===== 选中足迹信息卡 ===== */
+.planet-site-panel {
+  position: absolute;
+  z-index: 7;
+  left: 34px;
+  bottom: 34px;
+  width: 300px;
+  padding: 18px 20px;
+  border: 1px solid var(--planet-line);
+  border-radius: 12px;
+  background: rgba(4, 9, 15, .86);
+  backdrop-filter: blur(10px);
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity .28s, transform .28s;
+}
+.planet-site-panel.visible { opacity: 1; transform: none; }
+.planet-site-panel-close {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  border: 0;
+  background: transparent;
+  color: var(--planet-quiet);
+  font-size: 16px;
+  cursor: pointer;
+}
+.planet-site-panel-close:hover { color: var(--planet-text); }
+.planet-site-panel-head { display: flex; gap: 12px; align-items: center; padding-bottom: 14px; border-bottom: 1px solid var(--planet-line); }
+.planet-site-panel-head .planet-site-glyph.large { color: var(--planet-accent); }
+.planet-site-panel-head .planet-site-glyph.large svg { width: 26px; height: 26px; }
+.planet-site-panel-head h3 { margin: 0; font-size: 15px; font-weight: 500; color: var(--planet-text); }
+.planet-site-panel-head p { margin: 3px 0 0; color: var(--planet-quiet); font: 400 10px var(--font-mono); letter-spacing: .06em; }
+.planet-site-panel dl { display: grid; gap: 8px; padding: 14px 0 0; margin: 0; }
+.planet-site-panel dl > div { display: grid; grid-template-columns: 52px 1fr; gap: 10px; }
+.planet-site-panel dt { color: var(--planet-quiet); font-size: 11px; }
+.planet-site-panel dd { margin: 0; color: var(--planet-text); font-size: 11px; line-height: 1.55; }
+
+/* ===== 探索板块：目录行（4 列，含图标列） ===== */
+.planet-sites-section .site-row {
+  grid-template-columns: minmax(260px, 1.4fr) minmax(220px, 1fr) 150px 130px !important;
+  width: 100%;
+  text-align: left;
+}
+.planet-sites-section .site-row .planet-site-glyph { color: var(--planet-accent); flex-shrink: 0; }
+.planet-sites-section .site-row-name { display: flex; align-items: center; gap: 10px; }
+.planet-sites-section .site-row-name strong { color: var(--ink); font-size: 13px; }
+.planet-sites-section .site-row-name small { display: block; margin-top: 2px; color: var(--quiet); font: 400 8px var(--font-mono); }
+.planet-sites-section .site-row small { display: block; margin-top: 3px; color: var(--quiet); font: 400 8px var(--font-mono); }
+</style>
