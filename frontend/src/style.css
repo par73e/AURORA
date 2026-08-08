@@ -1125,81 +1125,81 @@ button { cursor: pointer; }
 
 /* ===== 太阳页：橙金主题 ===== */
 .desktop-app.sun .live-status,
-.desktop-app.sun .solar-clock { color: #d8a468; }
-.desktop-app.sun .nav-num { color: #e0b070; }
-.desktop-app.sun .site-header nav a { color: #e0b070; }
+.desktop-app.sun .solar-clock { color: #e0957d; }
+.desktop-app.sun .nav-num { color: #f08a6a; }
+.desktop-app.sun .site-header nav a { color: #f08a6a; }
 .desktop-app.sun .site-header nav a:hover,
-.desktop-app.sun .site-header nav a:focus-visible { color: #ffe8c8; }
+.desktop-app.sun .site-header nav a:focus-visible { color: #ffe3d6; }
 .desktop-app.sun .scene-toolbar {
-  border-color: rgba(255, 184, 102, .22);
-  background: rgba(36, 21, 5, .8);
+  border-color: rgba(255, 107, 74, .22);
+  background: rgba(45, 16, 6, .8);
 }
-.desktop-app.sun .scene-toolbar > span { color: #d8a468; }
-.desktop-app.sun .scene-toolbar label { color: #f0c890; }
-.desktop-app.sun .scene-toolbar i { background: #8a6228; }
+.desktop-app.sun .scene-toolbar > span { color: #e0957d; }
+.desktop-app.sun .scene-toolbar label { color: #ffb59e; }
+.desktop-app.sun .scene-toolbar i { background: #7a3522; }
 .desktop-app.sun .scene-toolbar input:checked + i {
-  background: #ffb866;
-  box-shadow: 0 0 6px rgba(255, 184, 102, .55);
+  background: #ff6b4a;
+  box-shadow: 0 0 6px rgba(255, 107, 74, .55);
 }
-.desktop-app.sun .scene-toolbar i.terminator { border-color: #a87c3c; background: #4a3410; }
+.desktop-app.sun .scene-toolbar i.terminator { border-color: #8a3c26; background: #3d1808; }
 .desktop-app.sun .scene-toolbar input:checked + i.terminator {
-  border-color: rgba(255, 184, 102, .85);
-  background: linear-gradient(90deg, #ffb866 0 50%, #2e1f08 50% 100%);
+  border-color: rgba(255, 107, 74, .85);
+  background: linear-gradient(90deg, #ff6b4a 0 50%, #3d1508 50% 100%);
 }
-.desktop-app.sun .brand small { color: #d8a468; }
+.desktop-app.sun .brand small { color: #e0957d; }
 .desktop-app.sun .brand:hover small,
-.desktop-app.sun .brand:focus-visible small { color: #ffb866; }
-.desktop-app.sun .brand-mark { border-color: rgba(255, 184, 102, .45); }
-.desktop-app.sun .brand-mark i:first-child { background: #ffb866; }
-.desktop-app.sun .brand-mark i:nth-child(2) { background: rgba(255, 184, 102, .4); }
-.desktop-app.sun .brand-mark i:nth-child(3) { border-color: rgba(255, 184, 102, .28); }
+.desktop-app.sun .brand:focus-visible small { color: #ff6b4a; }
+.desktop-app.sun .brand-mark { border-color: rgba(255, 107, 74, .45); }
+.desktop-app.sun .brand-mark i:first-child { background: #ff6b4a; }
+.desktop-app.sun .brand-mark i:nth-child(2) { background: rgba(255, 107, 74, .4); }
+.desktop-app.sun .brand-mark i:nth-child(3) { border-color: rgba(255, 107, 74, .28); }
 .desktop-app.sun .brand:hover .brand-mark,
 .desktop-app.sun .brand:focus-visible .brand-mark {
   border-color: rgba(255, 205, 130, .9);
-  box-shadow: 0 0 0 1px rgba(255, 184, 102, .22), 0 0 20px rgba(255, 184, 102, .35), inset 0 0 12px rgba(255, 184, 102, .18);
+  box-shadow: 0 0 0 1px rgba(255, 107, 74, .22), 0 0 20px rgba(255, 107, 74, .35), inset 0 0 12px rgba(255, 107, 74, .18);
   transform: translateY(-1px) scale(1.05);
 }
 .desktop-app.sun .brand:hover .brand-mark i:first-child,
-.desktop-app.sun .brand:focus-visible .brand-mark i:first-child { background: #ffcd82; }
+.desktop-app.sun .brand:focus-visible .brand-mark i:first-child { background: #ff8f6e; }
 .desktop-app.sun .brand:hover .brand-mark i:nth-child(3),
-.desktop-app.sun .brand:focus-visible .brand-mark i:nth-child(3) { background: #ffb866; }
+.desktop-app.sun .brand:focus-visible .brand-mark i:nth-child(3) { background: #ff6b4a; }
 .desktop-app.sun .brand:hover .brand-mark i:nth-child(2),
 .desktop-app.sun .brand:focus-visible .brand-mark i:nth-child(2) { background: rgba(255, 205, 130, .95); }
 .desktop-app.sun .brand:hover .brand-mark i:nth-child(3),
 .desktop-app.sun .brand:focus-visible .brand-mark i:nth-child(3) { border-color: rgba(255, 205, 130, .72); }
 .desktop-app.sun .brand:hover strong,
-.desktop-app.sun .brand:focus-visible strong { color: #fff0dc; text-shadow: 0 0 14px rgba(255, 184, 102, .4); }
+.desktop-app.sun .brand:focus-visible strong { color: #ffe9de; text-shadow: 0 0 14px rgba(255, 107, 74, .4); }
 .desktop-app.sun .brand:hover small,
-.desktop-app.sun .brand:focus-visible small { color: #ffb866; }
+.desktop-app.sun .brand:focus-visible small { color: #ff6b4a; }
 .desktop-app.sun .solar-system-item {
-  --orbit-blue: rgba(255, 184, 102, .85);
-  --orbit-cyan: rgba(255, 184, 102, .5);
-  --orbit-gold: rgba(255, 189, 81, .42);
+  --orbit-blue: rgba(255, 107, 74, .85);
+  --orbit-cyan: rgba(255, 107, 74, .5);
+  --orbit-gold: rgba(255, 120, 80, .42);
 }
 .desktop-app.sun .solar-system-item .planet-blue {
-  background: radial-gradient(circle at 32% 28%, #ffcd82, #ffb866 45%, #d89848 100%);
-  box-shadow: 0 0 3px rgba(255, 184, 102, .55), 0 0 5px rgba(255, 184, 102, .28);
+  background: radial-gradient(circle at 32% 28%, #ff8f6e, #ff6b4a 45%, #c25a38 100%);
+  box-shadow: 0 0 3px rgba(255, 107, 74, .55), 0 0 5px rgba(255, 107, 74, .28);
 }
 .desktop-app.sun .solar-system-item .planet-cyan {
-  background: radial-gradient(circle at 32% 28%, #ffcd82, #ffb866 48%, #d89848 100%);
-  box-shadow: 0 0 4px rgba(255, 184, 102, .5), 0 0 8px rgba(255, 184, 102, .22);
+  background: radial-gradient(circle at 32% 28%, #ff8f6e, #ff6b4a 48%, #c25a38 100%);
+  box-shadow: 0 0 4px rgba(255, 107, 74, .5), 0 0 8px rgba(255, 107, 74, .22);
 }
 .desktop-app.sun .solar-system-item .orbit-outer::after,
 .desktop-app.sun .solar-system-item .orbit-middle::after {
   border-top-color: rgba(255, 205, 130, .8);
-  filter: drop-shadow(0 0 3px rgba(255, 184, 102, .2));
+  filter: drop-shadow(0 0 3px rgba(255, 107, 74, .2));
 }
 .desktop-app.sun .solar-system-item .orbit-outer,
 .desktop-app.sun .solar-system-item .orbit-middle { box-shadow: none; }
 .desktop-app.sun .solar-system-item::after {
-  background: linear-gradient(90deg, transparent, rgba(255, 184, 102, .11), transparent);
+  background: linear-gradient(90deg, transparent, rgba(255, 107, 74, .11), transparent);
 }
 .desktop-app.sun .solar-system-item.solar-system-item:not(.is-active):hover .solar-title,
 .desktop-app.sun .solar-system-item.solar-system-item:not(.is-active):focus-visible .solar-title {
-  color: #fff0dc;
-  text-shadow: 0 0 10px rgba(255, 184, 102, .2), 0 0 18px rgba(255, 184, 102, .1);
+  color: #ffe9de;
+  text-shadow: 0 0 10px rgba(255, 107, 74, .2), 0 0 18px rgba(255, 107, 74, .1);
 }
 .desktop-app.sun .solar-system-item .star-dot {
-  background: #ffb866;
-  box-shadow: 0 0 5px rgba(255, 184, 102, .4);
+  background: #ff6b4a;
+  box-shadow: 0 0 5px rgba(255, 107, 74, .4);
 }

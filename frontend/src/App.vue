@@ -301,7 +301,7 @@ function preloadSurfaceComponent(target: AppSurface) {
   else if (target === 'orbit') void loadOrbitScene()
   else if (target === 'moon') void loadMoonScene()
   else if (target === 'mars') void loadMarsScene()
-  else if (target === 'venus' || target === 'saturn' || target === 'jupiter' || target === 'mercury' || target === 'uranus' || target === 'neptune') void loadPlanetScene()
+  else if (target === 'venus' || target === 'saturn' || target === 'jupiter' || target === 'mercury' || target === 'uranus' || target === 'neptune' || target === 'sun') void loadPlanetScene()
 }
 
 /** 取消进行中的过渡（含定时器与动画帧），恢复无过渡状态 */
@@ -396,13 +396,13 @@ function surfaceFromHash(): AppSurface {
   if (window.location.hash === '#solar-system') return 'solar-system'
   if (['#moon', '#moon-scene', '#moon-objects', '#moon-sites'].includes(window.location.hash)) return 'moon'
   if (['#mars', '#mars-scene', '#mars-objects', '#mars-sites'].includes(window.location.hash)) return 'mars'
-  if (['#venus', '#venus-scene', '#venus-profile'].includes(window.location.hash)) return 'venus'
-  if (['#saturn', '#saturn-scene', '#saturn-profile'].includes(window.location.hash)) return 'saturn'
-  if (['#jupiter', '#jupiter-scene', '#jupiter-profile'].includes(window.location.hash)) return 'jupiter'
-  if (['#mercury', '#mercury-scene', '#mercury-profile'].includes(window.location.hash)) return 'mercury'
-  if (['#uranus', '#uranus-scene', '#uranus-profile'].includes(window.location.hash)) return 'uranus'
-  if (['#neptune', '#neptune-scene', '#neptune-profile'].includes(window.location.hash)) return 'neptune'
-  if (['#sun', '#sun-scene', '#sun-profile'].includes(window.location.hash)) return 'sun'
+  if (['#venus', '#venus-scene', '#venus-profile', '#venus-objects', '#venus-sites'].includes(window.location.hash)) return 'venus'
+  if (['#saturn', '#saturn-scene', '#saturn-profile', '#saturn-objects', '#saturn-sites'].includes(window.location.hash)) return 'saturn'
+  if (['#jupiter', '#jupiter-scene', '#jupiter-profile', '#jupiter-objects', '#jupiter-sites'].includes(window.location.hash)) return 'jupiter'
+  if (['#mercury', '#mercury-scene', '#mercury-profile', '#mercury-objects', '#mercury-sites'].includes(window.location.hash)) return 'mercury'
+  if (['#uranus', '#uranus-scene', '#uranus-profile', '#uranus-objects'].includes(window.location.hash)) return 'uranus'
+  if (['#neptune', '#neptune-scene', '#neptune-profile', '#neptune-objects'].includes(window.location.hash)) return 'neptune'
+  if (['#sun', '#sun-scene', '#sun-profile', '#sun-objects'].includes(window.location.hash)) return 'sun'
   if (['#earth', '#objects', '#sites', '#launches'].includes(window.location.hash)) return 'orbit'
   return 'cover'
 }
@@ -1764,30 +1764,41 @@ onBeforeUnmount(() => {
           <nav v-else-if="surface === 'venus'" aria-label="页面导航">
             <a href="#venus-scene"><i class="nav-num">Ⅰ</i>金星</a>
             <a href="#venus-profile"><i class="nav-num">Ⅱ</i>档案</a>
+            <a href="#venus-objects"><i class="nav-num">Ⅲ</i>航天器</a>
+            <a href="#venus-sites"><i class="nav-num">Ⅳ</i>着陆点</a>
           </nav>
           <nav v-else-if="surface === 'saturn'" aria-label="页面导航">
             <a href="#saturn-scene"><i class="nav-num">Ⅰ</i>土星</a>
             <a href="#saturn-profile"><i class="nav-num">Ⅱ</i>档案</a>
+            <a href="#saturn-objects"><i class="nav-num">Ⅲ</i>航天器</a>
+            <a href="#saturn-sites"><i class="nav-num">Ⅳ</i>任务终点</a>
           </nav>
           <nav v-else-if="surface === 'jupiter'" aria-label="页面导航">
             <a href="#jupiter-scene"><i class="nav-num">Ⅰ</i>木星</a>
             <a href="#jupiter-profile"><i class="nav-num">Ⅱ</i>档案</a>
+            <a href="#jupiter-objects"><i class="nav-num">Ⅲ</i>航天器</a>
+            <a href="#jupiter-sites"><i class="nav-num">Ⅳ</i>任务终点</a>
           </nav>
           <nav v-else-if="surface === 'mercury'" aria-label="页面导航">
             <a href="#mercury-scene"><i class="nav-num">Ⅰ</i>水星</a>
             <a href="#mercury-profile"><i class="nav-num">Ⅱ</i>档案</a>
+            <a href="#mercury-objects"><i class="nav-num">Ⅲ</i>航天器</a>
+            <a href="#mercury-sites"><i class="nav-num">Ⅳ</i>任务终点</a>
           </nav>
           <nav v-else-if="surface === 'uranus'" aria-label="页面导航">
             <a href="#uranus-scene"><i class="nav-num">Ⅰ</i>天王星</a>
             <a href="#uranus-profile"><i class="nav-num">Ⅱ</i>档案</a>
+            <a href="#uranus-objects"><i class="nav-num">Ⅲ</i>飞掠器</a>
           </nav>
           <nav v-else-if="surface === 'neptune'" aria-label="页面导航">
             <a href="#neptune-scene"><i class="nav-num">Ⅰ</i>海王星</a>
             <a href="#neptune-profile"><i class="nav-num">Ⅱ</i>档案</a>
+            <a href="#neptune-objects"><i class="nav-num">Ⅲ</i>飞掠器</a>
           </nav>
           <nav v-else-if="surface === 'sun'" aria-label="页面导航">
             <a href="#sun-scene"><i class="nav-num">Ⅰ</i>太阳</a>
             <a href="#sun-profile"><i class="nav-num">Ⅱ</i>档案</a>
+            <a href="#sun-objects"><i class="nav-num">Ⅲ</i>飞行器</a>
           </nav>
           <nav v-else-if="surface === 'solar-system'" aria-label="当前位置">
             <SolarSystemItem title="太阳系" :icon-size="30" :active="true" :animated="true" @click="solarSystemRef?.resetView?.()" />
