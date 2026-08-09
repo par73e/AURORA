@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
+	observerlocation "aurora/backend/internal/location"
 	"aurora/backend/internal/mars"
 	"aurora/backend/internal/moon"
 	"aurora/backend/internal/orbit"
@@ -14,12 +15,13 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-func Router(repository *orbit.Repository, moonRepository *moon.Repository, marsRepository *mars.Repository, voyageRepository *voyage.Repository) http.Handler {
+func Router(repository *orbit.Repository, moonRepository *moon.Repository, marsRepository *mars.Repository, voyageRepository *voyage.Repository, geocoder observerlocation.ReverseGeocoder) http.Handler {
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer)
 	router.Get("/api/health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
+	router.Get("/api/v1/location/reverse", reverseLocationHandler(geocoder))
 	router.Get("/api/v1/orbit/overview", func(w http.ResponseWriter, r *http.Request) {
 		overview, err := repository.Overview(r.Context())
 		if err != nil {

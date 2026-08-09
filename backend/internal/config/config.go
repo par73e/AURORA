@@ -10,6 +10,7 @@ import (
 type Config struct {
 	Port        string
 	DatabaseURL string
+	AMapWebKey  string
 }
 
 func Load() Config {
@@ -27,5 +28,9 @@ func Load() Config {
 		databaseURL = fmt.Sprintf("postgres://%s@localhost:5432/aurora?sslmode=disable", url.QueryEscape(username))
 	}
 
-	return Config{Port: port, DatabaseURL: databaseURL}
+	return Config{
+		Port:        port,
+		DatabaseURL: databaseURL,
+		AMapWebKey:  os.Getenv("AMAP_WEB_KEY"),
+	}
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"os"
@@ -13,14 +14,17 @@ import (
 	"aurora/backend/internal/config"
 	"aurora/backend/internal/database"
 	"aurora/backend/internal/httpapi"
+	observerlocation "aurora/backend/internal/location"
 	"aurora/backend/internal/mars"
 	"aurora/backend/internal/moon"
 	"aurora/backend/internal/orbit"
 	"aurora/backend/internal/syncer"
 	"aurora/backend/internal/voyage"
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	loadLocalEnvironment()
 	cfg := config.Load()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -40,9 +44,10 @@ func main() {
 	moonRepository := moon.NewRepository(pool)
 	marsRepository := mars.NewRepository(pool)
 	voyageRepository := voyage.NewRepository(pool)
+	geocoder := observerlocation.NewAMapClient(cfg.AMapWebKey)
 	dataSyncer := syncer.NewWithMoonVoyageMars(repository, moonRepository, marsRepository, voyageRepository)
 
-	server := &http.Server{Addr: ":" + cfg.Port, Handler: httpapi.Router(repository, moonRepository, marsRepository, voyageRepository), ReadHeaderTimeout: 5 * time.Second}
+	server := &http.Server{Addr: ":" + cfg.Port, Handler: httpapi.Router(repository, moonRepository, marsRepository, voyageRepository, geocoder), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		slog.Info("AURORA API started", "address", "http://localhost:"+cfg.Port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -62,6 +67,18 @@ func main() {
 	shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelShutdown()
 	_ = server.Shutdown(shutdownContext)
+}
+
+// loadLocalEnvironment 只服务本地开发；生产环境仍由部署系统注入环境变量。
+func loadLocalEnvironment() {
+	for _, filename := range []string{".env", "backend/.env"} {
+		if err := godotenv.Load(filename); err == nil {
+			return
+		} else if !errors.Is(err, os.ErrNotExist) {
+			slog.Warn("load local environment", "file", filename, "error", err)
+			return
+		}
+	}
 }
 
 // runStartupSync 在 API 已可用后刷新缓存；所有同步共用原先的 120 秒预算，避免首启无限占用网络请求。

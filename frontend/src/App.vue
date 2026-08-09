@@ -12,7 +12,7 @@ import { bilingualName } from './bilingual'
 import { JUPITER_PAGE, MERCURY_PAGE, NEPTUNE_PAGE, SATURN_PAGE, SUN_PAGE, URANUS_PAGE, VENUS_PAGE } from './planetPages'
 import AuroraCover from './components/AuroraCover.vue'
 import SolarSystemItem from './components/SolarSystemItem.vue'
-import { fetchOrbitOverview, fetchSpacecraftCatalog } from './api'
+import { fetchObserverPlace, fetchOrbitOverview, fetchSpacecraftCatalog } from './api'
 import { spacecraftPoint } from './orbit/coordinates'
 import { marsHdReady, moonHdReady, orbitTexturesReady, preloadMarsHdTexture, preloadMoonHdTexture, preloadOrbitTextures, preloadSolarTextures } from './preload'
 import { solarTexturesReady } from './solar/textures'
@@ -34,7 +34,7 @@ const MarsScene = defineAsyncComponent({ loader: loadMarsScene, suspensible: fal
 const PlanetScene = defineAsyncComponent({ loader: loadPlanetScene, suspensible: false })
 const SkyObservatory = defineAsyncComponent({ loader: loadSkyObservatory, suspensible: false })
 
-type ObserverLocationStatus = 'locating' | 'located' | 'fallback'
+type ObserverLocationStatus = 'locating' | 'resolving' | 'located' | 'partial' | 'fallback'
 
 interface ObserverLocation {
   latitude: number
@@ -57,6 +57,8 @@ const observerLocation = ref<ObserverLocation>({ ...fallbackObserver, status: 'l
 const observerFocusRevision = ref(0)
 const observerViewActive = ref(false)
 let observerLocationRequested = false
+let observerLocationRevision = 0
+let observerLookupController: AbortController | undefined
 const dayNightEnabled = ref(false)
 type AppSurface = 'cover' | 'sky' | 'solar-system' | 'orbit' | 'moon' | 'mars' | 'mercury' | 'venus' | 'saturn' | 'jupiter' | 'uranus' | 'neptune' | 'sun'
 
@@ -591,7 +593,7 @@ const focusTarget = computed(() => {
     const point = spacecraftPoint(selectedSpacecraft.value, now.value)
     if (point) return { latitude: point.latitude, longitude: point.longitude, distance: 6.0, key: `spacecraft:${selectedSpacecraft.value.id}` }
   }
-  if (observerViewActive.value) return {
+  if (observerViewActive.value && observerLocation.value.status !== 'locating' && observerLocation.value.status !== 'fallback') return {
     latitude: observerLocation.value.latitude,
     longitude: observerLocation.value.longitude,
     distance: 7.6,
@@ -599,6 +601,13 @@ const focusTarget = computed(() => {
   }
   return null
 })
+
+/** 只有浏览器给出真实 GPS 坐标后才在地球表面展示“我的位置”标记。 */
+const observerTarget = computed(() => (
+  observerLocation.value.status === 'locating' || observerLocation.value.status === 'fallback'
+    ? null
+    : observerLocation.value
+))
 
 /** 轨道历元/同步时间统一 UTC 显示（与探测器面板一致，避免本地/UTC 混用） */
 function formatUTCDateTime(iso: string) {
@@ -617,35 +626,58 @@ function formatUTCDate(iso: string) {
 }
 
 function observerFallback(): Omit<ObserverLocation, 'status'> {
-  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
-  if (timezone === 'Asia/Shanghai' || timezone === 'Asia/Chongqing') {
-    return { latitude: 31.2304, longitude: 121.4737, label: '上海（时区回退）' }
+  return { latitude: 0, longitude: 0, label: '位置未确认' }
+}
+
+async function resolveObserverLocationName(latitude: number, longitude: number, revision: number) {
+  observerLookupController?.abort()
+  const controller = new AbortController()
+  observerLookupController = controller
+  observerLocation.value = { latitude, longitude, label: '正在确认城市区县', status: 'resolving' }
+  try {
+    const place = await fetchObserverPlace(latitude, longitude, controller.signal)
+    if (revision !== observerLocationRevision) return
+    observerLocation.value = { latitude, longitude, label: place.label, status: 'located' }
+  } catch {
+    if (controller.signal.aborted || revision !== observerLocationRevision) return
+    // 逆地理编码失败不应抹掉已经获得的真实坐标，也不能退回假定城市。
+    observerLocation.value = { latitude, longitude, label: '当前位置（地名暂不可用）', status: 'partial' }
+  } finally {
+    if (observerLookupController === controller) observerLookupController = undefined
   }
-  return { latitude: 0, longitude: 0, label: '本初子午线（定位回退）' }
 }
 
 function requestObserverLocation() {
   if (observerLocationRequested) return
   observerLocationRequested = true
   if (!navigator.geolocation) {
-    observerLocation.value = { ...fallbackObserver, status: 'fallback' }
+    observerLocation.value = { ...fallbackObserver, label: '浏览器不支持定位', status: 'fallback' }
     observerFocusRevision.value += 1
     return
   }
 
+  const revision = ++observerLocationRevision
+  observerLookupController?.abort()
   observerLocation.value = { ...fallbackObserver, label: '正在获取位置', status: 'locating' }
   navigator.geolocation.getCurrentPosition(
     ({ coords }) => {
+      if (revision !== observerLocationRevision) return
       observerLocation.value = {
         latitude: coords.latitude,
         longitude: coords.longitude,
-        label: '当前位置',
-        status: 'located',
+        label: '正在确认城市区县',
+        status: 'resolving',
       }
+      // 地球定位不等待地名接口：GPS 一到就立即显示标记并完成运镜。
       observerFocusRevision.value += 1
+      void resolveObserverLocationName(coords.latitude, coords.longitude, revision)
     },
-    () => {
-      observerLocation.value = { ...fallbackObserver, status: 'fallback' }
+    (locationError) => {
+      if (revision !== observerLocationRevision) return
+      const label = locationError.code === locationError.PERMISSION_DENIED
+        ? '定位未授权'
+        : locationError.code === locationError.TIMEOUT ? '定位请求超时' : '暂时无法获取位置'
+      observerLocation.value = { ...fallbackObserver, label, status: 'fallback' }
       observerFocusRevision.value += 1
     },
     { enableHighAccuracy: false, timeout: 6000, maximumAge: 900_000 },
@@ -656,7 +688,10 @@ function focusObserver() {
   selection.value = null
   observerViewActive.value = true
   observerFocusRevision.value += 1
-  if (observerLocation.value.status !== 'located') {
+  if (observerLocation.value.status === 'partial') {
+    const revision = ++observerLocationRevision
+    void resolveObserverLocationName(observerLocation.value.latitude, observerLocation.value.longitude, revision)
+  } else if (observerLocation.value.status === 'fallback') {
     // 用户主动点击时才允许再次尝试定位；封面和无关页面绝不触发权限请求。
     observerLocationRequested = false
     requestObserverLocation()
@@ -1717,6 +1752,8 @@ onBeforeUnmount(() => {
   if (pageSurfaceFrame) window.cancelAnimationFrame(pageSurfaceFrame)
   clearHeaderIdleTimer()
   cancelPendingTransition()
+  observerLocationRevision += 1
+  observerLookupController?.abort()
   catalogRequest?.abort()
   if (catalogQueryTimer !== undefined) window.clearTimeout(catalogQueryTimer)
   window.removeEventListener('pointermove', handleWindowPointerMove)
@@ -1982,7 +2019,7 @@ onBeforeUnmount(() => {
               :layers="layers"
               :selection="selection"
               :focus-target="focusTarget"
-              :observer-target="observerLocation"
+              :observer-target="observerTarget"
               :observer-active="observerViewActive"
               :day-night-enabled="dayNightEnabled"
               :reveal-tick="orbitRevealTick"

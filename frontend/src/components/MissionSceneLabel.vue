@@ -102,12 +102,9 @@ defineProps<{
   background: transparent;
   backdrop-filter: none;
 }
-.mission-scene-label.is-compact::before { width: 6px; opacity: .72; }
+.mission-scene-label.is-compact::before { display: none; }
 .mission-scene-label.is-compact .mission-scene-label-dot {
-  width: 4px;
-  height: 4px;
-  flex-basis: 4px;
-  box-shadow: none;
+  display: none;
 }
 .mission-scene-label.is-compact strong {
   overflow: hidden;

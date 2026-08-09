@@ -60,6 +60,18 @@ createdb aurora
 go run ./cmd/api
 ```
 
+天文观测页需要把浏览器取得的 GPS 坐标解析为城市和区县。本地开发时复制环境变量模板并填写高德 Web 服务 Key：
+
+```bash
+cp .env.example .env
+```
+
+```env
+AMAP_WEB_KEY=
+```
+
+`.env` 只用于本机且不会提交到 Git；生产环境应由部署系统注入 `AMAP_WEB_KEY`。Key 缺失时其他 API 仍能启动，只有地点解析接口会返回“定位服务尚未配置”。
+
 默认连接：
 
 - API：`http://localhost:8080`

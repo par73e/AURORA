@@ -276,19 +276,25 @@ onBeforeUnmount(() => {
 }
 
 .cover-path-icon-sky {
-  color: rgba(139, 176, 196, .72);
+  color: rgba(114, 215, 255, .84);
+  filter: drop-shadow(3px 5px 9px rgba(72, 183, 232, .14));
 }
 
 .cover-path:hover .cover-path-icon,
 .cover-path:focus-visible .cover-path-icon {
-  color: #eef7fb;
   transform: translateY(-1px);
 }
 
 .cover-path-primary:hover .cover-path-icon,
 .cover-path-primary:focus-visible .cover-path-icon {
-  color: #fff0d8;
-  filter: drop-shadow(3px 5px 10px rgba(255, 176, 88, .2));
+  color: var(--amber);
+  filter: drop-shadow(3px 5px 10px rgba(255, 176, 88, .28));
+}
+
+.cover-path:hover .cover-path-icon-sky,
+.cover-path:focus-visible .cover-path-icon-sky {
+  color: var(--blue);
+  filter: drop-shadow(3px 5px 10px rgba(72, 183, 232, .3));
 }
 
 .cover-path span,

@@ -123,7 +123,7 @@
         <div v-if="!planet.spacecraft.compact" class="catalog-controls">
           <label class="search-field">
             <span>名称、任务、机构或正则表达式</span>
-            <input v-model="craftQuery" type="search" placeholder="输入 Parker，或使用 /Helios|Ulysses/i" spellcheck="false" />
+            <input v-model="craftQuery" type="search" :placeholder="craftSearchPlaceholder" spellcheck="false" />
           </label>
           <label><span>状态</span><select v-model="craftStatusFilter"><option value="all">全部状态</option><option v-for="status in craftStatuses" :key="status" :value="status">{{ status }}</option></select></label>
           <label><span>排序</span><select v-model="craftSort"><option value="name">名称</option><option value="type">类型</option><option value="operator">机构</option></select></label>
@@ -228,6 +228,14 @@ const siteQuery = ref('')
 
 const craftStatuses: PlanetCraft['status'][] = ['运行中', '即将入轨', '飞掠', '已结束']
 const planetCrafts = computed(() => props.planet.spacecraft?.items ?? [])
+const craftSearchPlaceholder = computed(() => {
+  const examples = planetCrafts.value
+    .slice(0, 2)
+    .map((craft) => craft.nameEn || craft.name)
+    .filter(Boolean)
+    .join('、')
+  return examples ? `输入 ${examples}，或使用正则表达式` : '输入名称、任务或机构'
+})
 function matchesCraftQuery(craft: PlanetCraft, query: string) {
   const haystack = [craft.name, craft.nameEn, craft.operator, craft.type, craft.description, craft.endpoint ?? ''].join(' ')
   const regexMatch = query.match(/^\/(.*)\/([dgimsuvy]*)$/i)

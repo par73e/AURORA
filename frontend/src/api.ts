@@ -54,3 +54,19 @@ export function fetchMarsSpacecraft(signal?: AbortSignal) {
 export function fetchMarsLandingSites(signal?: AbortSignal) {
   return requestJSON<{ landingSites: MarsLandingSite[] }>('/api/v1/mars/landing-sites', signal)
 }
+
+export interface ObserverPlace {
+  label: string
+  province: string
+  city: string
+  district: string
+  adcode: string
+}
+
+export function fetchObserverPlace(latitude: number, longitude: number, signal?: AbortSignal) {
+  const search = new URLSearchParams({
+    latitude: latitude.toFixed(6),
+    longitude: longitude.toFixed(6),
+  })
+  return requestJSON<ObserverPlace>(`/api/v1/location/reverse?${search}`, signal)
+}

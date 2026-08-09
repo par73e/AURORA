@@ -7,6 +7,7 @@ FORM: desktop field observatory; four focused workspaces share one clock, one lo
 -->
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { fetchObserverPlace } from '../api'
 
 type SkyPage = 'tonight' | 'windows' | 'targets' | 'events'
 
@@ -62,14 +63,16 @@ function pageFromHash(): SkyPage {
 const activePage = ref<SkyPage>(pageFromHash())
 const minuteOfDay = ref(20 * 60 + 12)
 const now = ref(new Date())
-const locationLabel = ref('上海 · 黄浦区')
-const latitude = ref(31.23)
-const longitude = ref(121.47)
-const locationStatus = ref<'fallback' | 'locating' | 'located'>('fallback')
+const locationLabel = ref('尚未获取位置')
+const latitude = ref<number | null>(null)
+const longitude = ref<number | null>(null)
+const locationStatus = ref<'idle' | 'locating' | 'resolving' | 'located' | 'partial' | 'denied' | 'unavailable'>('idle')
 const selectedTargetId = ref('mars')
 const targetQuery = ref('')
 const eventFilter = ref<'全部' | EventItem['type']>('全部')
 let clock: number | undefined
+let locationRevision = 0
+let locationLookupController: AbortController | undefined
 
 const targets: Target[] = [
   {
@@ -108,7 +111,22 @@ const timeLabel = computed(() => `${String(Math.floor(minuteOfDay.value / 60)).p
 const timeProgress = computed(() => minuteOfDay.value / 1440)
 const isNight = computed(() => minuteOfDay.value >= 19 * 60 || minuteOfDay.value < 5 * 60 + 30)
 const skyPhase = computed(() => isNight.value ? 'night' : minuteOfDay.value < 7 * 60 || minuteOfDay.value > 17 * 60 + 30 ? 'twilight' : 'day')
-const coordinateLabel = computed(() => `${Math.abs(latitude.value).toFixed(2)}°${latitude.value >= 0 ? 'N' : 'S'} · ${Math.abs(longitude.value).toFixed(2)}°${longitude.value >= 0 ? 'E' : 'W'}`)
+const coordinateLabel = computed(() => {
+  if (latitude.value == null || longitude.value == null) {
+    if (locationStatus.value === 'locating') return '等待浏览器定位授权'
+    if (locationStatus.value === 'denied') return '点击可重新请求授权'
+    if (locationStatus.value === 'unavailable') return '点击可重试定位'
+    return '进入页面后自动请求定位'
+  }
+  return `${Math.abs(latitude.value).toFixed(4)}°${latitude.value >= 0 ? 'N' : 'S'} · ${Math.abs(longitude.value).toFixed(4)}°${longitude.value >= 0 ? 'E' : 'W'}`
+})
+
+const locationAction = computed(() => {
+  if (locationStatus.value === 'located') return 'GPS'
+  if (locationStatus.value === 'locating') return '请求中'
+  if (locationStatus.value === 'resolving') return '解析中'
+  return '重试'
+})
 
 function objectStyle(offset: number, maxHeight: number) {
   const cycle = (timeProgress.value + offset + 1) % 1
@@ -127,21 +145,62 @@ function selectPage(page: SkyPage) {
   document.querySelector('.sky-content-scroll')?.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
+async function resolveLocationName(currentLatitude: number, currentLongitude: number, revision: number) {
+  locationLookupController?.abort()
+  const controller = new AbortController()
+  locationLookupController = controller
+  locationStatus.value = 'resolving'
+  locationLabel.value = '正在确认城市区县'
+  try {
+    const place = await fetchObserverPlace(currentLatitude, currentLongitude, controller.signal)
+    if (revision !== locationRevision) return
+    locationLabel.value = place.label
+    locationStatus.value = 'located'
+  } catch {
+    if (controller.signal.aborted || revision !== locationRevision) return
+    locationLabel.value = '地名暂不可用'
+    locationStatus.value = 'partial'
+  } finally {
+    if (locationLookupController === controller) locationLookupController = undefined
+  }
+}
+
 function requestLocation() {
-  if (!navigator.geolocation || locationStatus.value === 'locating') return
+  if (locationStatus.value === 'locating' || locationStatus.value === 'resolving') return
+  if (locationStatus.value === 'partial' && latitude.value != null && longitude.value != null) {
+    const revision = ++locationRevision
+    void resolveLocationName(latitude.value, longitude.value, revision)
+    return
+  }
+  if (!navigator.geolocation) {
+    locationStatus.value = 'unavailable'
+    locationLabel.value = '浏览器不支持定位'
+    return
+  }
+  const revision = ++locationRevision
+  locationLookupController?.abort()
   locationStatus.value = 'locating'
+  locationLabel.value = '正在获取位置'
   navigator.geolocation.getCurrentPosition(
     ({ coords }) => {
+      if (revision !== locationRevision) return
       latitude.value = coords.latitude
       longitude.value = coords.longitude
-      locationLabel.value = '当前观测地'
-      locationStatus.value = 'located'
+      void resolveLocationName(coords.latitude, coords.longitude, revision)
     },
-    () => {
-      locationStatus.value = 'fallback'
-      locationLabel.value = '上海 · 黄浦区'
+    (error) => {
+      if (revision !== locationRevision) return
+      latitude.value = null
+      longitude.value = null
+      if (error.code === error.PERMISSION_DENIED) {
+        locationStatus.value = 'denied'
+        locationLabel.value = '定位未授权'
+      } else {
+        locationStatus.value = 'unavailable'
+        locationLabel.value = error.code === error.TIMEOUT ? '定位请求超时' : '暂时无法获取位置'
+      }
     },
-    { enableHighAccuracy: false, timeout: 6000, maximumAge: 900_000 },
+    { enableHighAccuracy: true, timeout: 10_000, maximumAge: 300_000 },
   )
 }
 
@@ -156,9 +215,12 @@ function onPopState() {
 onMounted(() => {
   window.addEventListener('popstate', onPopState)
   clock = window.setInterval(() => { now.value = new Date() }, 1000)
+  requestLocation()
 })
 
 onBeforeUnmount(() => {
+  locationRevision += 1
+  locationLookupController?.abort()
   window.removeEventListener('popstate', onPopState)
   if (clock) window.clearInterval(clock)
 })
@@ -172,10 +234,16 @@ onBeforeUnmount(() => {
         <span><strong>AURORA</strong><small>LOCAL SKY OBSERVATORY</small></span>
       </a>
 
-      <button class="sky-location" type="button" :aria-busy="locationStatus === 'locating'" @click="requestLocation">
+      <button
+        class="sky-location"
+        type="button"
+        :aria-busy="locationStatus === 'locating' || locationStatus === 'resolving'"
+        :aria-label="`${locationLabel}；${coordinateLabel}。${locationStatus === 'located' ? '点击刷新定位' : '点击重新请求定位'}`"
+        @click="requestLocation"
+      >
         <span class="location-mark" aria-hidden="true" />
-        <span><strong>{{ locationStatus === 'locating' ? '正在获取位置' : locationLabel }}</strong><small>{{ coordinateLabel }}</small></span>
-        <i>{{ locationStatus === 'located' ? 'GPS' : '设置' }}</i>
+        <span aria-live="polite"><strong>{{ locationLabel }}</strong><small>{{ coordinateLabel }}</small></span>
+        <i>{{ locationAction }}</i>
       </button>
 
       <nav class="sky-menu" aria-label="天文观测页面">
