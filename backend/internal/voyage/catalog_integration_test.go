@@ -14,13 +14,14 @@ import (
 
 // 深空探测器目录/同步数据集成冒烟测试（需本地 aurora 库与已同步数据；库不可用时自动跳过，
 // 不影响常规构建）。用于"比对验证"：确保新增探测器（先驱者10/11、尤利西斯、露西、
-// STEREO-A、隼鸟2）与原有 5 颗一样：字段齐全、采样窗口覆盖当前时刻、距离符合公开数值。
+// STEREO-A、隼鸟2、JWST、斯皮策）与原有 5 颗一样：字段齐全、采样窗口覆盖当前时刻、距离符合公开数值。
 
 const auKM = 149597870.7
 
 var expectedIDs = []string{
 	"parker", "solar-orbiter", "new-horizons", "voyager-1", "voyager-2",
 	"pioneer-10", "pioneer-11", "ulysses", "lucy", "stereo-a", "hayabusa-2",
+	"jwst", "spitzer",
 }
 
 func openTestDB(t *testing.T) (context.Context, *pgxpool.Pool) {
@@ -66,7 +67,9 @@ func probeAtNow(p *Probe, now time.Time) (x, y, z float64, ok bool) {
 	return 0, 0, 0, false
 }
 
-// TestProbeCatalogSanity 目录完整性：11 颗、字段齐全、采样窗口覆盖当前时刻
+// TestProbeCatalogSanity 目录完整性：13 颗、字段齐全、采样窗口覆盖当前时刻。
+// 016 中的 4 颗行星/小行星任务会在 017 被有意排除，023 再加入两座日心天文台；
+// 此处表达的是最终产品目录，而不是某一份迁移文件的中间状态。
 func TestProbeCatalogSanity(t *testing.T) {
 	ctx, pool := openTestDB(t)
 	repo := NewRepository(pool)
@@ -149,12 +152,15 @@ func TestProbeCurrentDistances(t *testing.T) {
 		"lucy":          {0.5, 7.0},
 		"stereo-a":      {0.8, 1.5},
 		"hayabusa-2":    {0.5, 3.5},
+		"jwst":          {0.8, 1.3},
+		"spitzer":       {0.8, 1.4},
 	}
 	now := time.Now().UTC()
 	for i := range probes {
 		p := &probes[i]
 		want, ok := ranges[p.ID]
 		if !ok {
+			t.Errorf("%s: 未定义当前距日校验范围", p.ID)
 			continue
 		}
 		x, y, z, found := probeAtNow(p, now)

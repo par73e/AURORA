@@ -18,75 +18,61 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 
 // ListProbes 深空探测器目录 + 每个目标的完整采样窗口（按时间升序）。
 // 同步任务每次整窗替换采样，因此当前窗口即最新一次同步的结果。
+// 目录与采样在同一条 LEFT JOIN 中读出，避免目录扩大时退化为 1 + N 次数据库往返。
 func (r *Repository) ListProbes(ctx context.Context) ([]Probe, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, name_zh, name_en, operator_name, launch_date, launch_site, launch_vehicle,
-		       mission_type, target, description, precision_grade, color, orbit_kind, sort_order
-		FROM deep_space_probes
-		ORDER BY sort_order, id`)
+		SELECT d.id, d.name_zh, d.name_en, d.operator_name, d.launch_date, d.launch_site, d.launch_vehicle,
+		       d.mission_type, d.target, d.description, d.precision_grade, d.color, d.orbit_kind, d.sort_order,
+		       s.epoch, s.x_km, s.y_km, s.z_km, s.synced_at
+		FROM deep_space_probes d
+		LEFT JOIN probe_position_samples s ON s.probe_id = d.id
+		ORDER BY d.sort_order, d.id, s.epoch ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("query deep space probes: %w", err)
 	}
 	defer rows.Close()
 
 	items := []Probe{}
+	latestSync := []time.Time{}
+	lastID := ""
 	for rows.Next() {
 		var item Probe
+		var epoch *time.Time
+		var x, y, z *float64
+		var syncedAt *time.Time
 		if err := rows.Scan(
 			&item.ID, &item.NameZH, &item.NameEN, &item.OperatorName, &item.LaunchDate,
 			&item.LaunchSite, &item.LaunchVehicle, &item.MissionType, &item.Target,
 			&item.Description, &item.PrecisionGrade, &item.Color, &item.OrbitKind, &item.SortOrder,
+			&epoch, &x, &y, &z, &syncedAt,
 		); err != nil {
-			return nil, fmt.Errorf("scan deep space probe: %w", err)
+			return nil, fmt.Errorf("scan deep space probe sample: %w", err)
 		}
-		item.Positions = []PositionPoint{}
-		items = append(items, item)
+		if item.ID != lastID {
+			item.Positions = []PositionPoint{}
+			items = append(items, item)
+			latestSync = append(latestSync, time.Time{})
+			lastID = item.ID
+		}
+		if epoch == nil {
+			continue
+		}
+		index := len(items) - 1
+		items[index].Positions = append(items[index].Positions, PositionPoint{
+			Epoch: epoch.UTC().Format(time.RFC3339),
+			X:     *x,
+			Y:     *y,
+			Z:     *z,
+		})
+		if syncedAt.After(latestSync[index]) {
+			latestSync[index] = *syncedAt
+			items[index].SyncedAt = syncedAt.UTC().Format(time.RFC3339)
+		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate deep space probes: %w", err)
-	}
-
-	for i := range items {
-		if err := r.loadSamples(ctx, &items[i]); err != nil {
-			return nil, err
-		}
+		return nil, fmt.Errorf("iterate deep space probe samples: %w", err)
 	}
 	return items, nil
-}
-
-func (r *Repository) loadSamples(ctx context.Context, probe *Probe) error {
-	rows, err := r.pool.Query(ctx, `
-		SELECT epoch, x_km, y_km, z_km, synced_at
-		FROM probe_position_samples
-		WHERE probe_id = $1
-		ORDER BY epoch ASC`, probe.ID)
-	if err != nil {
-		return fmt.Errorf("query probe samples: %w", err)
-	}
-	defer rows.Close()
-
-	probe.Positions = []PositionPoint{}
-	var latestSynced time.Time
-	for rows.Next() {
-		var epoch time.Time
-		var p PositionPoint
-		var syncedAt time.Time
-		if err := rows.Scan(&epoch, &p.X, &p.Y, &p.Z, &syncedAt); err != nil {
-			return fmt.Errorf("scan probe sample: %w", err)
-		}
-		p.Epoch = epoch.UTC().Format(time.RFC3339)
-		probe.Positions = append(probe.Positions, p)
-		if syncedAt.After(latestSynced) {
-			latestSynced = syncedAt
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("iterate probe samples: %w", err)
-	}
-	if len(probe.Positions) > 0 {
-		probe.SyncedAt = latestSynced.UTC().Format(time.RFC3339)
-	}
-	return nil
 }
 
 // ListCatalog 同步任务用目录（仅 id + NAIF ID）

@@ -373,6 +373,7 @@ function returnToPlanetScene() {
 
 /** 场景中的飞行器标签：切换选择，并立即围绕当前真实位置运镜。 */
 function selectCraft(id: string) {
+  if (focusTimer !== undefined) clearTimeout(focusTimer)
   const next = selectedCraft.value === id ? null : id
   selectedCraft.value = next
   if (next) {
@@ -383,11 +384,13 @@ function selectCraft(id: string) {
 
 /** 目录中的飞行器：先返回主场景，再以当前点位完成聚焦，节奏与月球/火星一致。 */
 function focusCraft(id: string) {
+  if (focusTimer !== undefined) clearTimeout(focusTimer)
   selectedCraft.value = id
   selectedSite.value = null
   emit('blank-click')
   returnToPlanetScene()
-  window.setTimeout(() => {
+  focusTimer = window.setTimeout(() => {
+    focusTimer = undefined
     if (selectedCraft.value === id) startCraftFocus(id)
   }, 520)
 }
@@ -418,6 +421,7 @@ function labelStyle(label: { x: number; y: number; visible: boolean }) {
 
 /** 场景中的表面航天器：切换选择，避免重复点击仍强制启动一次运镜。 */
 function selectSite(id: string) {
+  if (focusTimer !== undefined) clearTimeout(focusTimer)
   const next = selectedSite.value === id ? null : id
   selectedSite.value = next
   if (next) {
@@ -428,11 +432,13 @@ function selectSite(id: string) {
 
 /** 目录中的表面航天器：回到场景后再聚焦，避免滚动和 WebGL 运镜互相抢帧。 */
 function focusSite(id: string) {
+  if (focusTimer !== undefined) clearTimeout(focusTimer)
   selectedSite.value = id
   selectedCraft.value = null
   emit('blank-click')
   returnToPlanetScene()
-  window.setTimeout(() => {
+  focusTimer = window.setTimeout(() => {
+    focusTimer = undefined
     if (selectedSite.value === id) startSiteFocus(id)
   }, 520)
 }
@@ -471,6 +477,7 @@ const focusTmp2 = new THREE.Vector3()
 const focusTmp3 = new THREE.Vector3()
 const focusTmp4 = new THREE.Vector3()
 const origin = new THREE.Vector3()
+let focusTimer: number | undefined
 
 /** 入场渐亮：从太阳系进入（enterFromSolar）时等待 revealTick 递增；直接加载默认已亮。
  *  不能用 revealTick 判初始态——它只增不减，第二次进入时非 0 会误判为"直接加载" */
@@ -1273,6 +1280,7 @@ function onSceneWheel(event: WheelEvent) {
 }
 
 onBeforeUnmount(() => {
+  if (focusTimer !== undefined) clearTimeout(focusTimer)
   cancelAnimationFrame(frameId)
   resizeObserver?.disconnect()
   renderer?.domElement.removeEventListener('wheel', onSceneWheel)

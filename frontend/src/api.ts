@@ -34,8 +34,8 @@ export async function fetchSpacecraftCatalog(params: SpacecraftCatalogParams, si
   return requestJSON<SpacecraftCatalogPage>(`/api/v1/orbit/spacecraft?${search}`, signal)
 }
 
-export async function fetchDeepSpaceProbes(): Promise<DeepSpaceProbe[]> {
-  const data = await requestJSON<{ probes: DeepSpaceProbe[] }>('/api/v1/voyage/probes')
+export async function fetchDeepSpaceProbes(signal?: AbortSignal): Promise<DeepSpaceProbe[]> {
+  const data = await requestJSON<{ probes: DeepSpaceProbe[] }>('/api/v1/voyage/probes', signal)
   return data.probes ?? []
 }
 

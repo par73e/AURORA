@@ -62,6 +62,7 @@ let scene: SolarSystemScene | undefined
 let flightPlanet: 'moon' | 'mars' | 'venus' | 'saturn' | 'jupiter' | 'mercury' | 'uranus' | 'neptune' | 'sun' | null = null
 /** 组件已卸载标记（fetch 回调守卫，避免向已 dispose 的 scene 写数据） */
 let unmounted = false
+let probesRequest: AbortController | undefined
 /** 深空探测器（JPL Horizons 日同步，/api/v1/voyage/probes） */
 const probes = ref<DeepSpaceProbe[]>([])
 /** 点击选中的探测器（信息面板） */
@@ -342,19 +343,24 @@ onMounted(() => {
   scene.setSelected(activeId.value)
   // 刷新/直接加载：不播推镜，静态恢复默认构图（resize 触发 refit 定位）
   // 深空探测器：挂载后拉取 JPL Horizons 位置采样并传入场景（标记点 + 轨迹线）
-  fetchDeepSpaceProbes()
+  const controller = new AbortController()
+  probesRequest = controller
+  fetchDeepSpaceProbes(controller.signal)
     .then((items) => {
       if (unmounted) return
       probes.value = items
       if (scene) scene.setProbes(items)
     })
     .catch((error) => {
+      if (controller.signal.aborted) return
       console.error('加载深空探测器数据失败:', error)
     })
 })
 
 onBeforeUnmount(() => {
   unmounted = true
+  probesRequest?.abort()
+  probesRequest = undefined
   window.removeEventListener('keydown', onKeydown)
   scene?.dispose()
 })

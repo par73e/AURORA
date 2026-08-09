@@ -355,6 +355,7 @@ function updateMoonSpin(now: number) {
 // 进入：裸月球先 0.3s 渐入（scene-host）并自西向东慢转，旋转完全停住（≈2.075s）后再缓冲 125ms，
 // 所有元素（着陆点+飞行器+轨道+标签）一次性淡入
 let elementsRevealTimer: number | undefined
+let focusTimer: number | undefined
 watch(sceneRevealed, (revealed) => {
   if (!revealed || elementsVisible.value) return
   startMoonSpin()
@@ -449,6 +450,7 @@ const siteBilingual = computed(() => new Map(landingSites.value.map((s) => [s.id
 
 /** 点击搜索结果/场景标签：选中并聚焦（滚回主视图 → 飞行器居中 → 右侧面板） */
 function focusCraft(id: string) {
+  if (focusTimer !== undefined) clearTimeout(focusTimer)
   selectedCraft.value = id
   selectedSite.value = null // 选中互斥：聚焦飞行器时取消着陆点选中
   document.getElementById('moon-scene')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -457,15 +459,18 @@ function focusCraft(id: string) {
 /** 板块点击着陆点：返回月球场景 + 选中 + 镜头放大居中该点
  *  先平滑滚动回场景，滚动结束后再启动聚焦动画（并行会掉帧） */
 function focusSite(id: string) {
+  if (focusTimer !== undefined) clearTimeout(focusTimer)
   selectedSite.value = id
   document.getElementById('moon-scene')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  window.setTimeout(() => {
+  focusTimer = window.setTimeout(() => {
+    focusTimer = undefined
     if (selectedSite.value === id) startSiteFocus(id)
   }, 520)
 }
 
 /** 场景标签点击：切换选中（再次点击关闭），选中时镜头聚焦该点 */
 function selectSite(id: string) {
+  if (focusTimer !== undefined) clearTimeout(focusTimer)
   const next = selectedSite.value === id ? null : id
   selectedSite.value = next
   if (next) {
@@ -954,7 +959,7 @@ watch(siteQuery, () => { sitePage.value = 1 })
 
 /** 着陆点标签样式：右侧偏移，垂直对齐圆点 */
 function siteLabelStyle(label: { id: string; x: number; y: number }) {
-  return { transform: `translate(calc(${label.x}px + 10px), ${label.y - 14}px)` }
+  return { transform: `translate(${label.x + 10}px, ${label.y - 14}px)` }
 }
 
 /** 着陆点圆点随镜头距离淡出：远视正常 → 凑近半透明并缩小 → 贴面消失（不遮挡月面观察）
@@ -1249,12 +1254,13 @@ function updateLabels() {
 
 function craftLabelStyle(label: { id: string; x: number; y: number }) {
   // 标签垂直中心与圆点对齐（标签高约 28px，上移一半）
-  return { transform: `translate(calc(${label.x}px + 10px), ${label.y - 14}px)` }
+  return { transform: `translate(${label.x + 10}px, ${label.y - 14}px)` }
 }
 
 onBeforeUnmount(() => {
   abortSceneData()
   if (elementsRevealTimer !== undefined) clearTimeout(elementsRevealTimer)
+  if (focusTimer !== undefined) clearTimeout(focusTimer)
   cancelAnimationFrame(frameId)
   resizeObserver?.disconnect()
   renderer?.domElement.removeEventListener('wheel', onSceneWheel)
