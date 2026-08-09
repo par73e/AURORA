@@ -5,30 +5,32 @@
         <!-- 工具栏：行星页统一图层控制；只为确实存在的数据提供开关 -->
         <div ref="sceneToolbarRef" class="scene-toolbar" :class="{ 'leaving-fade': leaving }" aria-label="场景图层">
           <span>图层</span>
-          <label v-if="planet.spacecraft"><input v-model="spacecraftEnabled" type="checkbox"><i />航天器</label>
+          <label v-if="planet.spacecraft"><input v-model="spacecraftEnabled" type="checkbox"><i />飞行器</label>
           <label v-if="planet.spacecraft"><input v-model="orbitsEnabled" type="checkbox"><i class="orbits" />轨道</label>
           <label v-if="planet.exploration"><input v-model="sitesEnabled" type="checkbox"><i class="sites" />{{ planet.exploration.title }}</label>
           <label v-if="!planet.star"><input v-model="terminatorEnabled" type="checkbox"><i class="terminator" />晨昏线</label>
         </div>
 
         <!-- 探测器标签：只有前半球且对应图层开启时出现 -->
-        <button
+        <MissionSceneLabel
           v-for="label in craftLabels"
           v-show="label.visible && spacecraftEnabled"
           :key="label.id"
           class="planet-craft-label"
           :class="{ selected: selectedCraft === label.id, 'leaving-fade': leaving }"
           :style="labelStyle(label)"
+          kind="spacecraft"
+          :name-zh="label.name"
+          :name-en="label.nameEn"
+          :selected="selectedCraft === label.id"
           :aria-label="`${label.name}${label.nameEn !== label.name ? `（${label.nameEn}）` : ''}`"
           @pointerenter="hoveredCraft = label.id"
           @pointerleave="hoveredCraft = null"
           @click.stop="selectCraft(label.id)"
-        >
-          <i />{{ label.name }}
-        </button>
+        />
 
         <!-- 足迹标签：有坐标且在行星前半球才出现，背面由球体遮挡 -->
-        <button
+        <MissionSceneLabel
           v-for="label in siteLabels"
           :key="label.id"
           class="planet-site-label"
@@ -36,50 +38,30 @@
           :data-icon="label.icon"
           :class="{ selected: selectedSite === label.id, 'leaving-fade': leaving }"
           :style="labelStyle(label)"
+          kind="surface"
+          :name-zh="label.name"
+          :name-en="label.nameEn"
+          :selected="selectedSite === label.id"
+          :icon-html="siteGlyph(label.icon)"
           :aria-label="`${label.name}${label.nameEn !== label.name ? `（${label.nameEn}）` : ''}${planet.exploration?.title === '任务终点' ? '，任务终点' : ''}`"
           @click.stop="selectSite(label.id)"
-        >
-          <span class="planet-site-glyph" v-html="siteGlyph(label.icon)" />
-          <span>{{ label.name }}<template v-if="planet.exploration?.title === '任务终点'"> · 终点</template></span>
-        </button>
+        />
 
         <!-- 选中探测器的信息卡：与月球/火星场景保持同一互斥选择逻辑 -->
-        <aside v-if="selectedCraft && craftById(selectedCraft)" class="planet-craft-panel" :class="{ visible: sceneRevealed }" :style="panelHeaderOffset">
-          <button class="planet-craft-panel-close" aria-label="关闭详情" @click="selectedCraft = null">×</button>
-          <p class="planet-context-type">{{ craftById(selectedCraft)?.status }} · {{ craftById(selectedCraft)?.type }}</p>
-          <h2>{{ craftById(selectedCraft)?.name }}</h2>
-          <p v-if="craftById(selectedCraft)?.nameEn !== craftById(selectedCraft)?.name" class="planet-context-subtitle">{{ craftById(selectedCraft)?.nameEn }}</p>
-          <p class="planet-context-description">{{ craftById(selectedCraft)?.description }}</p>
-          <dl>
-            <div><dt>机构</dt><dd>{{ craftById(selectedCraft)?.operator }}</dd></div>
-            <div><dt>日期</dt><dd>{{ craftById(selectedCraft)?.date }}</dd></div>
-            <div v-if="craftById(selectedCraft)?.endpoint"><dt>终点</dt><dd>{{ craftById(selectedCraft)?.endpoint }}</dd></div>
-            <div v-if="craftById(selectedCraft)?.trajectory"><dt>轨迹</dt><dd>{{ craftTrajectoryLabel(craftById(selectedCraft)?.trajectory?.kind) }}</dd></div>
-            <div v-if="craftById(selectedCraft)?.trajectory?.periodDays"><dt>周期</dt><dd>约 {{ formatPeriod(craftById(selectedCraft)!.trajectory!.periodDays!) }}</dd></div>
-          </dl>
-          <p class="planet-source-caption">资料核实：{{ craftById(selectedCraft)?.verifiedAt ?? '静态资料' }} · {{ craftById(selectedCraft)?.source ?? '公开任务档案' }}</p>
-        </aside>
+        <MissionDetailPanel
+          v-if="selectedCraftDetail"
+          :detail="selectedCraftDetail"
+          :style="panelHeaderOffset"
+          @close="selectedCraft = null"
+        />
 
         <!-- 选中着陆点/撞击点的信息卡 -->
-        <aside v-if="selectedSite && siteById(selectedSite)" class="planet-site-panel" :class="{ visible: sceneRevealed }" :style="panelHeaderOffset">
-          <button class="planet-site-panel-close" aria-label="关闭" @click="selectedSite = null">×</button>
-          <div class="planet-site-panel-head">
-            <span class="planet-site-glyph large" v-html="siteGlyph(siteById(selectedSite)?.icon ?? 'lander')" />
-            <div>
-              <h3>{{ siteById(selectedSite)?.name }}</h3>
-              <p>{{ siteById(selectedSite)?.nameEn }}</p>
-            </div>
-          </div>
-          <dl>
-            <div><dt>类型</dt><dd>{{ siteKindLabel(siteById(selectedSite)?.kind) }}</dd></div>
-            <div><dt>任务</dt><dd>{{ siteById(selectedSite)?.mission }}</dd></div>
-            <div><dt>日期</dt><dd>{{ siteById(selectedSite)?.date }}</dd></div>
-            <div><dt>机构</dt><dd>{{ siteById(selectedSite)?.operator }}</dd></div>
-            <div v-if="siteById(selectedSite)?.latitude != null && siteById(selectedSite)?.longitude != null"><dt>坐标</dt><dd>{{ formatCoordinate(siteById(selectedSite)!.latitude!, siteById(selectedSite)!.longitude!) }}</dd></div>
-            <div><dt>简介</dt><dd>{{ siteById(selectedSite)?.description }}</dd></div>
-          </dl>
-          <p class="planet-source-caption">资料核实：{{ siteById(selectedSite)?.verifiedAt ?? '静态资料' }} · {{ siteById(selectedSite)?.source ?? '公开任务档案' }}</p>
-        </aside>
+        <MissionDetailPanel
+          v-if="selectedSiteDetail"
+          :detail="selectedSiteDetail"
+          :style="panelHeaderOffset"
+          @close="selectedSite = null"
+        />
 
         <!-- 左下角读数：常驻行星（返回时随元素一起淡出） -->
         <div class="planet-readout" :class="{ 'leaving-fade': leaving }" aria-live="polite">
@@ -123,6 +105,7 @@
             <div><dt>轴倾角</dt><dd>{{ planet.profile.axialTilt }}</dd></div>
             <div><dt>卫星</dt><dd>{{ planet.profile.moons }}</dd></div>
             <div><dt>环</dt><dd>{{ planet.profile.rings }}</dd></div>
+            <div><dt>成分</dt><dd>{{ planet.profile.composition }}</dd></div>
           </template>
           <div class="profile-intro-row"><dt>简介</dt><dd>{{ planet.profile.description }}</dd></div>
         </dl>
@@ -204,6 +187,10 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { solarTexture } from '../solar/textures'
 import type { PlanetCraft, PlanetCraftTrajectory, PlanetCraftTrajectoryKind, PlanetPageConfig } from '../planetPages'
+import MissionDetailPanel from './MissionDetailPanel.vue'
+import MissionSceneLabel from './MissionSceneLabel.vue'
+import type { MissionDetail } from '../missionPresentation'
+import { ENDPOINT_SCENE_NOTE, missionMarkerScale, spacecraftFields, spacecraftFocusDistance, surfaceFocusDistance, surfaceMissionFields } from '../missionPresentation'
 
 const props = defineProps<{ planet: PlanetPageConfig; revealTick?: number; enterFromSolar?: boolean; leaving?: boolean; headerExpanded?: boolean }>()
 const emit = defineEmits<{
@@ -322,6 +309,56 @@ function siteById(id: string) {
   return props.planet.exploration?.sites.find((s) => s.id === id)
 }
 
+const selectedCraftDetail = computed<MissionDetail | null>(() => {
+  if (!selectedCraft.value) return null
+  const craft = craftById(selectedCraft.value)
+  if (!craft) return null
+  const launch = craft.date ? `${craft.date} · 发射日期` : ''
+  return {
+    kind: 'spacecraft',
+    typeZh: '飞行器',
+    typeEn: 'SPACECRAFT',
+    status: `${craft.status} · ${craft.type}`,
+    nameZh: craft.name,
+    nameEn: craft.nameEn,
+    description: craft.description,
+    fields: spacecraftFields({
+      operator: craft.operator,
+      launch,
+      endpoint: craft.endpoint,
+      period: craft.trajectory?.periodDays ? `约 ${formatPeriod(craft.trajectory.periodDays)}` : '',
+      trajectory: craft.trajectory ? craftTrajectoryLabel(craft.trajectory.kind) : '',
+    }),
+    source: `${craft.verifiedAt ? `${craft.verifiedAt} · ` : ''}${craft.source ?? '公开任务档案'}`,
+  }
+})
+
+const selectedSiteDetail = computed<MissionDetail | null>(() => {
+  if (!selectedSite.value) return null
+  const site = siteById(selectedSite.value)
+  if (!site) return null
+  const endpoint = props.planet.exploration?.title === '任务终点'
+  const coordinates = site.latitude != null && site.longitude != null ? formatCoordinate(site.latitude, site.longitude) : ''
+  return {
+    kind: 'surface',
+    typeZh: endpoint ? '任务终点' : '着陆点',
+    typeEn: endpoint ? 'MISSION ENDPOINT' : 'LANDING SITE',
+    nameZh: site.name,
+    nameEn: site.nameEn,
+    description: site.description,
+    iconHtml: siteGlyph(site.icon),
+    fields: surfaceMissionFields({
+      mission: site.mission,
+      date: site.date,
+      operator: site.operator,
+      category: siteKindLabel(site.kind),
+      coordinates,
+    }),
+    source: `${site.verifiedAt ? `${site.verifiedAt} · ` : ''}${site.source ?? '公开任务档案'}`,
+    note: endpoint ? ENDPOINT_SCENE_NOTE : undefined,
+  }
+})
+
 function returnToPlanetScene() {
   document.getElementById(`${props.planet.key}-scene`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
@@ -411,7 +448,7 @@ function startSiteFocus(id: string) {
   const marker = siteMarkers.get(id)
   if (!marker || !camera || !controls) return
   // marker 已经过轴倾角和入场自转的父级变换；必须取世界坐标，不能把未变换的经纬度向量直接当镜头目标。
-  planFocusMotion(marker.getWorldPosition(focusTmp).clone(), props.planet.radius * 2.5)
+  planFocusMotion(marker.getWorldPosition(focusTmp).clone(), surfaceFocusDistance(props.planet.radius))
 }
 
 /** 飞行器聚焦取当前 Three.js 点位，而不是固定轨迹相位；动态任务的标签与镜头因此永远指向同一对象。 */
@@ -419,12 +456,12 @@ function startCraftFocus(id: string) {
   const runtime = craftRuntimes.get(id)
   if (!runtime || !camera || !controls) return
   const world = runtime.dot.getWorldPosition(focusTmp).clone()
-  const desired = Math.min(camera.position.length(), props.planet.radius * 3.1)
-  planFocusMotion(world, Math.max(desired, world.length() + props.planet.radius * 0.65))
+  planFocusMotion(world, spacecraftFocusDistance(props.planet.radius, camera.position.length(), world.length()))
 }
 const focusTmp = new THREE.Vector3()
 const focusTmp2 = new THREE.Vector3()
 const focusTmp3 = new THREE.Vector3()
+const focusTmp4 = new THREE.Vector3()
 const origin = new THREE.Vector3()
 
 /** 入场渐亮：从太阳系进入（enterFromSolar）时等待 revealTick 递增；直接加载默认已亮。
@@ -492,7 +529,7 @@ let toolbarShift = 0
 let toolbarAnim: number | undefined
 
 /** 弹出信息卡随页头"推下/推回"（地球页 context-panel 同款：headerExpanded → translateY(76px)） */
-const panelHeaderOffset = computed(() => (props.headerExpanded ? { transform: 'translateY(76px)' } : undefined))
+const panelHeaderOffset = computed(() => (props.headerExpanded ? { '--header-overlay-offset': '76px' } : undefined))
 watch(
   () => props.headerExpanded,
   (expanded) => {
@@ -819,7 +856,6 @@ onMounted(() => {
     for (const runtime of craftRuntimes.values()) {
       const lineMat = runtime.line?.material as THREE.LineBasicMaterial | undefined
       if (lineMat) lineMat.opacity = activeId === runtime.spec.id ? LINE_ACTIVE_OPACITY : LINE_BASE_OPACITY
-      if (runtime.dot) runtime.dot.scale.setScalar(activeId === runtime.spec.id ? 1.6 : 1)
     }
   }
   watch([hoveredCraft, selectedCraft], () => applyCraftHighlight())
@@ -1046,7 +1082,15 @@ onMounted(() => {
         const displayProgress = THREE.MathUtils.clamp(trajectory.displayProgress ?? 0.78, 0, 1)
         runtime.dot.position.copy(runtime.path[Math.min(runtime.path.length - 1, Math.floor(runtime.path.length * displayProgress))])
       }
+      const activeId = hoveredCraft.value ?? selectedCraft.value
+      const world = runtime.dot.getWorldPosition(focusTmp4)
+      runtime.dot.scale.setScalar(missionMarkerScale(world.distanceTo(camera.position), props.planet.defaultDistance, activeId === runtime.spec.id))
       runtime.dot.visible = spacecraftEnabled.value
+    }
+
+    for (const [id, marker] of siteMarkers) {
+      const world = marker.getWorldPosition(focusTmp4)
+      marker.scale.setScalar(missionMarkerScale(world.distanceTo(camera.position), props.planet.defaultDistance, selectedSite.value === id))
     }
 
     controls?.update()
@@ -1266,6 +1310,17 @@ onBeforeUnmount(() => {
   --planet-line: rgba(240, 224, 178, .22);
   --planet-text: #f7efd8;
   --planet-quiet: #c4b184;
+}
+.planet-section {
+  --mission-accent: var(--planet-accent);
+  --mission-accent-dim: var(--planet-accent-dim);
+  --mission-line: var(--planet-line);
+  --mission-text: var(--planet-text);
+  --mission-quiet: var(--planet-quiet);
+  --mission-body: color-mix(in srgb, var(--planet-text) 72%, var(--planet-quiet));
+  --mission-panel-surface: color-mix(in srgb, var(--planet-accent) 4%, rgba(4, 9, 15, .95));
+  --mission-label-surface: color-mix(in srgb, var(--planet-accent) 3%, rgba(3, 10, 17, .82));
+  --mission-label-surface-active: color-mix(in srgb, var(--planet-accent) 8%, rgba(6, 17, 26, .92));
 }
 .planet-section.saturn,
 .planet-profile-section.saturn,

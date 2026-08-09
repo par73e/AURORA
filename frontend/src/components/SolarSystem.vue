@@ -8,6 +8,10 @@ import { fetchDeepSpaceProbes } from '../api'
 import { bilingualName } from '../bilingual'
 import type { DeepSpaceProbe } from '../types'
 import type { ProbeData } from '../solar/scene'
+import MissionDetailPanel from './MissionDetailPanel.vue'
+import MissionSceneLabel from './MissionSceneLabel.vue'
+import type { MissionDetail } from '../missionPresentation'
+import { spacecraftFields } from '../missionPresentation'
 
 const props = defineProps<{ enterFromOrbit?: boolean; enterFromMoon?: boolean; enterFromMars?: boolean; enterFromVenus?: boolean; enterFromSaturn?: boolean; enterFromJupiter?: boolean; enterFromMercury?: boolean; enterFromUranus?: boolean; enterFromNeptune?: boolean; enterFromSun?: boolean; flyDelay?: number; playEntryFly?: boolean }>()
 
@@ -71,6 +75,29 @@ const probeLaunchText = computed(() => {
   const p = selectedProbe.value
   if (!p) return ''
   return [p.launchDate, p.launchSite, p.launchVehicle].filter(Boolean).join(' · ')
+})
+const selectedProbeDetail = computed<MissionDetail | null>(() => {
+  const probe = selectedProbe.value
+  if (!probe) return null
+  const name = bilingualName(probe.nameZh, probe.nameEn)
+  return {
+    kind: 'spacecraft',
+    typeZh: '飞行器',
+    typeEn: 'SPACECRAFT',
+    status: `${probe.missionType} · 精度 ${probe.precisionGrade}`,
+    nameZh: name.primary,
+    nameEn: name.secondary,
+    description: probe.description,
+    fields: spacecraftFields({
+      operator: probe.operatorName,
+      launch: probeLaunchText.value,
+      target: [probe.target, probeDistAU.value == null ? '' : `当前距日 ${probeDistAU.value.toFixed(2)} AU`].filter(Boolean).join(' · '),
+      inclination: probeOrbit.value ? `${probeOrbit.value.inclinationDeg.toFixed(2)}°` : '',
+      eccentricity: probeOrbit.value?.eccentricity.toFixed(4),
+      period: probeOrbit.value ? `${probeOrbit.value.periodDays.toFixed(0)} 天` : '',
+    }),
+    source: `JPL Horizons · 同步于 ${formatSyncTime(probe.syncedAt)}`,
+  }
 })
 
 const activePlanet = computed<PlanetSpec>(() => planets.find((p) => p.id === activeId.value) ?? planets[2])
@@ -418,23 +445,25 @@ defineExpose({ resetView })
         <i class="earth-entry">ENTER {{ nameEnById.get(label.id) }} ↗</i>
       </button>
 
-      <button
+      <MissionSceneLabel
         v-for="label in probeLabels"
         v-show="label.visible"
         :key="label.id"
-        class="solar-label probe-label"
+        class="probe-label"
         :class="{ active: selectedProbe?.id === label.id }"
         :style="planetLabelStyle(label)"
+        kind="spacecraft"
+        compact
+        :name-zh="probeBilingual.get(label.id)?.primary ?? ''"
+        :name-en="probeBilingual.get(label.id)?.secondary"
+        :selected="selectedProbe?.id === label.id"
         :aria-label="`${probeBilingual.get(label.id)?.primary}${probeBilingual.get(label.id)?.secondary ? `（${probeBilingual.get(label.id)?.secondary}）` : ''}`"
         @mouseenter="hoverProbe(label.id)"
         @mouseleave="hoverProbe(null)"
         @focus="hoverProbe(label.id)"
         @blur="hoverProbe(null)"
         @click="onProbeClick(label.id)"
-      >
-        <strong>{{ probeBilingual.get(label.id)?.primary }}</strong>
-        <small v-if="probeBilingual.get(label.id)?.secondary">（{{ probeBilingual.get(label.id)?.secondary }}）</small>
-      </button>
+      />
 
       <div
         v-if="sunLabel"
@@ -480,22 +509,7 @@ defineExpose({ resetView })
       </div>
     </div>
 
-    <aside v-if="selectedProbe" class="probe-panel" role="dialog" aria-label="深空探测器信息">
-      <button class="probe-panel-close" type="button" aria-label="关闭信息面板" @click="closeProbePanel">×</button>
-      <p class="probe-panel-kicker">{{ selectedProbe.missionType }} · 精度等级 {{ selectedProbe.precisionGrade }}</p>
-      <h2>{{ probeBilingual.get(selectedProbe.id)?.primary }} <small v-if="probeBilingual.get(selectedProbe.id)?.secondary">（{{ probeBilingual.get(selectedProbe.id)?.secondary }}）</small></h2>
-      <dl>
-        <div><dt>运营方</dt><dd>{{ selectedProbe.operatorName }}</dd></div>
-        <div><dt>发射地点</dt><dd>{{ probeLaunchText }}</dd></div>
-        <div><dt>轨道倾角</dt><dd>{{ probeOrbit ? probeOrbit.inclinationDeg.toFixed(2) + '°' : '—' }}</dd></div>
-        <div><dt>偏心率</dt><dd>{{ probeOrbit ? probeOrbit.eccentricity.toFixed(4) : '—' }}</dd></div>
-        <div><dt>轨道周期</dt><dd>{{ probeOrbit ? probeOrbit.periodDays.toFixed(0) + ' 天' : '—' }}</dd></div>
-        <div><dt>目标</dt><dd>{{ selectedProbe.target }}</dd></div>
-        <div v-if="probeDistAU !== null"><dt>当前距日</dt><dd>{{ probeDistAU.toFixed(2) }} AU</dd></div>
-      </dl>
-      <p class="probe-panel-desc">{{ selectedProbe.description }}</p>
-      <p class="probe-panel-note">JPL Horizons<br>同步于 {{ formatSyncTime(selectedProbe.syncedAt) }}</p>
-    </aside>
+    <MissionDetailPanel v-if="selectedProbeDetail" :detail="selectedProbeDetail" @close="closeProbePanel" />
 
     <button class="reset-view" type="button" @click="resetView">重置</button>
 
@@ -524,6 +538,13 @@ defineExpose({ resetView })
   isolation: isolate;
   padding-top: 72px;
   color: #e8f2f5;
+  --mission-accent: #72d7ff;
+  --mission-accent-dim: rgba(114, 215, 255, .38);
+  --mission-line: rgba(139, 180, 202, .2);
+  --mission-text: #ecf5f9;
+  --mission-quiet: #7f98a7;
+  --mission-body: #a8c0cc;
+  --mission-panel-surface: rgba(5, 14, 22, .95);
   background:
     radial-gradient(ellipse at 82% 10%, rgba(255, 169, 70, .085), transparent 16%),
     radial-gradient(ellipse at 45% 68%, rgba(24, 94, 133, .12), transparent 42%),
@@ -637,11 +658,6 @@ defineExpose({ resetView })
   text-shadow: 0 1px 6px rgba(0, 0, 0, .8);
 }
 .belt-label small { display: block; margin-top: 4px; color: rgba(76, 109, 123, .65); font: 400 6px var(--font-mono); letter-spacing: .1em; }
-
-.probe-label { pointer-events: auto; cursor: pointer; }
-.probe-label strong { color: rgba(214, 228, 235, .78); font-size: 8px; font-weight: 500; letter-spacing: .09em; }
-.probe-label small { color: rgba(104, 138, 153, .6); font: 400 6px var(--font-mono); letter-spacing: .14em; }
-.probe-label:focus-visible { outline: 1px dashed rgba(115, 223, 255, .5); outline-offset: 4px; border-radius: 2px; }
 
 .probe-panel {
   position: absolute;

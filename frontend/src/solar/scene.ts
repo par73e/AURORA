@@ -20,6 +20,7 @@ import {
 } from './data'
 import { solarTexture } from './textures'
 import { distanceAU, ellipseDirection3D, ellipsePositionAt, ellipseScenePoints, fitEllipseFromSamples, heliocentricToScene, type FittedEllipse } from './scale'
+import { missionMarkerScale } from '../missionPresentation'
 
 /** 深空探测器数据（来自 /api/v1/voyage/probes；位置为 JPL Horizons 日心黄道坐标 km） */
 export interface ProbeData {
@@ -1028,7 +1029,7 @@ export class SolarSystemScene {
         runtime.currentAU = rAU
         runtime.currentEpochMs = now
         runtime.marker.position.copy(runtime.current)
-        runtime.marker.scale.setScalar(Math.pow(runtime.current.distanceTo(this.camera.position) / PROBE_MARKER_REF_DISTANCE, 0.6))
+        runtime.marker.scale.setScalar(missionMarkerScale(runtime.current.distanceTo(this.camera.position), PROBE_MARKER_REF_DISTANCE, this.probeSelectedId === runtime.data.id))
         continue
       }
       const { epochsMs, points, aus } = runtime
@@ -1062,7 +1063,7 @@ export class SolarSystemScene {
       runtime.marker.position.copy(runtime.current)
       // 标记部分透视补偿（同地球/月球标记）：scale=(d/基准)^0.6，远小近大但不过度，
       // 与行星比例保持一致——远处是点、贴脸放大也不胀成巨球
-      runtime.marker.scale.setScalar(Math.pow(runtime.current.distanceTo(this.camera.position) / PROBE_MARKER_REF_DISTANCE, 0.6))
+      runtime.marker.scale.setScalar(missionMarkerScale(runtime.current.distanceTo(this.camera.position), PROBE_MARKER_REF_DISTANCE, this.probeSelectedId === runtime.data.id))
     }
   }
 
@@ -1284,9 +1285,9 @@ export class SolarSystemScene {
     const earthPosition = earthRuntime.axial.getWorldPosition(this.tempWorldB)
     const p0 = this.camera.position.clone()
     const earthDir = earthPosition.clone().normalize()
-    // 终点：太阳→地球连线上、距地球中心 9.8（地球视半径约 14.8°，略小于地球页初始 16.4°，
+    // 终点：太阳→地球连线上、距地球中心 11.5；视尺寸小于地球页初始状态，
     // 黑幕衔接流畅；带 1 单位仰角）
-    const p3 = earthPosition.clone().addScaledVector(earthDir, -9.8)
+    const p3 = earthPosition.clone().addScaledVector(earthDir, -11.5)
     p3.y += 1
     // 控制点整体抬升：路径保持在高空滑过火星与小行星带，再俯冲进入地球
     const delta = p3.clone().sub(p0)
@@ -1306,9 +1307,8 @@ export class SolarSystemScene {
     if (!moonPosition) return
     const p0 = this.camera.position.clone()
     const moonDir = moonPosition.clone().normalize()
-    // 终点：太阳→月球连线上、距月球中心 6.1（视半径约 6.4°，占画面 ~30%——
-    // 比月球页初始 7.1° 略小，变黑衔接自然；带 1 单位仰角）
-    const p3 = moonPosition.clone().addScaledVector(moonDir, -6.1)
+    // 终点：太阳→月球连线上、距月球中心 7.4；视尺寸小于月球页初始状态，带 1 单位仰角。
+    const p3 = moonPosition.clone().addScaledVector(moonDir, -7.4)
     p3.y += 1
     const delta = p3.clone().sub(p0)
     const p1 = p0.clone().addScaledVector(delta, 0.3)
@@ -1332,8 +1332,7 @@ export class SolarSystemScene {
   }
 
   /** 点击火星：镜头沿抬升的三次贝塞尔路径推近火星（终点在火星近旁；行星本体为 2.0 半径）
-   *  终点：太阳→火星连线上、距火星中心 12.8（太阳系场景中火星半径 2.0 → 视半径 ~9.0°，
-   *  占 42° 视场约 43%——略小于火星页初始视半径 10.0°，黑幕衔接流畅；占画面比例合理不溢出） */
+   *  终点：太阳→火星连线上、距火星中心 14.8；视尺寸小于火星页初始状态。 */
   flyToMars() {
     if (this.flyState) return
     const marsRuntime = this.planetRuntimes.get('mars')
@@ -1341,7 +1340,7 @@ export class SolarSystemScene {
     const marsPosition = marsRuntime.axial.getWorldPosition(this.tempWorldB)
     const p0 = this.camera.position.clone()
     const marsDir = marsPosition.clone().normalize()
-    const p3 = marsPosition.clone().addScaledVector(marsDir, -12.8)
+    const p3 = marsPosition.clone().addScaledVector(marsDir, -14.8)
     p3.y += 1.2
     const delta = p3.clone().sub(p0)
     const p1 = p0.clone().addScaledVector(delta, 0.3)
@@ -1365,38 +1364,38 @@ export class SolarSystemScene {
   }
 
   /** 点击金星：镜头沿抬升的三次贝塞尔路径推近金星（终点在金星近旁；行星本体为 2.3 半径）
-   *  终点距离 10.9：太阳系最近视半径 ≈ 12.2°，略小于金星页初始 13.5°（黑幕衔接流畅） */
+   *  终点距离 12.8：太阳系中的视尺寸小于金星页初始状态。 */
   flyToVenus() {
-    this.flyToPlanet('venus', 10.9, 1.2, 2, 0.8)
+    this.flyToPlanet('venus', 12.8, 1.2, 2, 0.8)
   }
 
   /** 点击水星：镜头沿抬升的三次贝塞尔路径推近水星（终点在水星近旁；行星本体为 1.6 半径）
-   *  终点距离 12：太阳系最近视半径 ≈ 7.7°，略小于水星页初始 8.5°（黑幕衔接流畅） */
+   *  终点距离 13.8：太阳系中的视尺寸小于水星页初始状态。 */
   flyToMercury() {
-    this.flyToPlanet('mercury', 12, 1, 1.6, 0.6)
+    this.flyToPlanet('mercury', 13.8, 1, 1.6, 0.6)
   }
 
   /** 点击天王星：镜头沿抬升的三次贝塞尔路径推近天王星（终点在天王星近旁；行星本体为 3.5 半径） */
   flyToUranus() {
-    this.flyToPlanet('uranus', 18, 1.5, 2.6, 0.9)
+    this.flyToPlanet('uranus', 21, 1.5, 2.6, 0.9)
   }
 
   /** 点击海王星：镜头沿抬升的三次贝塞尔路径推近海王星（终点在海王星近旁；行星本体为 3.4 半径）
-   *  终点距离 13：太阳系最近视半径 ≈ 15.2°，略小于海王星页初始 16.8°（黑幕衔接流畅） */
+   *  终点距离 15.8：太阳系中的视尺寸小于海王星页初始状态。 */
   flyToNeptune() {
-    this.flyToPlanet('neptune', 13, 1.5, 2.5, 0.9)
+    this.flyToPlanet('neptune', 15.8, 1.5, 2.5, 0.9)
   }
 
   /** 点击土星：镜头沿抬升的三次贝塞尔路径推近土星（终点在土星近旁；行星本体为 5.0 半径，
-   *  环外缘 2.33×5≈11.65——终点距离取 26，环完整入画且不溢出） */
+   *  环外缘 2.33×5≈11.65——终点距离取 31，环完整入画且小于土星页初始视尺寸） */
   flyToSaturn() {
-    this.flyToPlanet('saturn', 26, 1.6, 3, 1)
+    this.flyToPlanet('saturn', 31, 1.6, 3, 1)
   }
 
   /** 点击木星：镜头沿抬升的三次贝塞尔路径推近木星（终点在木星近旁；行星本体为 6.0 半径）
-   *  终点距离 19.6：太阳系最近视半径 ≈ 17.8°，略小于木星页初始 19.8°（黑幕衔接流畅） */
+   *  终点距离 23：太阳系中的视尺寸小于木星页初始状态。 */
   flyToJupiter() {
-    this.flyToPlanet('jupiter', 19.6, 1.8, 3.5, 1.2)
+    this.flyToPlanet('jupiter', 23, 1.8, 3.5, 1.2)
   }
 
   /** 行星/太阳共用的推近运镜（镜像 flyToMars 的参数化版本）：
@@ -1444,7 +1443,7 @@ export class SolarSystemScene {
   /** 点击太阳：镜头沿抬升的三次贝塞尔路径推近太阳（太阳系场景太阳半径 5.5，终点距离取 30） */
   flyToSun() {
     // 终点距离 18：太阳系最近视半径 ≈ 17.8°，略小于太阳页初始 19.9°（黑幕衔接流畅，半视场 21° 内不溢出）
-    this.flyToPlanet('sun', 18, 2, 4, 1.4)
+    this.flyToPlanet('sun', 22, 2, 4, 1.4)
   }
 
   /** 点击探测器：镜头沿贝塞尔路径飞近探测器（留在太阳系内，不切页）。
@@ -1456,10 +1455,10 @@ export class SolarSystemScene {
     this.probeSelectedId = id
     const probePosition = runtime.current.clone()
     const p0 = this.camera.position.clone()
-    // 终点：探测器外侧（远离太阳一侧）4.5 单位 + 1.5 仰角——标记居中、轨道与太阳入画
+    // 终点：探测器外侧保留 12.5 单位上下文，避免近距离透视把标记和邻近轨迹夸张放大。
     const probeDir = probePosition.clone().normalize()
-    const p3 = probePosition.clone().addScaledVector(probeDir, 4.5)
-    p3.y += 1.5
+    const p3 = probePosition.clone().addScaledVector(probeDir, 12.5)
+    p3.y += 2.2
     const delta = p3.clone().sub(p0)
     const p1 = p0.clone().addScaledVector(delta, 0.3)
     p1.y += 1.5
@@ -1487,7 +1486,7 @@ export class SolarSystemScene {
     this.probeSelectedId = null
   }
 
-  /** 反向飞行（月球 → 太阳系）：从月球近景拉回默认构图（起点 6.1，与 flyToMoon 终点一致） */
+  /** 反向飞行（月球 → 太阳系）：从月球近景拉回默认构图（起点 7.4，与 flyToMoon 终点一致） */
   flyFromMoon() {
     if (this.flyState) return
     const moonPosition = this.moonWorldPosition(this.tempWorldB)
@@ -1505,7 +1504,7 @@ export class SolarSystemScene {
     const toTarget = this.lookAt.clone()
     // 起点：从月球沿"朝向默认视角"的水平方向外移 6 单位、带 1 单位仰角
     const viewerDir = new THREE.Vector3(p3.x - moonPosition.x, 0, p3.z - moonPosition.z).normalize()
-    const p0 = moonPosition.clone().addScaledVector(viewerDir, 6.1)
+    const p0 = moonPosition.clone().addScaledVector(viewerDir, 7.4)
     p0.y += 1
     this.camera.position.copy(p0)
     this.camera.lookAt(moonPosition)
@@ -1531,7 +1530,7 @@ export class SolarSystemScene {
     this.controls.enabled = false
   }
 
-  /** 反向飞行（火星 → 太阳系）：从火星近景拉回默认构图（起点 12.8，与 flyToMars 终点一致） */
+  /** 反向飞行（火星 → 太阳系）：从火星近景拉回默认构图（起点 14.8，与 flyToMars 终点一致） */
   flyFromMars() {
     if (this.flyState) return
     const marsRuntime = this.planetRuntimes.get('mars')
@@ -1550,7 +1549,7 @@ export class SolarSystemScene {
     const toTarget = this.lookAt.clone()
     // 起点：从火星沿"朝向默认视角"的水平方向外移 8 单位、带 1.2 单位仰角
     const viewerDir = new THREE.Vector3(p3.x - marsPosition.x, 0, p3.z - marsPosition.z).normalize()
-    const p0 = marsPosition.clone().addScaledVector(viewerDir, 12.8)
+    const p0 = marsPosition.clone().addScaledVector(viewerDir, 14.8)
     p0.y += 1.2
     this.camera.position.copy(p0)
     this.camera.lookAt(marsPosition)
@@ -1576,39 +1575,39 @@ export class SolarSystemScene {
     this.controls.enabled = false
   }
 
-  /** 反向飞行（金星 → 太阳系）：从金星近景拉回默认构图（起点 10.9，与 flyToVenus 终点一致） */
+  /** 反向飞行（金星 → 太阳系）：从金星近景拉回默认构图（起点 12.8，与 flyToVenus 终点一致） */
   flyFromVenus() {
-    this.flyFromPlanet('venus', 10.9, 1.2, 2, 0.8)
+    this.flyFromPlanet('venus', 12.8, 1.2, 2, 0.8)
   }
 
-  /** 反向飞行（水星 → 太阳系）：从水星近景拉回默认构图（起点 12，与 flyToMercury 终点一致） */
+  /** 反向飞行（水星 → 太阳系）：从水星近景拉回默认构图（起点 13.8，与 flyToMercury 终点一致） */
   flyFromMercury() {
-    this.flyFromPlanet('mercury', 12, 1, 1.6, 0.6)
+    this.flyFromPlanet('mercury', 13.8, 1, 1.6, 0.6)
   }
 
   /** 反向飞行（天王星 → 太阳系）：从天王星近景拉回默认构图 */
   flyFromUranus() {
-    this.flyFromPlanet('uranus', 13, 1.5, 2.6, 0.9)
+    this.flyFromPlanet('uranus', 21, 1.5, 2.6, 0.9)
   }
 
-  /** 反向飞行（海王星 → 太阳系）：从海王星近景拉回默认构图（起点 13，与 flyToNeptune 终点一致） */
+  /** 反向飞行（海王星 → 太阳系）：从海王星近景拉回默认构图（起点 15.8，与 flyToNeptune 终点一致） */
   flyFromNeptune() {
-    this.flyFromPlanet('neptune', 13, 1.5, 2.5, 0.9)
+    this.flyFromPlanet('neptune', 15.8, 1.5, 2.5, 0.9)
   }
 
-  /** 反向飞行（太阳 → 太阳系）：从太阳近景拉回默认构图（起点 18，与 flyToSun 终点一致） */
+  /** 反向飞行（太阳 → 太阳系）：从太阳近景拉回默认构图（起点 22，与 flyToSun 终点一致） */
   flyFromSun() {
-    this.flyFromPlanet('sun', 18, 2, 4, 1.4)
+    this.flyFromPlanet('sun', 22, 2, 4, 1.4)
   }
 
   /** 反向飞行（土星 → 太阳系）：从土星近景拉回默认构图（土星体积大，外移距离相应放大） */
   flyFromSaturn() {
-    this.flyFromPlanet('saturn', 18, 1.6, 3, 1)
+    this.flyFromPlanet('saturn', 31, 1.6, 3, 1)
   }
 
-  /** 反向飞行（木星 → 太阳系）：从木星近景拉回默认构图（起点 19.6，与 flyToJupiter 终点一致） */
+  /** 反向飞行（木星 → 太阳系）：从木星近景拉回默认构图（起点 23，与 flyToJupiter 终点一致） */
   flyFromJupiter() {
-    this.flyFromPlanet('jupiter', 19.6, 1.8, 3.5, 1.2)
+    this.flyFromPlanet('jupiter', 23, 1.8, 3.5, 1.2)
   }
 
   /** 金星/土星/木星共用的返回运镜（镜像 flyFromMars 的参数化版本）：
@@ -1667,7 +1666,7 @@ export class SolarSystemScene {
     const path = this.computeEarthFlyPath()
     if (!path) return
     // OrbitControls.update() 每帧都会把相机距目标的距离钳制在 [minDistance, maxDistance]；
-    // 飞行终点距地球 9.8 远大于近限 2，无需放宽；此处仍保留近限兜底
+    // 飞行终点距地球 11.5 远大于近限 2，无需放宽；此处仍保留近限兜底
     this.controls.minDistance = 3
     this.flyState = {
       ...path,
@@ -1709,15 +1708,15 @@ export class SolarSystemScene {
     this.controls.target.copy(this.lookAt)
     const p3 = this.camera.position.clone()
     const toTarget = this.lookAt.clone()
-    // 起点：从地球沿"朝向默认视角"的水平方向外移 9.8 单位、带 1 单位仰角
+    // 起点：从地球沿"朝向默认视角"的水平方向外移 11.5 单位、带 1 单位仰角
     // （与 flyToEarth 终点一致，进出画面无缝衔接；位于太阳-地球连线外侧，太阳在起点即处于视野边缘，拉远时自然滑入画面）
     const viewerDir = new THREE.Vector3(p3.x - earthPosition.x, 0, p3.z - earthPosition.z).normalize()
-    const p0 = earthPosition.clone().addScaledVector(viewerDir, 9.8)
+    const p0 = earthPosition.clone().addScaledVector(viewerDir, 11.5)
     p0.y += 1
     this.camera.position.copy(p0)
     this.camera.lookAt(earthPosition)
     this.controls.target.copy(earthPosition)
-    this.controls.minDistance = 3 // 近限兜底（终点距地球 9.8，正常不会触发）
+    this.controls.minDistance = 3 // 近限兜底（终点距地球 11.5，正常不会触发）
     // 控制点抬升：路径在高空滑过火星与小行星带
     const delta = p3.clone().sub(p0)
     const p1 = p0.clone().addScaledVector(delta, 0.3)

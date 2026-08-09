@@ -26,11 +26,13 @@ const loadSolarSystem = () => import('./components/SolarSystem.vue')
 const loadMoonScene = () => import('./components/MoonScene.vue')
 const loadMarsScene = () => import('./components/MarsScene.vue')
 const loadPlanetScene = () => import('./components/PlanetScene.vue')
+const loadSkyObservatory = () => import('./components/SkyObservatory.vue')
 const OrbitScene = defineAsyncComponent({ loader: loadOrbitScene, suspensible: false })
 const SolarSystem = defineAsyncComponent({ loader: loadSolarSystem, suspensible: false })
 const MoonScene = defineAsyncComponent({ loader: loadMoonScene, suspensible: false })
 const MarsScene = defineAsyncComponent({ loader: loadMarsScene, suspensible: false })
 const PlanetScene = defineAsyncComponent({ loader: loadPlanetScene, suspensible: false })
+const SkyObservatory = defineAsyncComponent({ loader: loadSkyObservatory, suspensible: false })
 
 type ObserverLocationStatus = 'locating' | 'located' | 'fallback'
 
@@ -56,7 +58,7 @@ const observerFocusRevision = ref(0)
 const observerViewActive = ref(false)
 let observerLocationRequested = false
 const dayNightEnabled = ref(false)
-type AppSurface = 'cover' | 'solar-system' | 'orbit' | 'moon' | 'mars' | 'mercury' | 'venus' | 'saturn' | 'jupiter' | 'uranus' | 'neptune' | 'sun'
+type AppSurface = 'cover' | 'sky' | 'solar-system' | 'orbit' | 'moon' | 'mars' | 'mercury' | 'venus' | 'saturn' | 'jupiter' | 'uranus' | 'neptune' | 'sun'
 
 // 初始页面：纯 hash 决定（无 hash = 首页；#earth/#moon/#solar-system = 对应页）。
 // 不用 sessionStorage 恢复——打开网站应总是首页（上次会话的页面残留会导致"打开就是 #solar-system"）
@@ -297,7 +299,8 @@ interface TransitionTiming {
 
 /** 预取目标场景组件，不等待它完成；原有纹理预热、黑幕与 reveal 时钟仍是唯一节奏来源。 */
 function preloadSurfaceComponent(target: AppSurface) {
-  if (target === 'solar-system') void loadSolarSystem()
+  if (target === 'sky') void loadSkyObservatory()
+  else if (target === 'solar-system') void loadSolarSystem()
   else if (target === 'orbit') void loadOrbitScene()
   else if (target === 'moon') void loadMoonScene()
   else if (target === 'mars') void loadMarsScene()
@@ -393,9 +396,10 @@ function transitionTo(nextSurface: AppSurface, zoom = 1, origin = '50% 50%', tim
 }
 
 function surfaceFromHash(): AppSurface {
+  if (['#sky', '#sky-tonight', '#sky-windows', '#sky-targets', '#sky-events'].includes(window.location.hash)) return 'sky'
   if (window.location.hash === '#solar-system') return 'solar-system'
-  if (['#moon', '#moon-scene', '#moon-objects', '#moon-sites'].includes(window.location.hash)) return 'moon'
-  if (['#mars', '#mars-scene', '#mars-objects', '#mars-sites'].includes(window.location.hash)) return 'mars'
+  if (['#moon', '#moon-scene', '#moon-profile', '#moon-objects', '#moon-sites'].includes(window.location.hash)) return 'moon'
+  if (['#mars', '#mars-scene', '#mars-profile', '#mars-objects', '#mars-sites'].includes(window.location.hash)) return 'mars'
   if (['#venus', '#venus-scene', '#venus-profile', '#venus-objects', '#venus-sites'].includes(window.location.hash)) return 'venus'
   if (['#saturn', '#saturn-scene', '#saturn-profile', '#saturn-objects', '#saturn-sites'].includes(window.location.hash)) return 'saturn'
   if (['#jupiter', '#jupiter-scene', '#jupiter-profile', '#jupiter-objects', '#jupiter-sites'].includes(window.location.hash)) return 'jupiter'
@@ -691,6 +695,7 @@ async function setSurface(nextSurface: AppSurface) {
   surface.value = nextSurface
   document.title = nextSurface === 'cover'
     ? 'AURORA'
+    : nextSurface === 'sky' ? 'AURORA · SKY'
     : nextSurface === 'solar-system' ? 'AURORA · 太阳系'
     : nextSurface === 'moon' ? 'AURORA · MOON'
     : nextSurface === 'mars' ? 'AURORA · MARS'
@@ -838,6 +843,11 @@ function enterSolarSystem() {
     })
     scheduleForNavigation(generation, reveal, 2500) // 兜底：加载异常时最迟 2.5s 揭示
   }, exitMs + dwellMs)
+}
+
+function enterSky() {
+  window.history.pushState(null, '', '#sky-tonight')
+  transitionTo('sky', 1.018, '25% 50%', { exitMs: 440, dwellMs: 100, veilSeconds: '0.32s' })
 }
 
 
@@ -1506,10 +1516,10 @@ function updateActivePage() {
     return
   }
   if (surface.value === 'moon') {
-    // 主视图 = #moon-objects（第一个板块）顶部仍在视口下半区；滑到第一个板块即展开页头
-    const moonObjects = document.getElementById('moon-objects')
-    const objectsTop = moonObjects?.getBoundingClientRect().top ?? window.innerHeight
-    const nextMoonPageActive = objectsTop > window.innerHeight / 2
+    // 主视图 = #moon-profile（第一个资料板块）顶部仍在视口下半区；滑到档案即展开页头
+    const moonProfile = document.getElementById('moon-profile')
+    const profileTop = moonProfile?.getBoundingClientRect().top ?? window.innerHeight
+    const nextMoonPageActive = profileTop > window.innerHeight / 2
     if (nextMoonPageActive === moonPageActive.value) {
       if (moonPageActive.value && headerExpanded.value) scheduleHeaderCollapse()
       return
@@ -1620,6 +1630,9 @@ function onPopState() {
     else if (surface.value === 'sun') enterSolarSystemFromSun(true)
   } else if (target === 'cover') {
     returnToCover(true)
+  } else if (target === 'sky') {
+    cancelPendingTransition()
+    void setSurface('sky')
   } else if (target === 'orbit') {
     cancelPendingTransition()
     void setSurface('orbit')
@@ -1643,6 +1656,10 @@ function onGlobalKeydown(event: KeyboardEvent) {
   if (surface.value === 'orbit' || surface.value === 'moon' || surface.value === 'mars' || surface.value === 'venus' || surface.value === 'saturn' || surface.value === 'jupiter' || surface.value === 'mercury' || surface.value === 'uranus' || surface.value === 'neptune' || surface.value === 'sun') {
     event.preventDefault()
     returnToSolarSystem()
+  } else if (surface.value === 'sky') {
+    event.preventDefault()
+    window.history.pushState(null, '', '#home')
+    returnToCover()
   }
 }
 
@@ -1650,7 +1667,9 @@ onMounted(() => {
   window.addEventListener('popstate', onPopState)
   window.addEventListener('keydown', onGlobalKeydown)
   // 首页保持轻量、无权限请求；只有用户进入深空路径或直接打开相应页面时才预热。
-  if (surface.value === 'solar-system') {
+  if (surface.value === 'sky') {
+    preloadSurfaceComponent('sky')
+  } else if (surface.value === 'solar-system') {
     preloadSurfaceComponent('solar-system')
     preloadSolarTextures()
     void ensureOrbitOverview()
@@ -1672,6 +1691,7 @@ onMounted(() => {
   if (surface.value === 'orbit') void loadCatalogPage()
   document.title = surface.value === 'cover'
     ? 'AURORA'
+    : surface.value === 'sky' ? 'AURORA · SKY'
     : surface.value === 'solar-system' ? 'AURORA · 太阳系'
     : surface.value === 'moon' ? 'AURORA · MOON'
     : surface.value === 'mars' ? 'AURORA · MARS'
@@ -1722,10 +1742,14 @@ onBeforeUnmount(() => {
       class="desktop-cover"
       :class="{ lingering: coverLingering }"
       @explore="enterSolarSystem"
+      @astronomy="enterSky"
     />
 
-    <div v-show="surface !== 'cover' || coverLingering" class="desktop-app" :class="{ 'header-collapsed': !headerExpanded, moon: surface === 'moon', mars: surface === 'mars', venus: surface === 'venus', saturn: surface === 'saturn', jupiter: surface === 'jupiter', mercury: surface === 'mercury', uranus: surface === 'uranus', neptune: surface === 'neptune', sun: surface === 'sun' }">
+    <div v-show="surface !== 'cover' || coverLingering" class="desktop-app" :class="{ 'header-collapsed': !headerExpanded, sky: surface === 'sky', moon: surface === 'moon', mars: surface === 'mars', venus: surface === 'venus', saturn: surface === 'saturn', jupiter: surface === 'jupiter', mercury: surface === 'mercury', uranus: surface === 'uranus', neptune: surface === 'neptune', sun: surface === 'sun' }">
+      <SkyObservatory v-if="surface === 'sky'" @home="returnToCover" />
+
       <header
+        v-if="surface !== 'sky'"
         ref="siteHeader"
         class="site-header"
         :class="{ collapsed: !headerExpanded }"
@@ -1746,43 +1770,44 @@ onBeforeUnmount(() => {
           </div>
           <nav v-if="surface === 'orbit'" aria-label="页面导航">
             <a href="#earth"><i class="nav-num">Ⅰ</i>地球</a>
-            <a href="#objects"><i class="nav-num">Ⅱ</i>航天器</a>
+            <a href="#objects"><i class="nav-num">Ⅱ</i>飞行器</a>
             <a href="#sites"><i class="nav-num">Ⅲ</i>发射场</a>
             <a href="#launches"><i class="nav-num">Ⅳ</i>发射日程</a>
           </nav>
           <nav v-else-if="surface === 'moon'" aria-label="页面导航">
             <a href="#moon-scene"><i class="nav-num">Ⅰ</i>月球</a>
-            <a href="#moon-objects"><i class="nav-num">Ⅱ</i>航天器</a>
-            <a href="#moon-sites"><i class="nav-num">Ⅲ</i>着陆点</a>
+            <a href="#moon-profile"><i class="nav-num">Ⅱ</i>档案</a>
+            <a href="#moon-objects"><i class="nav-num">Ⅲ</i>飞行器</a>
+            <a href="#moon-sites"><i class="nav-num">Ⅳ</i>着陆点</a>
           </nav>
           <nav v-else-if="surface === 'mars'" aria-label="页面导航">
             <a href="#mars-scene"><i class="nav-num">Ⅰ</i>火星</a>
             <a href="#mars-profile"><i class="nav-num">Ⅱ</i>档案</a>
-            <a href="#mars-objects"><i class="nav-num">Ⅲ</i>航天器</a>
+            <a href="#mars-objects"><i class="nav-num">Ⅲ</i>飞行器</a>
             <a href="#mars-sites"><i class="nav-num">Ⅳ</i>着陆点</a>
           </nav>
           <nav v-else-if="surface === 'venus'" aria-label="页面导航">
             <a href="#venus-scene"><i class="nav-num">Ⅰ</i>金星</a>
             <a href="#venus-profile"><i class="nav-num">Ⅱ</i>档案</a>
-            <a href="#venus-objects"><i class="nav-num">Ⅲ</i>航天器</a>
+            <a href="#venus-objects"><i class="nav-num">Ⅲ</i>飞行器</a>
             <a href="#venus-sites"><i class="nav-num">Ⅳ</i>着陆点</a>
           </nav>
           <nav v-else-if="surface === 'saturn'" aria-label="页面导航">
             <a href="#saturn-scene"><i class="nav-num">Ⅰ</i>土星</a>
             <a href="#saturn-profile"><i class="nav-num">Ⅱ</i>档案</a>
-            <a href="#saturn-objects"><i class="nav-num">Ⅲ</i>航天器</a>
+            <a href="#saturn-objects"><i class="nav-num">Ⅲ</i>飞行器</a>
             <a href="#saturn-sites"><i class="nav-num">Ⅳ</i>任务终点</a>
           </nav>
           <nav v-else-if="surface === 'jupiter'" aria-label="页面导航">
             <a href="#jupiter-scene"><i class="nav-num">Ⅰ</i>木星</a>
             <a href="#jupiter-profile"><i class="nav-num">Ⅱ</i>档案</a>
-            <a href="#jupiter-objects"><i class="nav-num">Ⅲ</i>航天器</a>
+            <a href="#jupiter-objects"><i class="nav-num">Ⅲ</i>飞行器</a>
             <a href="#jupiter-sites"><i class="nav-num">Ⅳ</i>任务终点</a>
           </nav>
           <nav v-else-if="surface === 'mercury'" aria-label="页面导航">
             <a href="#mercury-scene"><i class="nav-num">Ⅰ</i>水星</a>
             <a href="#mercury-profile"><i class="nav-num">Ⅱ</i>档案</a>
-            <a href="#mercury-objects"><i class="nav-num">Ⅲ</i>航天器</a>
+            <a href="#mercury-objects"><i class="nav-num">Ⅲ</i>飞行器</a>
             <a href="#mercury-sites"><i class="nav-num">Ⅳ</i>任务终点</a>
           </nav>
           <nav v-else-if="surface === 'uranus'" aria-label="页面导航">
@@ -1803,7 +1828,6 @@ onBeforeUnmount(() => {
           <nav v-else-if="surface === 'solar-system'" aria-label="当前位置">
             <SolarSystemItem title="太阳系" :icon-size="30" :active="true" :animated="true" @click="solarSystemRef?.resetView?.()" />
           </nav>
-          <!-- 月球页无中心导航，返回入口在页头左侧（与地球页一致） -->
           <!-- 数据健康灯（只保留一个）：移到太阳系页——深空探测器数据源（CelesTrak/Launch Library/JPL Horizons）
                最近一次同步成败的 3 合 1 聚合；地球/月球页保持身份标签 -->
           <div v-if="surface === 'solar-system'" class="live-status">
@@ -1972,7 +1996,7 @@ onBeforeUnmount(() => {
 
             <div ref="sceneToolbarRef" class="scene-toolbar" aria-label="场景图层">
               <span>图层</span>
-              <label><input v-model="layers.spacecraft" type="checkbox"><i />航天器</label>
+              <label><input v-model="layers.spacecraft" type="checkbox"><i />飞行器</label>
               <label><input v-model="layers.orbits" type="checkbox"><i />轨道</label>
               <label><input v-model="layers.sites" type="checkbox"><i class="amber" />发射场</label>
               <label><input v-model="dayNightEnabled" type="checkbox"><i class="terminator" />晨昏线</label>
@@ -2009,7 +2033,7 @@ onBeforeUnmount(() => {
       <section id="objects" class="content-section objects-section">
         <div class="page-frame">
           <div class="section-heading">
-            <div><p class="section-kicker">OBJECT CATALOG</p><h2><i class="sec-num">Ⅱ</i>航天器</h2></div>
+            <div><p class="section-kicker">SPACECRAFT CATALOG</p><h2><i class="sec-num">Ⅱ</i>飞行器</h2><p class="section-sub">飞行器 · 轨道与位置用于交互示意；精确状态以数据来源为准。</p></div>
           </div>
 
           <div class="catalog-workspace">
@@ -2022,7 +2046,7 @@ onBeforeUnmount(() => {
               <label><span>排序</span><select v-model="objectSort"><option value="name">名称</option><option value="norad">NORAD 编号</option><option value="operator">运营方</option></select></label>
             </div>
             <p v-if="catalogResult.error || catalogRequestError" class="query-error">{{ catalogResult.error || catalogRequestError }}</p>
-            <div class="object-table" role="table" aria-label="航天器查询结果">
+            <div class="object-table" role="table" aria-label="飞行器查询结果">
               <div class="object-table-head" role="row"><span>NORAD</span><span>对象</span><span>运营方</span><span>类型</span><span>轨道历元</span></div>
               <button v-for="craft in pagedCatalogItems" :key="craft.id" class="object-row" role="row" @click="selectAndFocus({ kind: craft.kind, id: craft.id })">
                 <span>{{ craft.noradCatalogId ?? '—' }}</span>
@@ -2031,10 +2055,10 @@ onBeforeUnmount(() => {
                 <span>{{ craft.category }}</span>
                 <span>{{ formatUTCDate(craft.orbitEpoch) }}</span>
               </button>
-              <div v-if="catalogLoading" class="catalog-empty">正在查询航天器目录…</div>
-              <div v-else-if="!pagedCatalogItems.length" class="catalog-empty">没有符合当前条件的航天器。请修改搜索词或筛选条件。</div>
+              <div v-if="catalogLoading" class="catalog-empty">正在查询飞行器目录…</div>
+              <div v-else-if="!pagedCatalogItems.length" class="catalog-empty">没有符合当前条件的飞行器。请修改搜索词或筛选条件。</div>
             </div>
-            <div class="pagination-space"><span>第 {{ catalogPage }} / {{ catalogPageCount }} 页 · {{ catalogTotal }} 个航天器</span><div><button :disabled="catalogPage <= 1 || catalogLoading" @click="catalogGotoPage(-1)">上一页</button><button :disabled="catalogPage >= catalogPageCount || catalogLoading" @click="catalogGotoPage(1)">下一页</button></div></div>
+            <div class="pagination-space"><span>第 {{ catalogPage }} / {{ catalogPageCount }} 页 · {{ catalogTotal }} 个飞行器</span><div><button :disabled="catalogPage <= 1 || catalogLoading" @click="catalogGotoPage(-1)">上一页</button><button :disabled="catalogPage >= catalogPageCount || catalogLoading" @click="catalogGotoPage(1)">下一页</button></div></div>
           </div>
         </div>
       </section>

@@ -11,13 +11,12 @@ import coverEarth from '../assets/aurora-cover-earth.png'
 
 const emit = defineEmits<{
   explore: []
+  astronomy: []
 }>()
 
 const cover = ref<HTMLElement | null>(null)
 const launching = ref(false)
-const astronomyNotice = ref(false)
 let pointerFrame = 0
-let astronomyTimer: number | undefined
 let launchTimer: number | undefined
 
 function updateParallax(event: PointerEvent) {
@@ -43,15 +42,14 @@ function enterDeepSpace() {
   launchTimer = window.setTimeout(() => emit('explore'), 0) // 点击立即切页
 }
 
-function previewAstronomy() {
-  astronomyNotice.value = true
-  if (astronomyTimer) window.clearTimeout(astronomyTimer)
-  astronomyTimer = window.setTimeout(() => { astronomyNotice.value = false }, 3200)
+function enterAstronomy() {
+  if (launching.value) return
+  launching.value = true
+  launchTimer = window.setTimeout(() => emit('astronomy'), 0)
 }
 
 onBeforeUnmount(() => {
   window.cancelAnimationFrame(pointerFrame)
-  if (astronomyTimer) window.clearTimeout(astronomyTimer)
   if (launchTimer) window.clearTimeout(launchTimer)
 })
 </script>
@@ -60,7 +58,7 @@ onBeforeUnmount(() => {
   <section
     ref="cover"
     class="aurora-cover"
-    :class="{ 'is-launching': launching, 'astronomy-active': astronomyNotice }"
+    :class="{ 'is-launching': launching }"
     aria-labelledby="aurora-cover-title"
     @pointermove="updateParallax"
     @pointerleave="resetParallax"
@@ -84,17 +82,24 @@ onBeforeUnmount(() => {
 
       <nav class="cover-paths" aria-label="AURORA 探索路径">
         <button class="cover-path cover-path-primary" type="button" @click="enterDeepSpace">
-          <i aria-hidden="true" />
+          <svg class="cover-path-icon cover-path-icon-helmet" viewBox="0 0 32 32" aria-hidden="true">
+            <path d="M7.5 21v-6.2a8.5 8.5 0 0 1 17 0V21" />
+            <path d="M10 13.5c1.6-2.2 3.6-3.3 6-3.3s4.4 1.1 6 3.3v4.2c-1.7 1.3-3.7 2-6 2s-4.3-.7-6-2z" />
+            <path d="M8.5 21.2v4h15v-4" />
+            <path d="M12 25.2v1.5M20 25.2v1.5" />
+          </svg>
           <span><strong>深空探索</strong><small>DEEP SPACE</small></span>
         </button>
-        <button class="cover-path" type="button" @click="previewAstronomy">
+        <button class="cover-path" type="button" @click="enterAstronomy">
+          <svg class="cover-path-icon cover-path-icon-sky" viewBox="0 0 32 32" aria-hidden="true">
+            <path d="M4.5 24c6.5-2.1 16.5-2.1 23 0" />
+            <path d="M11.5 7.2a6.6 6.6 0 0 0 5.8 10.5A7.2 7.2 0 1 1 11.5 7.2Z" />
+            <path d="M23 8v4M21 10h4" />
+            <path d="M7 18h3" />
+          </svg>
           <span><strong>天文观测</strong><small>ASTRONOMY</small></span>
         </button>
       </nav>
-
-      <p class="cover-notice" :class="{ visible: astronomyNotice }" aria-live="polite">
-        天文观测模块正在建设中
-      </p>
     </div>
 
     <div class="cover-coordinate" aria-hidden="true">
@@ -253,19 +258,37 @@ onBeforeUnmount(() => {
   opacity: .72;
 }
 
-.cover-path i {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #ffbf74;
-  box-shadow: 3px 5px 14px 4px rgba(255, 176, 88, .18);
-  transition: transform .3s cubic-bezier(.16, 1, .3, 1), background .2s;
+.cover-path-icon {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.45;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: color .2s ease, filter .3s ease, transform .3s cubic-bezier(.16, 1, .3, 1);
 }
 
-.cover-path-primary:hover i,
-.cover-path-primary:focus-visible i {
-  background: #fff0d8;
-  transform: scale(1.35);
+.cover-path-icon-helmet {
+  color: rgba(255, 191, 116, .86);
+  filter: drop-shadow(3px 5px 9px rgba(255, 176, 88, .12));
+}
+
+.cover-path-icon-sky {
+  color: rgba(139, 176, 196, .72);
+}
+
+.cover-path:hover .cover-path-icon,
+.cover-path:focus-visible .cover-path-icon {
+  color: #eef7fb;
+  transform: translateY(-1px);
+}
+
+.cover-path-primary:hover .cover-path-icon,
+.cover-path-primary:focus-visible .cover-path-icon {
+  color: #fff0d8;
+  filter: drop-shadow(3px 5px 10px rgba(255, 176, 88, .2));
 }
 
 .cover-path span,
@@ -285,22 +308,6 @@ onBeforeUnmount(() => {
   color: rgba(118, 143, 156, .68);
   font: 400 8px/1 'IBM Plex Mono', monospace;
   letter-spacing: .18em;
-}
-
-.cover-notice {
-  min-height: 18px;
-  margin: 20px 0 0 2px;
-  color: rgba(145, 166, 177, .72);
-  font-size: 11px;
-  letter-spacing: .08em;
-  opacity: 0;
-  transform: translateY(6px);
-  transition: opacity .25s ease, transform .35s cubic-bezier(.16, 1, .3, 1);
-}
-
-.cover-notice.visible {
-  opacity: 1;
-  transform: translateY(0);
 }
 
 .cover-coordinate {
@@ -371,10 +378,6 @@ onBeforeUnmount(() => {
 
   .cover-coordinate {
     animation: cover-copy-arrive .5s 1.88s cubic-bezier(.16, 1, .3, 1) both;
-  }
-
-  .aurora-cover.astronomy-active .cover-earth {
-    filter: brightness(1.05) saturate(1.06);
   }
 
 }

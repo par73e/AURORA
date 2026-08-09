@@ -5,36 +5,37 @@
         <!-- 工具栏：与地球页同一套 scene-toolbar 结构（仅颜色走陶土红覆盖） -->
         <div ref="sceneToolbarRef" class="scene-toolbar" :class="{ 'leaving-fade': leaving }" aria-label="场景图层">
           <span>图层</span>
-          <label><input v-model="spacecraftEnabled" type="checkbox"><i />航天器</label>
+          <label><input v-model="spacecraftEnabled" type="checkbox"><i />飞行器</label>
           <label><input v-model="orbitsEnabled" type="checkbox"><i />轨道</label>
           <label><input v-model="sitesEnabled" type="checkbox"><i class="sites" />着陆点</label>
           <label><input v-model="terminatorEnabled" type="checkbox"><i class="terminator" />晨昏线</label>
         </div>
 
         <div v-if="dataLoading || dataError" class="scene-data-state" :class="{ error: !!dataError }" role="status">
-          <span>{{ dataError || '正在读取火星航天器与着陆点数据' }}</span>
+          <span>{{ dataError || '正在读取火星飞行器与着陆点数据' }}</span>
           <button v-if="dataError" type="button" @click="loadSceneData">重新加载</button>
         </div>
 
         <!-- 轨道飞行器标签 -->
-        <button
+        <MissionSceneLabel
           v-for="label in craftLabels"
           v-show="label.visible && spacecraftEnabled"
           :key="label.id"
           class="craft-label"
           :class="{ selected: selectedCraft === label.id, 'stage-late': !elementsVisible, 'leaving-fade': leaving }"
           :style="craftLabelStyle(label)"
+          kind="spacecraft"
+          :name-zh="craftBilingual.get(label.id)?.primary ?? ''"
+          :name-en="craftBilingual.get(label.id)?.secondary"
+          :selected="selectedCraft === label.id"
           :aria-label="`${craftBilingual.get(label.id)?.primary}${craftBilingual.get(label.id)?.secondary ? `（${craftBilingual.get(label.id)?.secondary}）` : ''}`"
           @click="selectedCraft = label.id"
           @pointerenter="hoveredCraftId = label.id"
           @pointerleave="hoveredCraftId = null"
-        >
-          <strong>{{ craftBilingual.get(label.id)?.primary }}</strong>
-          <small v-if="craftBilingual.get(label.id)?.secondary">（{{ craftBilingual.get(label.id)?.secondary }}）</small>
-        </button>
+        />
 
         <!-- 着陆点标签：图标（宇航员/着陆器/月球车/样本）+ 地点名 + 任务名 -->
-        <button
+        <MissionSceneLabel
           v-for="label in siteLabels"
           v-show="label.visible && selectedSite === label.id"
           :key="label.id"
@@ -42,37 +43,22 @@
           :class="{ selected: selectedSite === label.id, 'leaving-fade': leaving }"
           :data-icon="siteById(label.id)?.icon ?? 'lander'"
           :style="siteLabelStyle(label)"
+          kind="surface"
+          :name-zh="siteBilingual.get(label.id)?.primary ?? ''"
+          :name-en="siteBilingual.get(label.id)?.secondary"
+          :selected="selectedSite === label.id"
+          :icon-html="siteGlyph(siteById(label.id)?.icon ?? 'lander')"
           :aria-label="`${siteBilingual.get(label.id)?.primary}${siteBilingual.get(label.id)?.secondary ? `（${siteBilingual.get(label.id)?.secondary}）` : ''}`"
           @click="selectSite(label.id)"
-        >
-          <span class="site-glyph" v-html="siteGlyph(siteById(label.id)?.icon ?? 'lander')" />
-          <strong>{{ siteBilingual.get(label.id)?.primary }}</strong>
-          <small v-if="siteBilingual.get(label.id)?.secondary">（{{ siteBilingual.get(label.id)?.secondary }}）</small>
-        </button>
+        />
 
         <!-- 选中着陆点的信息卡 -->
-        <aside v-if="selectedSite && siteById(selectedSite)" class="site-panel" :class="{ visible: sceneRevealed }">
-          <button class="site-panel-close" aria-label="关闭" @click="selectedSite = null">×</button>
-          <div class="site-panel-head">
-            <span class="site-glyph large" v-html="siteGlyph(siteById(selectedSite)?.icon ?? 'lander')" />
-            <div>
-              <h3>{{ siteBilingual.get(selectedSite)?.primary }}</h3>
-              <p v-if="siteBilingual.get(selectedSite)?.secondary">（{{ siteBilingual.get(selectedSite)?.secondary }}）</p>
-            </div>
-          </div>
-          <dl>
-            <div><dt>任务</dt><dd>{{ siteById(selectedSite)?.missionName }}</dd></div>
-            <div><dt>着陆日期</dt><dd>{{ siteById(selectedSite)?.landingDate }}</dd></div>
-            <div><dt>区域</dt><dd>{{ siteById(selectedSite)?.region }}</dd></div>
-            <div><dt>类别</dt><dd>{{ siteById(selectedSite)?.category === 'ROVER_LANDING' ? '巡视探测' : siteById(selectedSite)?.category === 'SAMPLE_RETURN' ? '采样返回' : siteById(selectedSite)?.category === 'AERIAL' ? '动力飞行' : '静态着陆' }}</dd></div>
-            <div><dt>机构</dt><dd>{{ siteById(selectedSite)?.operatorName }}</dd></div>
-            <div><dt>简介</dt><dd>{{ siteById(selectedSite)?.description }}</dd></div>
-          </dl>
-          <div class="site-hardware">
-            <h4>遗留设施 / 硬件</h4>
-            <ul><li v-for="(h, i) in siteById(selectedSite)?.hardware" :key="i">{{ h }}</li></ul>
-          </div>
-        </aside>
+        <MissionDetailPanel
+          v-if="selectedSiteDetail"
+          :detail="selectedSiteDetail"
+          :style="headerExpanded ? { '--header-overlay-offset': '76px' } : undefined"
+          @close="selectedSite = null"
+        />
 
         <!-- 左下角读数：常驻火星（返回时随元素一起淡出） -->
         <div class="mars-readout" :class="{ 'leaving-fade': leaving }" aria-live="polite">
@@ -84,21 +70,12 @@
         <div class="mars-credits" :class="{ 'leaving-fade': leaving }" aria-hidden="true">Solar System Scope · CC BY 4.0</div>
 
         <!-- 右侧信息面板：与地球 context-panel 同结构，内容详尽 -->
-        <aside v-if="selectedCraft" class="context-panel" aria-label="所选飞行器详情">
-          <button class="panel-close" aria-label="关闭详情" @click="selectedCraft = null">关闭</button>
-          <p class="context-type">{{ craftById(selectedCraft)?.type }}</p>
-          <h2>{{ craftBilingual.get(selectedCraft)?.primary }}</h2>
-          <p v-if="craftBilingual.get(selectedCraft)?.secondary" class="context-subtitle">（{{ craftBilingual.get(selectedCraft)?.secondary }}）</p>
-          <p class="context-description">{{ craftById(selectedCraft)?.description }}</p>
-          <dl>
-            <div><dt>运营方</dt><dd>{{ craftById(selectedCraft)?.operatorName }}</dd></div>
-            <div><dt>发射地点</dt><dd>{{ craftById(selectedCraft)?.launchDate }} · {{ craftById(selectedCraft)?.launchSite }} · {{ craftById(selectedCraft)?.launchVehicle }}</dd></div>
-            <div v-if="selectedCraftInfo?.kind === 'orbital' || selectedCraftInfo?.kind === 'catalog'"><dt>轨道倾角</dt><dd>{{ craftById(selectedCraft)?.displayInclination }}°</dd></div>
-            <div v-if="selectedCraftInfo?.kind === 'orbital' || selectedCraftInfo?.kind === 'catalog'"><dt>偏心率</dt><dd>{{ craftById(selectedCraft)?.displayEccentricity }}</dd></div>
-            <div v-if="selectedCraftInfo?.kind === 'orbital' || selectedCraftInfo?.kind === 'catalog'"><dt>轨道周期</dt><dd>{{ craftById(selectedCraft)?.displayPeriod }}</dd></div>
-          </dl>
-          <p class="source-caption"><template v-if="selectedCraftInfo?.snapshot">轨道历元 {{ formatEpochUTC(selectedCraftInfo.snapshot.epoch) }}<br></template>数据来源：{{ selectedCraftInfo?.sourceName }}</p>
-        </aside>
+        <MissionDetailPanel
+          v-if="selectedCraftDetail"
+          :detail="selectedCraftDetail"
+          :style="headerExpanded ? { '--header-overlay-offset': '76px' } : undefined"
+          @close="selectedCraft = null"
+        />
       </div>
     </div>
   </section>
@@ -111,15 +88,16 @@
       </div>
       <div class="profile-grid">
         <dl class="profile-table">
-          <div><dt>直径</dt><dd>6,780 km</dd></div>
-          <div><dt>距日</dt><dd>1.5 AU</dd></div>
-          <div><dt>自转周期</dt><dd>24.6 小时</dd></div>
-          <div><dt>太阳日</dt><dd>24.7 小时（1 sol）</dd></div>
-          <div><dt>公转周期</dt><dd>687 天（669.6 sols）</dd></div>
-          <div><dt>轴倾角</dt><dd>25°</dd></div>
-          <div><dt>卫星</dt><dd>2（Phobos / Deimos）</dd></div>
-          <div><dt>环</dt><dd>无</dd></div>
-          <div class="profile-intro-row"><dt>简介</dt><dd>因氧化铁而呈现红色的沙漠世界，拥有太阳系最大的火山（奥林帕斯山）与峡谷（水手号峡谷）。</dd></div>
+          <div><dt>直径</dt><dd>{{ marsProfile.diameter }}</dd></div>
+          <div><dt>距日</dt><dd>{{ marsProfile.distance }}</dd></div>
+          <div><dt>自转周期</dt><dd>{{ marsProfile.rotation }}</dd></div>
+          <div><dt>太阳日</dt><dd>{{ marsProfile.solarDay }}</dd></div>
+          <div><dt>公转周期</dt><dd>{{ marsProfile.orbit }}</dd></div>
+          <div><dt>轴倾角</dt><dd>{{ marsProfile.axialTilt }}</dd></div>
+          <div><dt>卫星</dt><dd>{{ marsProfile.moons }}</dd></div>
+          <div><dt>环</dt><dd>{{ marsProfile.rings }}</dd></div>
+          <div><dt>成分</dt><dd>{{ marsProfile.composition }}</dd></div>
+          <div class="profile-intro-row"><dt>简介</dt><dd>{{ marsProfile.description }}</dd></div>
         </dl>
       </div>
     </div>
@@ -129,7 +107,7 @@
   <section id="mars-objects" class="content-section mars-objects-section">
     <div class="page-frame">
       <div class="section-heading">
-        <div><p class="section-kicker">MARS SPACECRAFT</p><h2><i class="sec-num">Ⅲ</i>航天器</h2><p class="section-sub">飞行器 · 环绕火星运行的航天器</p></div>
+        <div><p class="section-kicker">MARS SPACECRAFT</p><h2><i class="sec-num">Ⅲ</i>飞行器</h2><p class="section-sub">飞行器 · 轨道与位置用于交互示意；精确状态以数据来源为准。</p></div>
       </div>
       <div class="catalog-workspace">
         <div class="catalog-controls">
@@ -142,16 +120,16 @@
         </div>
         <div class="catalog-meta">
           <span>{{ filteredCrafts.length }} 个飞行器</span>
-          <span>{{ orbitDataCaption }}</span>
+          <span>轨道与位置用于交互示意</span>
         </div>
-        <div class="object-table" role="table" aria-label="火星航天器列表">
+        <div class="object-table" role="table" aria-label="火星飞行器列表">
           <div class="object-table-head" role="row"><span>对象</span><span>运营方</span><span>类型</span></div>
           <button v-for="craft in pagedCrafts" :key="craft.id" class="object-row" role="row" @click="focusCraft(craft.id)">
             <span><strong>{{ craftBilingual.get(craft.id)?.primary }}</strong><small v-if="craftBilingual.get(craft.id)?.secondary">（{{ craftBilingual.get(craft.id)?.secondary }}）</small></span>
             <span>{{ craft.operatorName }}</span>
             <span>{{ craft.type }}</span>
           </button>
-          <div v-if="!filteredCrafts.length" class="catalog-empty">没有符合条件的航天器。请修改搜索词。</div>
+          <div v-if="!filteredCrafts.length" class="catalog-empty">没有符合条件的飞行器。请修改搜索词。</div>
         </div>
         <div class="pagination-space"><span>第 {{ craftPage }} / {{ craftPageCount }} 页 · {{ filteredCrafts.length }} 个飞行器</span><div><button :disabled="craftPage <= 1" @click="craftGotoPage(-1)">上一页</button><button :disabled="craftPage >= craftPageCount" @click="craftGotoPage(1)">下一页</button></div></div>
       </div>
@@ -162,7 +140,7 @@
   <section id="mars-sites" class="content-section mars-sites-section">
     <div class="page-frame">
       <div class="section-heading">
-        <div><p class="section-kicker">MARS LANDING SITES</p><h2><i class="sec-num">Ⅳ</i>着陆点</h2><p class="section-sub">着陆器 · 在火星表面着陆的航天器</p></div>
+        <div><p class="section-kicker">MARS LANDING SITES</p><h2><i class="sec-num">Ⅳ</i>着陆点</h2><p class="section-sub">着陆点 · 圆点标示任务位置；坐标精度以数据来源为准。</p></div>
       </div>
       <div class="catalog-workspace">
         <div class="catalog-controls">
@@ -173,7 +151,7 @@
         </div>
         <div class="catalog-meta">
           <span>{{ filteredSites.length }} 个着陆点</span>
-          <span>真实历史坐标 · 火星表面足迹</span>
+          <span>圆点标示任务位置 · 坐标精度以数据来源为准</span>
         </div>
         <div class="object-table" role="table" aria-label="火星着陆点列表">
           <div class="object-table-head" role="row"><span>地点</span><span>任务</span><span>着陆日期</span></div>
@@ -207,12 +185,19 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { MARS_HD } from '../solar/data'
 import { solarTexture } from '../solar/textures'
+import { MARS_PAGE } from '../planetPages'
 import type { MarsLandingSite, MarsSpacecraft } from '../types'
 import { fetchMarsLandingSites, fetchMarsSpacecraft } from '../api'
 import { primaryOperator } from '../operators'
 import { bilingualName } from '../bilingual'
 import { CATALOG_PAGE_SIZE } from '../catalog'
 import { usePlanetSceneData } from '../composables/usePlanetSceneData'
+import MissionDetailPanel from './MissionDetailPanel.vue'
+import MissionSceneLabel from './MissionSceneLabel.vue'
+import type { MissionDetail } from '../missionPresentation'
+import { missionMarkerScale, spacecraftFields, spacecraftFocusDistance, surfaceMissionFields } from '../missionPresentation'
+
+const marsProfile = MARS_PAGE.profile
 
 const props = defineProps<{ revealTick?: number; enterFromSolar?: boolean; leaving?: boolean; headerExpanded?: boolean }>()
 const emit = defineEmits<{
@@ -384,6 +369,31 @@ const { crafts, syncedAt, dataLoading, dataError, loadSceneData, abortSceneData 
 const craftById = (id: string) => crafts.value.find((c) => c.id === id)
 /** 当前选中飞行器（模板多次取用） */
 const selectedCraftInfo = computed(() => (selectedCraft.value ? craftById(selectedCraft.value) : undefined))
+const selectedCraftDetail = computed<MissionDetail | null>(() => {
+  const craft = selectedCraftInfo.value
+  if (!craft) return null
+  const name = bilingualName(craft.nameZh, craft.nameEn)
+  const launch = [craft.launchDate, craft.launchSite, craft.launchVehicle].filter(Boolean).join(' · ')
+  const hasOrbit = craft.kind === 'orbital' || craft.kind === 'catalog'
+  const epoch = craft.snapshot?.epoch ? `轨道历元 ${formatEpochUTC(craft.snapshot.epoch)} · ` : ''
+  return {
+    kind: 'spacecraft',
+    typeZh: '飞行器',
+    typeEn: 'SPACECRAFT',
+    status: craft.type,
+    nameZh: name.primary,
+    nameEn: name.secondary,
+    description: craft.description,
+    fields: spacecraftFields({
+      operator: craft.operatorName,
+      launch,
+      inclination: hasOrbit ? `${craft.displayInclination}°` : '',
+      eccentricity: hasOrbit ? craft.displayEccentricity : '',
+      period: hasOrbit ? craft.displayPeriod : '',
+    }),
+    source: `${epoch}${craft.sourceName}`,
+  }
+})
 const orbitDataCaption = computed(() => {
   if (!crafts.value.length) return '火星轨道数据'
   return 'JPL Horizons'
@@ -477,9 +487,7 @@ function startCraftFocus(id: string) {
   const runtime = craftRuntimes.find((r) => r.spec.id === id)
   if (!runtime || !camera) return
   const world = runtime.dot.getWorldPosition(focusTmp).clone()
-  const desired = Math.min(camera.position.length(), 8.4)
-  const targetDistance = Math.max(desired, world.length() + 0.8) // 基准 8.4 ≈2.8R（地球 6.0、月球 7.4）
-  planFocusMotion(world, targetDistance)
+  planFocusMotion(world, spacecraftFocusDistance(MARS_RADIUS, camera.position.length(), world.length()))
 }
 
 /** 着陆点聚焦：方向对准着陆点（观察距离 5.2——火面区域与周边地形整体可见） */
@@ -727,7 +735,7 @@ onMounted(() => {
       // 部分透视补偿（远小近大、不过度）：scale = (d/基准)^0.6；高亮时放大 35%
       // 距离透明度：远处 70% 半透明、放大后实色（与地球统一）；隐藏期不渲染（visible 兜底）
       const d = runtime.dot.getWorldPosition(focusTmp).distanceTo(camera.position)
-      runtime.dot.scale.setScalar(Math.pow(d / MARS_MARKER_REF_DISTANCE, 0.6) * (active ? 1.35 : 1))
+      runtime.dot.scale.setScalar(missionMarkerScale(d, MARS_MARKER_REF_DISTANCE, active))
       if (dotMat) dotMat.opacity = (active ? 1 : distOpacity(d)) * elementsFadeNow
       runtime.dot.visible = spacecraftEnabled.value && elementsFadeNow > 0.001
       if (runtime.line) runtime.line.visible = orbitsEnabled.value && elementsFadeNow > 0.001
@@ -894,6 +902,36 @@ function siteById(id: string) {
   return landingSites.value.find((site) => site.id === id)
 }
 
+function siteCategoryLabel(category: string) {
+  return category === 'ROVER_LANDING' ? '巡视探测' : category === 'SAMPLE_RETURN' ? '采样返回' : category === 'AERIAL' ? '动力飞行' : '静态着陆'
+}
+
+const selectedSiteDetail = computed<MissionDetail | null>(() => {
+  if (!selectedSite.value) return null
+  const site = siteById(selectedSite.value)
+  if (!site) return null
+  const name = bilingualName(site.siteName, site.officialName || site.nameEn)
+  const coordinates = `${Math.abs(site.latitude).toFixed(2)}°${site.latitude >= 0 ? 'N' : 'S'} ${Math.abs(site.longitude).toFixed(2)}°${site.longitude >= 0 ? 'E' : 'W'}`
+  return {
+    kind: 'surface',
+    typeZh: '着陆点',
+    typeEn: 'LANDING SITE',
+    nameZh: name.primary,
+    nameEn: name.secondary,
+    description: site.description,
+    iconHtml: siteGlyph(site.icon),
+    fields: surfaceMissionFields({
+      mission: site.missionName,
+      date: site.landingDate,
+      operator: site.operatorName,
+      region: site.region,
+      coordinates,
+      category: siteCategoryLabel(site.category),
+    }),
+    hardware: site.hardware,
+  }
+})
+
 const filteredSites = computed(() => {
   const q = siteQuery.value.trim().toLowerCase()
   if (!q) return landingSites.value
@@ -945,7 +983,7 @@ function updateSiteMarkerProximity() {
     // 距离透明度（远处 70% 半透明、放大后实色）× 统一元素淡入淡出（进入一次性浮现 / 退出一次性消失）
     material.opacity = distOpacity(d) * elementsFade
     // 部分透视补偿（远小近大、不过度）：k=0.6；去掉原"贴面微缩"（近处缩小的观感反物理）
-    marker.scale.setScalar(Math.pow(d / MARS_MARKER_REF_DISTANCE, 0.6))
+    marker.scale.setScalar(missionMarkerScale(d, MARS_MARKER_REF_DISTANCE, selectedSite.value === site.id))
     marker.visible = sitesEnabled.value && elementsFade > 0.001
   }
 }
@@ -1265,6 +1303,15 @@ onBeforeUnmount(() => {
   --mars-line: rgba(224, 168, 120, 0.22);
   --mars-text: #ecd9c8;
   --mars-quiet: #a89078;
+  --mission-accent: var(--mars-accent);
+  --mission-accent-dim: var(--mars-accent-dim);
+  --mission-line: var(--mars-line);
+  --mission-text: var(--mars-text);
+  --mission-quiet: var(--mars-quiet);
+  --mission-body: #c8ad97;
+  --mission-panel-surface: rgba(24, 16, 10, .95);
+  --mission-label-surface: rgba(18, 12, 8, .8);
+  --mission-label-surface-active: rgba(31, 21, 14, .94);
   position: relative;
   height: 150dvh;
   min-height: 990px;
@@ -1307,6 +1354,10 @@ onBeforeUnmount(() => {
 .mars-objects-section .section-kicker,
 .mars-sites-section .section-kicker { color: #d0a080; }
 /* 火星档案板块（与金星/土星/木星页同款 profile-grid，主题色陶土红） */
+.mars-profile-section {
+  min-height: 0;
+  padding-bottom: 48px;
+}
 .mars-profile-section .section-kicker { color: #d0a080; }
 .mars-profile-section .sec-num { color: #c09070; }
 .mars-profile-section .profile-grid {

@@ -41,6 +41,8 @@ export interface PlanetProfile {
   moons: string
   /** 环 */
   rings: string
+  /** 主要物质组成；行星写内部/大气主成分，恒星写元素丰度 */
+  composition: string
   /** 简介（来自 NASA 页面） */
   description: string
   /** 恒星（太阳）专属档案字段 */
@@ -49,7 +51,6 @@ export interface PlanetProfile {
   surfaceTemp?: string
   coreTemp?: string
   age?: string
-  composition?: string
 }
 
 /** 晨昏线真实太阳方向参数（与火星 marsSunDirection 同构，参数按行星真实值） */
@@ -159,24 +160,24 @@ export interface PlanetSpacecraft {
 const SUN_SPACECRAFT: PlanetSpacecraft = {
   title: '飞行器',
   kicker: 'SOLAR PROBES',
-  sub: '飞行器 · 太阳日心轨道与近日点记录（轨迹为视觉示意）',
+  sub: '飞行器 · 轨道与位置用于交互示意；精确状态以数据来源为准。',
   items: [
     {
-      id: 'parker-solar-probe', name: 'Parker Solar Probe', nameEn: 'Parker Solar Probe', operator: 'NASA',
+      id: 'parker-solar-probe', name: '帕克太阳探测器', nameEn: 'Parker Solar Probe', operator: 'NASA',
       status: '运行中', type: '日心轨道器', date: '2018-08-12', endpoint: '近日点 6.1M km · 0.04 AU',
       description: '目前仍在运行的太阳探测器，2024-12-24 抵达距太阳约 6.1M km 的历史最近点。',
       trajectory: { kind: 'orbit', radius: 2.3, eccentricity: 0.5, inclinationDeg: 8, phaseDeg: 18, periodDays: 88 },
       verifiedAt: '2026-08-06', source: 'NASA Parker Solar Probe',
     },
     {
-      id: 'helios-b', name: 'Helios-B', nameEn: 'Helios-B', operator: 'NASA / DLR',
+      id: 'helios-b', name: '太阳神 B 号', nameEn: 'Helios-B', operator: 'NASA / DLR',
       status: '已结束', type: '日心轨道器', date: '1976-01-15', endpoint: '近日点 0.29 AU',
       description: '1976 年进入高偏心日心轨道，创下长期保持的近太阳探测距离纪录。',
       trajectory: { kind: 'orbit', radius: 2.45, eccentricity: 0.55, inclinationDeg: 3, phaseDeg: 156, periodDays: 190 },
       verifiedAt: '2026-08-06', source: 'NASA / DLR mission archive',
     },
     {
-      id: 'ulysses', name: 'Ulysses', nameEn: 'Ulysses', operator: 'ESA / NASA',
+      id: 'ulysses', name: '尤利西斯号', nameEn: 'Ulysses', operator: 'ESA / NASA',
       status: '已结束', type: '太阳极区探测器', date: '1990-10-06', endpoint: '高倾角太阳极轨',
       description: '首个系统研究太阳南北极区的探测器，2009 年结束任务。',
       trajectory: { kind: 'orbit', radius: 2.9, eccentricity: 0.18, inclinationDeg: 66, phaseDeg: 235, periodDays: 2260 },
@@ -188,26 +189,26 @@ const SUN_SPACECRAFT: PlanetSpacecraft = {
 const MERCURY_SPACECRAFT: PlanetSpacecraft = {
   title: '飞行器',
   kicker: 'MERCURY SPACECRAFT',
-  sub: '飞行器 · 环绕水星运行、飞掠与接近中的任务（轨迹为视觉示意）',
+  sub: '飞行器 · 轨道与位置用于交互示意；精确状态以数据来源为准。',
   items: [
     {
-      id: 'bepicolombo', name: 'BepiColombo', nameEn: 'BepiColombo', operator: 'ESA / JAXA',
+      id: 'bepicolombo', name: '贝皮科伦坡号', nameEn: 'BepiColombo', operator: 'ESA / JAXA',
       status: '即将入轨', type: '接近中的轨道器', date: '2018-10-20', endpoint: '预计 2026-11 弱捕获入轨',
       description: '欧日联合水星任务，2026-06-15 关闭电推进，进入水星轨道捕获准备阶段。',
       trajectory: { kind: 'orbit', radius: 2.05, eccentricity: 0.48, inclinationDeg: 12, phaseDeg: 20, periodDays: 120 },
       verifiedAt: '2026-08-06', source: 'ESA BepiColombo',
     },
     {
-      id: 'messenger-orbiter', name: 'MESSENGER', nameEn: 'MESSENGER', operator: 'NASA',
+      id: 'messenger-orbiter', name: '信使号', nameEn: 'MESSENGER', operator: 'NASA',
       status: '已结束', type: '轨道器', date: '2011-03-18', endpoint: '2015-04-30 撞击水星',
       description: '首个环绕水星运行的探测器，任务终点为水星表面的真实撞击点。',
       trajectory: { kind: 'orbit', radius: 1.7, eccentricity: 0.3, inclinationDeg: 7, phaseDeg: 190 },
       verifiedAt: '2026-08-06', source: 'NASA MESSENGER mission archive',
     },
     {
-      id: 'mariner-10', name: 'Mariner 10', nameEn: 'Mariner 10', operator: 'NASA',
+      id: 'mariner-10', name: '水手 10 号', nameEn: 'Mariner 10', operator: 'NASA',
       status: '飞掠', type: '飞掠器', date: '1973-11-03', endpoint: '3 次水星飞掠',
-      description: '首个抵达水星的航天器，1974–1975 年完成三次水星飞掠。',
+      description: '首个抵达水星的飞行器，1974–1975 年完成三次水星飞掠。',
       trajectory: { kind: 'flyby', radius: 2.2, inclinationDeg: 18, phaseDeg: 28, spanDeg: 135 },
       verifiedAt: '2026-08-06', source: 'NASA Mariner 10 archive',
     },
@@ -217,24 +218,24 @@ const MERCURY_SPACECRAFT: PlanetSpacecraft = {
 const VENUS_SPACECRAFT: PlanetSpacecraft = {
   title: '飞行器',
   kicker: 'VENUS SPACECRAFT',
-  sub: '飞行器 · 金星轨道器与大气终点（轨迹为视觉示意）',
+  sub: '飞行器 · 轨道与位置用于交互示意；精确状态以数据来源为准。',
   items: [
     {
-      id: 'akatsuki', name: 'Akatsuki 晓号', nameEn: 'Akatsuki', operator: 'JAXA',
+      id: 'akatsuki', name: '晓号', nameEn: 'Akatsuki', operator: 'JAXA',
       status: '已结束', type: '轨道器', date: '2015-12-07', endpoint: '2024-05-29 失联',
       description: '日本金星气候轨道器，曾长期观测金星云层和大气环流，后于 2024 年失联。',
       trajectory: { kind: 'orbit', radius: 1.72, eccentricity: 0.28, inclinationDeg: 5, phaseDeg: 95 },
       verifiedAt: '2026-08-06', source: 'JAXA Akatsuki archive',
     },
     {
-      id: 'magellan', name: 'Magellan 麦哲伦号', nameEn: 'Magellan', operator: 'NASA',
+      id: 'magellan', name: '麦哲伦号', nameEn: 'Magellan', operator: 'NASA',
       status: '已结束', type: '轨道器', date: '1990-08-10', endpoint: '1994-10-13 坠入金星大气',
       description: '完成金星表面雷达测绘，任务结束时进入大气层烧毁。',
       trajectory: { kind: 'orbit', radius: 1.9, eccentricity: 0.18, inclinationDeg: 9, phaseDeg: 230, endpointRadius: 1.04 },
       verifiedAt: '2026-08-06', source: 'NASA Magellan archive',
     },
     {
-      id: 'pioneer-venus', name: 'Pioneer Venus', nameEn: 'Pioneer Venus', operator: 'NASA',
+      id: 'pioneer-venus', name: '先驱者金星号', nameEn: 'Pioneer Venus', operator: 'NASA',
       status: '已结束', type: '轨道器 + 大气探测器', date: '1978-05-20', endpoint: '4 个探测器进入大气',
       description: '由轨道器和多枚大气探测器组成，建立了金星大气的早期整体剖面。',
       // 轨道器环绕金星 + 大气终点（4 枚探测器进入大气坠落）——不是飞掠弧线
@@ -247,10 +248,10 @@ const VENUS_SPACECRAFT: PlanetSpacecraft = {
 const JUPITER_SPACECRAFT: PlanetSpacecraft = {
   title: '飞行器',
   kicker: 'JUPITER SPACECRAFT',
-  sub: '飞行器 · 极轨任务、终结任务与飞掠轨迹（轨迹为视觉示意）',
+  sub: '飞行器 · 轨道与位置用于交互示意；精确状态以数据来源为准。',
   items: [
     {
-      id: 'juno', name: 'Juno 朱诺号', nameEn: 'Juno', operator: 'NASA',
+      id: 'juno', name: '朱诺号', nameEn: 'Juno', operator: 'NASA',
       status: '运行中', type: '极轨轨道器', date: '2016-07-04', endpoint: '延长任务至 2028-09',
       description: '仍在运行的木星极轨探测器，EM2 延长任务期间继续研究木星内部、磁场和极光。',
       // 视觉示意：保持极轨倾角，但把轨道收在镜头可读范围内，保证运行点不会长期游离出画面。
@@ -258,14 +259,14 @@ const JUPITER_SPACECRAFT: PlanetSpacecraft = {
       verifiedAt: '2026-08-06', source: 'NASA Juno mission archive',
     },
     {
-      id: 'galileo', name: 'Galileo 伽利略号', nameEn: 'Galileo', operator: 'NASA',
+      id: 'galileo', name: '伽利略号', nameEn: 'Galileo', operator: 'NASA',
       status: '已结束', type: '轨道器', date: '1995-12-07', endpoint: '2003-09-21 坠入木星大气',
       description: '为避免污染木卫二，燃料耗尽后按计划进入木星大气层焚毁。',
       trajectory: { kind: 'orbit', radius: 1.95, eccentricity: 0.22, inclinationDeg: 14, phaseDeg: 176, displayProgress: 0.02, endpointRadius: 1.04 },
       verifiedAt: '2026-08-06', source: 'NASA Galileo archive',
     },
     {
-      id: 'voyager-1-jupiter', name: 'Voyager 1 旅行者号', nameEn: 'Voyager 1', operator: 'NASA',
+      id: 'voyager-1-jupiter', name: '旅行者 1 号', nameEn: 'Voyager 1', operator: 'NASA',
       status: '飞掠', type: '飞掠器', date: '1979-03-05', endpoint: '木星系统飞掠',
       description: '完成木星系统飞掠后继续前往外太阳系。',
       trajectory: { kind: 'flyby', radius: 1.45, inclinationDeg: 12, phaseDeg: 42, displayProgress: 1, spanDeg: 130 },
@@ -277,11 +278,11 @@ const JUPITER_SPACECRAFT: PlanetSpacecraft = {
 const SATURN_SPACECRAFT: PlanetSpacecraft = {
   title: '飞行器',
   kicker: 'SATURN SPACECRAFT',
-  sub: '飞行器 · Cassini 轨道与 Grand Finale 终段（轨迹为视觉示意）',
+  sub: '飞行器 · 轨道与位置用于交互示意；精确状态以数据来源为准。',
   compact: true,
   items: [
     {
-      id: 'cassini', name: 'Cassini 卡西尼号', nameEn: 'Cassini', operator: 'NASA / ESA / ASI',
+      id: 'cassini', name: '卡西尼号', nameEn: 'Cassini', operator: 'NASA / ESA / ASI',
       status: '已结束', type: '轨道器', date: '2004-07-01', endpoint: '2017-09-15 坠入土星上层大气',
       description: '完成 22 次 Grand Finale 环缝穿越后主动坠入土星上层大气，信号于 11:55:46 UTC 消失。',
       trajectory: { kind: 'orbit', radius: 1.72, eccentricity: 0.3, inclinationDeg: 24, phaseDeg: 142, displayProgress: 0.14, endpointRadius: 1.04 },
@@ -293,11 +294,11 @@ const SATURN_SPACECRAFT: PlanetSpacecraft = {
 const URANUS_SPACECRAFT: PlanetSpacecraft = {
   title: '飞行器',
   kicker: 'URANUS FLYBY',
-  sub: '飞行器 · 人类目前唯一一次天王星近距离飞掠（轨迹为视觉示意）',
+  sub: '飞行器 · 轨道与位置用于交互示意；精确状态以数据来源为准。',
   compact: true,
   items: [
     {
-      id: 'voyager-2-uranus', name: 'Voyager 2 旅行者号', nameEn: 'Voyager 2', operator: 'NASA',
+      id: 'voyager-2-uranus', name: '旅行者 2 号', nameEn: 'Voyager 2', operator: 'NASA',
       status: '飞掠', type: '飞掠器', date: '1986-01-24', endpoint: '距云顶约 81,500 km',
       description: '人类唯一一次天王星近距离探访，飞掠持续约 6 小时并发现了新的环与卫星。',
       trajectory: { kind: 'flyby', radius: 1.55, inclinationDeg: 18, phaseDeg: 135, displayProgress: 0.54, spanDeg: 145 },
@@ -309,11 +310,11 @@ const URANUS_SPACECRAFT: PlanetSpacecraft = {
 const NEPTUNE_SPACECRAFT: PlanetSpacecraft = {
   title: '飞行器',
   kicker: 'NEPTUNE FLYBY',
-  sub: '飞行器 · 人类目前唯一一次海王星近距离飞掠（轨迹为视觉示意）',
+  sub: '飞行器 · 轨道与位置用于交互示意；精确状态以数据来源为准。',
   compact: true,
   items: [
     {
-      id: 'voyager-2-neptune', name: 'Voyager 2 旅行者号', nameEn: 'Voyager 2', operator: 'NASA',
+      id: 'voyager-2-neptune', name: '旅行者 2 号', nameEn: 'Voyager 2', operator: 'NASA',
       status: '飞掠', type: '飞掠器', date: '1989-08-25', endpoint: '距云顶约 4,950 km',
       description: '完成海王星唯一一次近距离飞掠，观测到大暗斑和高速风暴。',
       trajectory: { kind: 'flyby', radius: 2.18, inclinationDeg: 34, phaseDeg: 198, displayProgress: 0.78, spanDeg: 145 },
@@ -396,31 +397,32 @@ export const VENUS_PAGE: PlanetPageConfig = {
     axialTilt: '177.4°（逆向）',
     moons: '0',
     rings: '无',
+    composition: '岩石与金属 · 大气以二氧化碳为主，硫酸云覆盖',
     description: '被浓密硫酸云层包裹的炽热行星，太阳从西边升起。',
   },
   exploration: {
     title: '着陆点',
     kicker: 'VENUS LANDING SITES',
-    sub: '着陆器 · 在金星表面着陆的航天器',
+    sub: '着陆点 · 圆点标示任务位置；坐标精度以数据来源为准。',
     sites: [
       {
         id: 'venera-7',
-        name: 'Venera 7',
+        name: '金星 7 号',
         nameEn: 'Venera 7',
-        mission: 'Venera 计划',
+        mission: '金星计划',
         operator: '苏联',
         date: '1970-12-15',
         latitude: -5,
         longitude: 351,
         kind: 'landing',
         icon: 'lander',
-        description: '首个在地球外软着陆并传回数据的航天器（表面信号 23 分钟）。',
+        description: '首个在地球外软着陆并传回数据的飞行器（表面信号 23 分钟）。',
       },
       {
         id: 'venera-8',
-        name: 'Venera 8',
+        name: '金星 8 号',
         nameEn: 'Venera 8',
-        mission: 'Venera 计划',
+        mission: '金星计划',
         operator: '苏联',
         date: '1972-07-22',
         latitude: -10.7,
@@ -431,9 +433,9 @@ export const VENUS_PAGE: PlanetPageConfig = {
       },
       {
         id: 'venera-9',
-        name: 'Venera 9',
+        name: '金星 9 号',
         nameEn: 'Venera 9',
-        mission: 'Venera 计划',
+        mission: '金星计划',
         operator: '苏联',
         date: '1975-10-22',
         latitude: 31.01,
@@ -444,9 +446,9 @@ export const VENUS_PAGE: PlanetPageConfig = {
       },
       {
         id: 'venera-10',
-        name: 'Venera 10',
+        name: '金星 10 号',
         nameEn: 'Venera 10',
-        mission: 'Venera 计划',
+        mission: '金星计划',
         operator: '苏联',
         date: '1975-10-25',
         latitude: 15.42,
@@ -457,9 +459,9 @@ export const VENUS_PAGE: PlanetPageConfig = {
       },
       {
         id: 'venera-11',
-        name: 'Venera 11',
+        name: '金星 11 号',
         nameEn: 'Venera 11',
-        mission: 'Venera 计划',
+        mission: '金星计划',
         operator: '苏联',
         date: '1978-12-25',
         latitude: -14,
@@ -470,9 +472,9 @@ export const VENUS_PAGE: PlanetPageConfig = {
       },
       {
         id: 'venera-12',
-        name: 'Venera 12',
+        name: '金星 12 号',
         nameEn: 'Venera 12',
-        mission: 'Venera 计划',
+        mission: '金星计划',
         operator: '苏联',
         date: '1978-12-21',
         latitude: -7,
@@ -483,9 +485,9 @@ export const VENUS_PAGE: PlanetPageConfig = {
       },
       {
         id: 'venera-13',
-        name: 'Venera 13',
+        name: '金星 13 号',
         nameEn: 'Venera 13',
-        mission: 'Venera 计划',
+        mission: '金星计划',
         operator: '苏联',
         date: '1982-03-01',
         latitude: -7.5,
@@ -496,9 +498,9 @@ export const VENUS_PAGE: PlanetPageConfig = {
       },
       {
         id: 'venera-14',
-        name: 'Venera 14',
+        name: '金星 14 号',
         nameEn: 'Venera 14',
-        mission: 'Venera 计划',
+        mission: '金星计划',
         operator: '苏联',
         date: '1982-03-05',
         latitude: -13.25,
@@ -541,6 +543,7 @@ export const MARS_PAGE: PlanetPageConfig = {
     axialTilt: '25°',
     moons: '2（Phobos / Deimos）',
     rings: '无',
+    composition: '岩石与铁镍硫核心 · 大气以二氧化碳为主',
     description: '因氧化铁而呈现红色的沙漠世界，拥有太阳系最大的火山与峡谷。',
   },
   // 火星页面仍由独立 MarsScene 负责实时目录，这里不复制数据。
@@ -576,17 +579,18 @@ export const SATURN_PAGE: PlanetPageConfig = {
     axialTilt: '26.73°',
     moons: '274（2025-03 确认）',
     rings: '有（延伸 282,000 km）',
+    composition: '氢与氦为主 · 云层含氨等微量物质',
     description: '拥有广阔而明亮行星环的气态巨行星，环由冰与岩石碎块构成。',
   },
   exploration: {
     title: '任务终点',
     kicker: 'SATURN MISSION ENDPOINTS',
-    sub: '任务终点 · 结束任务并坠入土星的航天器',
+    sub: '任务终点 · 圆点标示任务终点；坐标精度以数据来源为准。',
     compact: true,
     sites: [
       {
         id: 'cassini',
-        name: 'Cassini 卡西尼号',
+        name: '卡西尼号',
         nameEn: 'Cassini',
         mission: 'Cassini–Huygens',
         operator: 'NASA / ESA / ASI',
@@ -635,17 +639,18 @@ export const JUPITER_PAGE: PlanetPageConfig = {
     axialTilt: '3.13°',
     moons: '95（IAU 确认）',
     rings: '有（暗淡，不易见）',
+    composition: '氢与氦为主 · 含水、氨、甲烷等微量物质',
     description: '太阳系最大的行星，云带与风暴（大红斑）是其标志。',
   },
   exploration: {
     title: '任务终点',
     kicker: 'JUPITER MISSION ENDPOINTS',
-    sub: '任务终点 · 结束任务并坠入木星的航天器',
+    sub: '任务终点 · 圆点标示任务终点；坐标精度以数据来源为准。',
     compact: true,
     sites: [
       {
         id: 'galileo',
-        name: 'Galileo 伽利略号',
+        name: '伽利略号',
         nameEn: 'Galileo',
         mission: 'Galileo',
         operator: 'NASA',
@@ -695,16 +700,17 @@ export const MERCURY_PAGE: PlanetPageConfig = {
     axialTilt: '0.03°（几乎直立）',
     moons: '0',
     rings: '无',
+    composition: '大型金属核心 · 岩石地幔与固态地壳',
     description: '最靠近太阳的行星，昼夜温差极大，表面布满陨石坑。',
   },
   exploration: {
     title: '任务终点',
     kicker: 'MERCURY MISSION ENDPOINTS',
-    sub: '任务终点 · 结束任务并撞击水星表面的航天器',
+    sub: '任务终点 · 圆点标示任务终点；坐标精度以数据来源为准。',
     sites: [
       {
         id: 'messenger',
-        name: 'MESSENGER',
+        name: '信使号',
         nameEn: 'MESSENGER',
         mission: 'MESSENGER',
         operator: 'NASA',
@@ -751,6 +757,7 @@ export const URANUS_PAGE: PlanetPageConfig = {
     axialTilt: '97.77°（侧躺）',
     moons: '28',
     rings: '有（13 条细环）',
+    composition: '水、甲烷与氨等冰物质 · 氢氦大气',
     description: '近乎侧躺旋转的冰巨星，拥有太阳系最极端的季节。',
   },
   spacecraft: URANUS_SPACECRAFT,
@@ -785,6 +792,7 @@ export const NEPTUNE_PAGE: PlanetPageConfig = {
     axialTilt: '28.32°',
     moons: '16',
     rings: '有（5 条主环，暗淡）',
+    composition: '水、甲烷与氨等冰物质 · 氢氦大气',
     description: '遥远而深蓝的冰巨星，拥有太阳系最快的狂风。',
   },
   spacecraft: NEPTUNE_SPACECRAFT,

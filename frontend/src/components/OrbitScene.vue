@@ -5,6 +5,10 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { LaunchEvent, LaunchSite, SceneLayers, Selection, Spacecraft } from '../types'
 import { EARTH_DAY_TEXTURE_URL, EARTH_NIGHT_TEXTURE_URL, EARTH_RADIUS, latLonToVector, sampleOrbit, spacecraftPoint } from '../orbit/coordinates'
 import { bilingualName } from '../bilingual'
+import MissionDetailPanel from './MissionDetailPanel.vue'
+import MissionSceneLabel from './MissionSceneLabel.vue'
+import type { MissionDetail } from '../missionPresentation'
+import { missionMarkerScale, spacecraftFields } from '../missionPresentation'
 
 const EARTH_AXIAL_TILT_DEGREES = 23.44
 /** 地球入场自转（先做地球，月球后续再说）：
@@ -165,6 +169,29 @@ function orbitPeriodText(meanMotion: string | number) {
   if (!Number.isFinite(mm) || mm <= 0) return '—'
   return `${(1440 / mm).toFixed(1)} 分钟`
 }
+const selectedSpacecraftDetail = computed<MissionDetail | null>(() => {
+  const craft = selectedSpacecraft.value
+  if (!craft) return null
+  const name = bName(craft.nameZh, craft.nameEn)
+  const launch = [craft.launchDate, craft.launchSite, craft.launchVehicle].filter(Boolean).join(' · ')
+  return {
+    kind: 'spacecraft',
+    typeZh: '飞行器',
+    typeEn: 'SPACECRAFT',
+    status: `NORAD ${craft.noradCatalogId}`,
+    nameZh: name.primary,
+    nameEn: name.secondary,
+    description: craft.description,
+    fields: spacecraftFields({
+      operator: craft.operatorName,
+      launch,
+      inclination: `${Number(craft.omm.INCLINATION).toFixed(2)}°`,
+      eccentricity: Number(craft.omm.ECCENTRICITY).toFixed(6),
+      period: orbitPeriodText(craft.omm.MEAN_MOTION),
+    }),
+    source: `轨道历元 ${formatEpochUTC(craft.orbitEpoch)} · ${craft.sourceName}`,
+  }
+})
 function formatCoordinate(value: number, positive: string, negative: string) {
   return `${Math.abs(value).toFixed(2)}° ${value >= 0 ? positive : negative}`
 }
@@ -1121,8 +1148,10 @@ function animate(time = 0) {
     for (const [key, marker] of markerObjects) {
       const d = marker.getWorldPosition(markerScaleTmp).distanceTo(camera.position)
       const isActive = activeKey.value === key
-      // 选中/悬停：标记放大 35% + 全实色（醒目点亮）
-      const scale = Math.pow(d / refDistance, 0.6) * (isActive ? 1.35 : 1)
+      // 飞行器采用统一的强透视补偿；发射场保持地球专属标记逻辑不变。
+      const scale = key.startsWith('spacecraft:')
+        ? missionMarkerScale(d, refDistance, isActive)
+        : Math.pow(d / refDistance, 0.6) * (isActive ? 1.35 : 1)
       const material = (marker as THREE.Mesh).material as THREE.MeshBasicMaterial | undefined
       const opacity = (isActive ? 1 : distOpacity(d)) * fade
       // 仅变化时写（相机静止时 scale/opacity 恒定 → 每帧零材质/几何写，减滚动掉帧）
@@ -1222,19 +1251,30 @@ onBeforeUnmount(() => {
 
 <template>
   <div ref="canvasHost" class="scene-host" :class="{ revealed: sceneRevealed, 'pointer-near-earth': pointerNearEarth }" aria-label="可拖动的三维地球轨道场景">
-    <button
-      v-for="label in labels"
-      v-show="label.visible && elementsShown"
-      :key="`${label.kind}:${label.id}`"
-      class="scene-label"
-      :class="[label.kind, { selected: activeKey === `${label.kind}:${label.id}` }]"
-      :style="{ transform: `translate(${label.x + 14}px, ${label.y - 11}px)` }"
-      @pointerenter="onLabelEnter(label)"
-      @pointerleave="onLabelLeave(label)"
-      @click="localSelection = { kind: label.kind, id: label.id }; emit('select', { kind: label.kind, id: label.id })"
-    >
-      <i />{{ label.name }}
-    </button>
+    <template v-for="label in labels" :key="`${label.kind}:${label.id}`">
+      <MissionSceneLabel
+        v-if="label.kind === 'spacecraft'"
+        v-show="label.visible && elementsShown"
+        kind="spacecraft"
+        :name-zh="bName(props.spacecraft.find((item) => item.id === label.id)?.nameZh ?? label.name, props.spacecraft.find((item) => item.id === label.id)?.nameEn ?? '').primary"
+        :name-en="bName(props.spacecraft.find((item) => item.id === label.id)?.nameZh ?? label.name, props.spacecraft.find((item) => item.id === label.id)?.nameEn ?? '').secondary"
+        :selected="activeKey === `${label.kind}:${label.id}`"
+        :style="{ transform: `translate(${label.x + 14}px, ${label.y - 11}px)` }"
+        @pointerenter="onLabelEnter(label)"
+        @pointerleave="onLabelLeave(label)"
+        @click="localSelection = { kind: label.kind, id: label.id }; emit('select', { kind: label.kind, id: label.id })"
+      />
+      <button
+        v-else
+        v-show="label.visible && elementsShown"
+        class="scene-label site"
+        :class="{ selected: activeKey === `${label.kind}:${label.id}` }"
+        :style="{ transform: `translate(${label.x + 14}px, ${label.y - 11}px)` }"
+        @click="localSelection = { kind: label.kind, id: label.id }; emit('select', { kind: label.kind, id: label.id })"
+      >
+        <i />{{ label.name }}
+      </button>
+    </template>
     <div
       v-if="observerLabel"
       v-show="observerLabel.visible && elementsShown"
@@ -1247,25 +1287,16 @@ onBeforeUnmount(() => {
     <div v-if="textureState === 'fallback'" class="texture-warning">地表影像未加载，已切换基础材质</div>
 
     <!-- 信息面板（组件内渲染，本地 selection 驱动——参照月球架构，不依赖 App 全局渲染） -->
-    <aside v-if="localSelection" class="context-panel" aria-label="所选对象详情" :style="props.headerExpanded ? { transform: 'translateY(76px)' } : undefined">
+    <MissionDetailPanel
+      v-if="selectedSpacecraftDetail"
+      :detail="selectedSpacecraftDetail"
+      :style="props.headerExpanded ? { '--header-overlay-offset': '76px' } : undefined"
+      @close="localSelection = null; emit('clear-selection')"
+    />
+    <aside v-else-if="localSelection" class="context-panel" aria-label="所选对象详情" :style="props.headerExpanded ? { transform: 'translateY(76px)' } : undefined">
       <button class="panel-close" aria-label="关闭详情" @click="localSelection = null; emit('clear-selection')">关闭</button>
 
-      <template v-if="selectedSpacecraft">
-        <p class="context-type">NORAD {{ selectedSpacecraft.noradCatalogId }}</p>
-        <h2>{{ bName(selectedSpacecraft.nameZh, selectedSpacecraft.nameEn).primary }}</h2>
-        <p v-if="bName(selectedSpacecraft.nameZh, selectedSpacecraft.nameEn).secondary" class="context-subtitle">（{{ bName(selectedSpacecraft.nameZh, selectedSpacecraft.nameEn).secondary }}）</p>
-        <p class="context-description">{{ selectedSpacecraft.description }}</p>
-        <dl>
-          <div><dt>运营方</dt><dd>{{ selectedSpacecraft.operatorName }}</dd></div>
-          <div v-if="selectedSpacecraft.launchDate"><dt>发射地点</dt><dd>{{ selectedSpacecraft.launchDate }} · {{ selectedSpacecraft.launchSite }} · {{ selectedSpacecraft.launchVehicle }}</dd></div>
-          <div><dt>轨道倾角</dt><dd>{{ Number(selectedSpacecraft.omm.INCLINATION).toFixed(2) }}°</dd></div>
-          <div><dt>偏心率</dt><dd>{{ Number(selectedSpacecraft.omm.ECCENTRICITY).toFixed(6) }}</dd></div>
-          <div><dt>轨道周期</dt><dd>{{ orbitPeriodText(selectedSpacecraft.omm.MEAN_MOTION) }}</dd></div>
-        </dl>
-        <p class="source-caption">轨道历元 {{ formatEpochUTC(selectedSpacecraft.orbitEpoch) }}<br>{{ selectedSpacecraft.sourceName }}</p>
-      </template>
-
-      <template v-else-if="selectedSite">
+      <template v-if="selectedSite">
         <p class="context-type launch-context">LAUNCH SITE · {{ selectedSite.countryCode }}</p>
         <h2>{{ bName(selectedSite.nameZh, selectedSite.nameEn).primary }}</h2>
         <p v-if="bName(selectedSite.nameZh, selectedSite.nameEn).secondary" class="context-subtitle">（{{ bName(selectedSite.nameZh, selectedSite.nameEn).secondary }}）</p>
@@ -1328,7 +1359,19 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.scene-host { position: absolute; inset: 0; overflow: hidden; cursor: default; }
+.scene-host {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  cursor: default;
+  --mission-accent: #72d7ff;
+  --mission-accent-dim: rgba(114, 215, 255, .38);
+  --mission-line: rgba(139, 180, 202, .2);
+  --mission-text: #ecf5f9;
+  --mission-quiet: #7f98a7;
+  --mission-body: #a8c0cc;
+  --mission-panel-surface: rgba(5, 14, 22, .95);
+}
 /* 地球场景入场：进入边界触发 0.3s 渐亮（裸星球先出现；默认隐藏，revealed 时过渡显现） */
 .scene-host { opacity: 0; transition: opacity 0.3s ease; }
 .scene-host.revealed { opacity: 1; }
