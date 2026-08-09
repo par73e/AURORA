@@ -42,7 +42,7 @@ export interface ProbeData {
 
 /** 探测器轨迹线样式：默认暗淡，指针悬停时变亮 */
 const PROBE_TRAJECTORY_OPACITY_DEFAULT = 0.3
-const PROBE_TRAJECTORY_OPACITY_HOVER = 0.85
+const PROBE_TRAJECTORY_OPACITY_HOVER = 0.58
 /** 探测器标记基础半径（场景单位，与地球/月球标记同款部分透视补偿：scale=(d/基准)^0.6） */
 const PROBE_MARKER_RADIUS = 0.35
 // JWST 最小显示半径：地球轨道（46，data.ts earth.orbitRadius）+ 地球球体（2.5，radius）+ 余量。

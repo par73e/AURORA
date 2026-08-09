@@ -6,10 +6,12 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vue-tsc -b && vite build",
-    "preview": "vite preview --host 0.0.0.0"
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "node --test"
   },
   "dependencies": {
     "@vueuse/core": "^13.9.0",
+    "astronomy-engine": "^2.1.19",
     "satellite.js": "^6.0.1",
     "three": "^0.179.1",
     "vue": "^3.5.18"

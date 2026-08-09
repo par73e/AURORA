@@ -70,3 +70,49 @@ export function fetchObserverPlace(latitude: number, longitude: number, signal?:
   })
   return requestJSON<ObserverPlace>(`/api/v1/location/reverse?${search}`, signal)
 }
+
+export interface ObservingConditions {
+  retrievedAt: string
+  timezone: string
+  source: string
+  current: {
+    time: string
+    temperature: number
+    dewPoint: number
+    cloudCover: number
+    visibilityMeters: number
+    humidity: number
+    precipitation: number
+    windSpeed: number
+    windGusts: number
+    weatherCode: number
+  }
+  hourly: Array<{
+    time: string
+    temperature: number
+    dewPoint: number
+    cloudCover: number
+    cloudCoverLow: number
+    cloudCoverMid: number
+    cloudCoverHigh: number
+    visibilityMeters: number
+    humidity: number
+    precipitation: number
+    windSpeed: number
+    windDirection: number
+    windGusts: number
+    pressure: number
+    weatherCode: number
+  }>
+  airQuality: Array<{
+    time: string
+    pm25: number
+    pm10: number
+    aerosolOpticalDepth: number
+  }>
+}
+
+export function fetchObservingConditions(latitude: number, longitude: number, signal?: AbortSignal) {
+  const search = new URLSearchParams({ latitude: latitude.toFixed(6), longitude: longitude.toFixed(6) })
+  return requestJSON<ObservingConditions>(`/api/v1/astronomy/conditions?${search}`, signal)
+}

@@ -10,6 +10,7 @@ import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, r
 import { CATALOG_PAGE_SIZE, LAUNCH_SITE_PAGE_SIZE } from './catalog'
 import { bilingualName } from './bilingual'
 import { JUPITER_PAGE, MERCURY_PAGE, NEPTUNE_PAGE, SATURN_PAGE, SUN_PAGE, URANUS_PAGE, VENUS_PAGE } from './planetPages'
+import AuroraBrand from './components/AuroraBrand.vue'
 import AuroraCover from './components/AuroraCover.vue'
 import SolarSystemItem from './components/SolarSystemItem.vue'
 import { fetchObserverPlace, fetchOrbitOverview, fetchSpacecraftCatalog } from './api'
@@ -189,6 +190,7 @@ const DISPLAY_TIME_ZONE = 'Asia/Shanghai'
 
 // ---- 页面切换过渡（变暗 + 缩放推近/拉远 + 遮罩后换页） ----
 const veilActive = ref(false)
+const veilTarget = ref<AppSurface | null>(null)
 /** veil 渐暗/渐亮：rAF 逐帧插值 opacity（系统"减弱动态效果"会禁用 CSS transition——工具栏同款经验） */
 const surfaceVeilRef = ref<HTMLElement | null>(null)
 let veilOpacity = 0
@@ -235,6 +237,12 @@ function waitUntilFullBlack(cb: () => void) {
 }
 /** 封面→太阳系：换页提前到点击瞬间，封面继续覆盖（lingering），黑幕结束才撤下 */
 const coverLingering = ref(false)
+/** 封面 → SKY：目标页先在后方挂载，再由渐变夜幕横向揭示。 */
+const skyCoverTransitioning = ref(false)
+/** SKY → 封面：入场动画的镜像反向，封面从右向左扫回盖住星图（见 exitSkyToCover）。 */
+const skyCoverReturning = ref(false)
+/** SKY 页面期间封面保持挂载但隐藏待命：返回时直接揭示，避免点击瞬间同步挂载导致的顿挫。 */
+const coverStandby = ref(false)
 /** 太阳系入场推镜延迟：封面路径 = 变暗时长（全黑开始时起飞）；直接加载 = 0 */
 const solarFlyDelay = ref(0)
 /** OrbitScene/MoonScene/MarsScene 首帧贴图上传完成信号（textures-ready） */
@@ -267,6 +275,7 @@ const shellTransitioning = ref(false)
 const veilDuration = ref('0.4s')
 let transitionTimer: number | undefined
 let transitionFrame: number | undefined
+let skyModulePreloadTimer: number | undefined
 /** 每次导航递增；异步纹理解码完成后先核验代际，旧页面不能把用户拉回去。 */
 let navigationGeneration = 0
 const deferredNavigationTimers = new Set<number>()
@@ -285,6 +294,7 @@ function scheduleForNavigation(generation: number, callback: () => void, delay: 
   return timer
 }
 
+/** 连续两帧：Vue 提交 DOM 后，再给浏览器一次实际合成机会。 */
 const shellStyle = computed(() => {
   if (!shellTransitioning.value) return undefined
   return { transform: `scale(${shellZoom.value})`, transformOrigin: shellOrigin.value }
@@ -323,9 +333,13 @@ function cancelPendingTransition() {
     transitionFrame = undefined
   }
   veilActive.value = false
+  veilTarget.value = null
   shellZoom.value = 1
   shellTransitioning.value = false
   coverLingering.value = false
+  skyCoverTransitioning.value = false
+  skyCoverReturning.value = false
+  coverStandby.value = false
   // 离开标志复位：过渡中止时页面不切换，若 leaving 仍为 true 会触发场景元素永久隐藏
   orbitSectionLeaving.value = false
   moonLeaving.value = false
@@ -357,48 +371,58 @@ function transitionTo(nextSurface: AppSurface, zoom = 1, origin = '50% 50%', tim
   const exitMs = reduced ? 40 : (timing.exitMs ?? 560)
   const dwellMs = reduced ? 0 : (timing.dwellMs ?? 0)
   const enterMs = reduced ? 40 : 620
+  // SKY 首次进入包含独立组件与样式块；在开始转场时取得加载承诺，黑幕只在它真正可挂载后才揭开。
+  const skyComponentReady = nextSurface === 'sky' ? loadSkyObservatory() : undefined
   cancelPendingTransition()
+  const generation = navigationGeneration
   // 过渡动画期间预热目标页资源
-  preloadSurfaceComponent(nextSurface)
+  if (nextSurface !== 'sky') preloadSurfaceComponent(nextSurface)
   if (nextSurface === 'solar-system') preloadSolarTextures()
   if (nextSurface === 'orbit') preloadOrbitTextures()
   // 退出阶段：当前页变暗 + 缩放
   shellOrigin.value = origin
   shellZoom.value = zoom
   shellTransitioning.value = true
+  veilTarget.value = nextSurface
   veilDuration.value = reduced ? '0.01s' : (timing.veilSeconds ?? '0.4s')
   veilActive.value = true
   transitionTimer = window.setTimeout(() => {
-    // 换页提前到全黑停留开始时：新页面在遮罩后完成挂载、shader 编译与首帧渲染，
-    // 等全黑结束淡出时画面已在运动中（消除"黑幕亮起时画面才刚开始/还在编译"的卡顿）
-    // abort 检查宽松化：hash 是浏览器中最不稳定的部分（pushState/location.hash 都可能不生效），
-    // 严格相等会误伤正常过渡（如返回首页被取消）——只拦"hash 指向其他已定义页面"的情况；
-    // hash 未生效时继续过渡（surface 状态才是真实导航，地址栏瑕疵不影响功能）
-    const currentFromHash = surfaceFromHash()
-    if (currentFromHash !== nextSurface && currentFromHash !== surface.value) {
-      cancelPendingTransition()
-      return
-    }
-    void setSurface(nextSurface)
-    // 全黑停留：遮罩保持不透明，新页面在幕后完成首帧渲染与加载
-    transitionTimer = window.setTimeout(() => {
-      // 进入阶段：新页从缩放位置回弹、遮罩淡出
-      transitionFrame = requestAnimationFrame(() => {
-        transitionFrame = undefined
-        shellZoom.value = 1
-        veilActive.value = false
-      })
+    void (async () => {
+      // 换页提前到全黑停留开始时：新页面在遮罩后完成挂载、shader 编译与首帧渲染，
+      // 等全黑结束淡出时画面已在运动中（消除"黑幕亮起时画面才刚开始/还在编译"的卡顿）。
+      if (skyComponentReady) await skyComponentReady
+      if (!isCurrentNavigation(generation)) return
+      // abort 检查宽松化：hash 是浏览器中最不稳定的部分（pushState/location.hash 都可能不生效），
+      // 严格相等会误伤正常过渡（如返回首页被取消）——只拦"hash 指向其他已定义页面"的情况；
+      // hash 未生效时继续过渡（surface 状态才是真实导航，地址栏瑕疵不影响功能）
+      const currentFromHash = surfaceFromHash()
+      if (currentFromHash !== nextSurface && currentFromHash !== surface.value) {
+        cancelPendingTransition()
+        return
+      }
+      await setSurface(nextSurface)
+      if (nextSurface === 'sky') await nextTick()
+      if (!isCurrentNavigation(generation)) return
+      // 全黑停留：遮罩保持不透明，新页面在幕后完成首帧渲染与加载
       transitionTimer = window.setTimeout(() => {
-        // 移除 transform，避免 fixed 定位的页头受影响
-        shellTransitioning.value = false
-        transitionTimer = undefined
-      }, enterMs + 60)
-    }, dwellMs)
+        // 进入阶段：新页从缩放位置回弹、遮罩淡出
+        transitionFrame = requestAnimationFrame(() => {
+          transitionFrame = undefined
+          shellZoom.value = 1
+          veilActive.value = false
+        })
+        transitionTimer = window.setTimeout(() => {
+          // 移除 transform，避免 fixed 定位的页头受影响
+          shellTransitioning.value = false
+          transitionTimer = undefined
+        }, enterMs + 60)
+      }, dwellMs)
+    })()
   }, exitMs)
 }
 
 function surfaceFromHash(): AppSurface {
-  if (['#sky', '#sky-tonight', '#sky-windows', '#sky-targets', '#sky-events'].includes(window.location.hash)) return 'sky'
+  if (['#astronomy', '#astronomy-conditions', '#astronomy-sky', '#astronomy-events', '#astronomy-tonight', '#astronomy-windows', '#astronomy-targets'].includes(window.location.hash)) return 'sky'
   if (window.location.hash === '#solar-system') return 'solar-system'
   if (['#moon', '#moon-scene', '#moon-profile', '#moon-objects', '#moon-sites'].includes(window.location.hash)) return 'moon'
   if (['#mars', '#mars-scene', '#mars-profile', '#mars-objects', '#mars-sites'].includes(window.location.hash)) return 'mars'
@@ -637,7 +661,12 @@ async function resolveObserverLocationName(latitude: number, longitude: number, 
   try {
     const place = await fetchObserverPlace(latitude, longitude, controller.signal)
     if (revision !== observerLocationRevision) return
-    observerLocation.value = { latitude, longitude, label: place.label, status: 'located' }
+    observerLocation.value = {
+      latitude,
+      longitude,
+      label: place.city || place.province || place.label,
+      status: 'located',
+    }
   } catch {
     if (controller.signal.aborted || revision !== observerLocationRevision) return
     // 逆地理编码失败不应抹掉已经获得的真实坐标，也不能退回假定城市。
@@ -881,8 +910,38 @@ function enterSolarSystem() {
 }
 
 function enterSky() {
-  window.history.pushState(null, '', '#sky-tonight')
-  transitionTo('sky', 1.018, '25% 50%', { exitMs: 440, dwellMs: 100, veilSeconds: '0.32s' })
+  if (surface.value === 'sky') return
+  window.history.pushState(null, '', '#astronomy-conditions')
+  const skyComponentReady = loadSkyObservatory()
+  cancelPendingTransition()
+  const generation = navigationGeneration
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const revealMs = reduced ? 40 : 960
+  coverLingering.value = true
+
+  // 与太阳系入口共享“目标页先挂载、封面后撤”的空间关系；SKY 使用渐变蒙版揭示，
+  // 不经过纯黑遮罩，也不对整个视口做明暗脉冲。
+  void (async () => {
+    try {
+      await skyComponentReady
+    } catch {
+      return
+    }
+    if (!isCurrentNavigation(generation)) return
+    const currentFromHash = surfaceFromHash()
+    if (currentFromHash !== 'sky' && currentFromHash !== surface.value) return
+    await setSurface('sky')
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+    if (!isCurrentNavigation(generation)) return
+    skyCoverTransitioning.value = true
+    transitionTimer = scheduleForNavigation(generation, () => {
+      coverLingering.value = false
+      skyCoverTransitioning.value = false
+      // 封面不卸载，转入隐藏待命：返回首页时直接揭示（无同步挂载，避免点击顿挫）
+      coverStandby.value = true
+      transitionTimer = undefined
+    }, revealMs)
+  })()
 }
 
 
@@ -954,11 +1013,35 @@ function enterOrbit() {
 }
 
 function returnToCover(skipPush = false) {
+  if (surface.value === 'sky') {
+    exitSkyToCover(skipPush) // 天文观测：入场动画的镜像反向，封面从右向左扫回盖住星图
+    return
+  }
   if (surface.value === 'orbit' || surface.value === 'moon' || surface.value === 'mars' || surface.value === 'venus' || surface.value === 'saturn' || surface.value === 'jupiter' || surface.value === 'mercury' || surface.value === 'uranus' || surface.value === 'neptune' || surface.value === 'sun') {
     exitPlanetToCover(skipPush) // 行星界面：完整退出动画（栏目淡出 → 裸星球 → 渐暗 → 封面）
     return
   }
   transitionTo('cover', 0.96) // 太阳系/封面：原有过渡
+}
+
+/** SKY → 首页：与 enterSky 完全对称的反向——封面在星图之上挂载，
+ *  同一蒙版动画反向播放（0% → 100%），封面从右向左扫回盖住星图，全黑后切页。 */
+function exitSkyToCover(skipPush = false) {
+  if (skyCoverReturning.value) return // 品牌锚点原生 #home 跳转与 @home 事件可能双触发，幂等保护
+  if (!skipPush && window.location.hash !== '#home') window.history.pushState(null, '', '#home')
+  cancelPendingTransition()
+  const generation = navigationGeneration
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const revealMs = reduced ? 40 : 960
+  skyCoverReturning.value = true
+  transitionTimer = scheduleForNavigation(generation, () => {
+    if (!isCurrentNavigation(generation)) return
+    void setSurface('cover')
+    requestAnimationFrame(() => {
+      skyCoverReturning.value = false
+      transitionTimer = undefined
+    })
+  }, revealMs)
 }
 
 /** 行星界面 → 首页：完全复刻"返回太阳系"的退出动画——
@@ -1701,9 +1784,11 @@ function onGlobalKeydown(event: KeyboardEvent) {
 onMounted(() => {
   window.addEventListener('popstate', onPopState)
   window.addEventListener('keydown', onGlobalKeydown)
-  // 首页保持轻量、无权限请求；只有用户进入深空路径或直接打开相应页面时才预热。
+  // 首页保持轻量、无权限请求；SKY 仅在空闲时预取代码与样式，不会挂载组件或触发定位。
   if (surface.value === 'sky') {
     preloadSurfaceComponent('sky')
+  } else if (surface.value === 'cover') {
+    skyModulePreloadTimer = window.setTimeout(() => { void loadSkyObservatory() }, 600)
   } else if (surface.value === 'solar-system') {
     preloadSurfaceComponent('solar-system')
     preloadSolarTextures()
@@ -1749,6 +1834,7 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   if (clock) window.clearInterval(clock)
+  if (skyModulePreloadTimer !== undefined) window.clearTimeout(skyModulePreloadTimer)
   if (pageSurfaceFrame) window.cancelAnimationFrame(pageSurfaceFrame)
   clearHeaderIdleTimer()
   cancelPendingTransition()
@@ -1766,7 +1852,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="surfaceVeilRef" class="surface-veil" :class="{ active: veilActive }" :style="{ '--veil-duration': veilDuration }" aria-hidden="true" />
+  <div ref="surfaceVeilRef" class="surface-veil" :class="{ active: veilActive, 'for-sky': veilTarget === 'sky' }" :style="{ '--veil-duration': veilDuration }" aria-hidden="true" />
   <main class="aurora-shell" :style="shellStyle">
     <div class="desktop-only">
       <span>AURORA / ORBIT</span>
@@ -1775,9 +1861,10 @@ onBeforeUnmount(() => {
     </div>
 
     <AuroraCover
-      v-if="surface === 'cover' || coverLingering"
+      v-if="surface === 'cover' || coverLingering || skyCoverReturning || coverStandby"
       class="desktop-cover"
-      :class="{ lingering: coverLingering }"
+      :class="{ lingering: coverLingering || skyCoverReturning, standby: coverStandby, 'sky-transitioning': skyCoverTransitioning, 'sky-returning': skyCoverReturning }"
+      :active-home="surface === 'cover'"
       @explore="enterSolarSystem"
       @astronomy="enterSky"
     />
@@ -1799,10 +1886,7 @@ onBeforeUnmount(() => {
           <div class="header-left">
             <!-- 不 prevent：让浏览器原生执行 href="#home" fragment 导航（该环境禁止 JS 导航 API，
                  但原生同文档 hash 跳转不受限——导航栏链接一直可用即证明）；returnToCover 负责过渡动画 -->
-            <a class="brand" href="#home" aria-label="返回 AURORA 封面" @click="() => returnToCover()">
-              <span class="brand-mark"><i /><i /><i /></span>
-              <span><strong>AURORA</strong><small>ORBITAL OBSERVATORY</small></span>
-            </a>
+            <AuroraBrand subtitle="ORBITAL OBSERVATORY" @click="() => returnToCover()" />
             <SolarSystemItem v-if="surface === 'orbit' || surface === 'moon' || surface === 'mars' || surface === 'venus' || surface === 'saturn' || surface === 'jupiter' || surface === 'mercury' || surface === 'uranus' || surface === 'neptune' || surface === 'sun'" title="太阳系" :icon-size="30" :animated="true" @click="enterSolarSystem" />
           </div>
           <nav v-if="surface === 'orbit'" aria-label="页面导航">

@@ -5,8 +5,14 @@ STORY: the sunrise draws a filament into the final A, reveals the name, then off
 FIRST VIEWPORT: wordmark and actions anchor the quiet left field while Earth rises across the right half.
 FORM: an orbital title sequence; the filament is both logo stroke and navigation feedback.
 -->
+<script lang="ts">
+// 模块级标记：封面入场动画只在整页首次挂载时播放一次；
+// 返回首页等重新挂载直接显示静止封面，避免"回去以后又重演一遍入场"。
+let coverEntrancePlayed = false
+</script>
+
 <script setup lang="ts">
-import { onBeforeUnmount, ref } from 'vue'
+import { onBeforeUnmount, ref, watch } from 'vue'
 import coverEarth from '../assets/aurora-cover-earth.png'
 
 const emit = defineEmits<{
@@ -14,10 +20,28 @@ const emit = defineEmits<{
   astronomy: []
 }>()
 
+const props = withDefaults(defineProps<{ activeHome?: boolean }>(), { activeHome: false })
+
+const settled = ref(coverEntrancePlayed)
+coverEntrancePlayed = true
+
 const cover = ref<HTMLElement | null>(null)
 const launching = ref(false)
+const astronomyPending = ref(false)
 let pointerFrame = 0
 let launchTimer: number | undefined
+
+// 封面实例现在跨“返回首页”存活（standby 待命，不再卸载重挂），
+// 瞬态标志必须随封面重新成为可交互首页而复位，否则再次点击天文观测会被守卫拦下。
+watch(() => props.activeHome, (active) => {
+  if (!active) return
+  astronomyPending.value = false
+  launching.value = false
+  if (launchTimer !== undefined) {
+    window.clearTimeout(launchTimer)
+    launchTimer = undefined
+  }
+})
 
 function updateParallax(event: PointerEvent) {
   if (!cover.value || launching.value || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
@@ -37,15 +61,16 @@ function resetParallax() {
 }
 
 function enterDeepSpace() {
-  if (launching.value) return
+  if (launching.value || astronomyPending.value) return
   launching.value = true
   launchTimer = window.setTimeout(() => emit('explore'), 0) // 点击立即切页
 }
 
 function enterAstronomy() {
-  if (launching.value) return
-  launching.value = true
-  launchTimer = window.setTimeout(() => emit('astronomy'), 0)
+  if (launching.value || astronomyPending.value) return
+  // 天文观测是同级工作台，切换时保持封面亮度，不复用深空探索的起飞遮罩。
+  astronomyPending.value = true
+  emit('astronomy')
 }
 
 onBeforeUnmount(() => {
@@ -58,7 +83,8 @@ onBeforeUnmount(() => {
   <section
     ref="cover"
     class="aurora-cover"
-    :class="{ 'is-launching': launching }"
+    :class="{ 'is-launching': launching, 'play-entrance': !settled }"
+    :aria-busy="astronomyPending"
     aria-labelledby="aurora-cover-title"
     @pointermove="updateParallax"
     @pointerleave="resetParallax"
@@ -103,9 +129,9 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="cover-coordinate" aria-hidden="true">
-      <span>EARTH LIMB</span>
+      <span><strong>太阳系探索</strong><small>SOLAR SYSTEM EXPLORATION</small></span>
       <i />
-      <span>ORBITAL ENTRY</span>
+      <span><strong>本地天空观测</strong><small>LOCAL SKY OBSERVATION</small></span>
     </div>
   </section>
 </template>
@@ -128,6 +154,44 @@ onBeforeUnmount(() => {
 /* 覆盖期间提到所有页面元素之上（页头 z-40 之上、遮罩 z-60 之下） */
 .aurora-cover.lingering { z-index: 50; }
 
+/* SKY 已在封面后方完成挂载；一条柔和的夜幕边界从左向右退场，连续揭示观测界面。 */
+.aurora-cover.sky-transitioning {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0 30%, var(--bg) 48% 100%);
+  mask-image: linear-gradient(90deg, transparent 0 30%, var(--bg) 48% 100%);
+  -webkit-mask-size: 300% 100%;
+  mask-size: 300% 100%;
+  -webkit-mask-position: 100% 0;
+  mask-position: 100% 0;
+  animation: cover-to-sky .96s cubic-bezier(.16, 1, .3, 1) both;
+}
+
+/* 返回首页 = 入场动画的镜像反向：同一蒙版动画反向播放，封面从右向左扫回盖住观测界面。 */
+.aurora-cover.sky-returning {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0 30%, var(--bg) 48% 100%);
+  mask-image: linear-gradient(90deg, transparent 0 30%, var(--bg) 48% 100%);
+  -webkit-mask-size: 300% 100%;
+  mask-size: 300% 100%;
+  -webkit-mask-position: 0 0;
+  mask-position: 0 0;
+  animation: cover-to-sky .96s cubic-bezier(.16, 1, .3, 1) reverse both;
+}
+/* SKY 页面期间封面保持挂载但隐藏待命（fixed 出文档流 + visibility 隐藏，不参与绘制）：
+   返回首页时只做揭示与蒙版扫回，避免点击瞬间同步挂载整块封面导致的顿挫。 */
+.aurora-cover.standby {
+  position: fixed;
+  inset: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* 返回时封面是"重新挂载"的：入场动画已由 .play-entrance 门控（仅首次挂载播放），
+   保持离开首页时的静止画面，只让蒙版扫回。 */
 .cover-earth {
   position: absolute;
   z-index: -4;
@@ -329,8 +393,29 @@ onBeforeUnmount(() => {
   letter-spacing: .16em;
 }
 
+.cover-coordinate span,
+.cover-coordinate strong,
+.cover-coordinate small { display: block; }
+
+.cover-coordinate span { min-width: 118px; }
+
+.cover-coordinate strong {
+  color: inherit;
+  font: 400 1em/1 var(--font-sans);
+  letter-spacing: .14em;
+  opacity: .9;
+}
+
+.cover-coordinate small {
+  margin-top: 5px;
+  color: inherit;
+  font: 400 .75em/1 var(--font-mono);
+  letter-spacing: .13em;
+  opacity: .62;
+}
+
 .cover-coordinate i {
-  width: 30px;
+  width: 24px;
   height: 1px;
   background: rgba(172, 194, 204, .32);
 }
@@ -366,26 +451,45 @@ onBeforeUnmount(() => {
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .cover-earth {
+  /* 入场动画仅在整页首次挂载且非起飞时生效（.play-entrance）；返回首页等重新挂载为静止封面 */
+  .aurora-cover.play-entrance:not(.is-launching) .cover-earth {
     animation: cover-earth-arrive 1.05s cubic-bezier(.16, 1, .3, 1) both;
   }
 
-  .cover-wordmark {
+  .aurora-cover.play-entrance:not(.is-launching) .cover-wordmark {
     animation: logo-wordmark-arrive .64s .68s cubic-bezier(.16, 1, .3, 1) both;
   }
 
-  .cover-expansion {
+  .aurora-cover.play-entrance:not(.is-launching) .cover-expansion {
     animation: cover-copy-arrive .48s 1.5s cubic-bezier(.16, 1, .3, 1) both;
   }
 
-  .cover-paths {
+  .aurora-cover.play-entrance:not(.is-launching) .cover-paths {
     animation: cover-copy-arrive .5s 1.72s cubic-bezier(.16, 1, .3, 1) both;
   }
 
-  .cover-coordinate {
+  .aurora-cover.play-entrance:not(.is-launching) .cover-coordinate {
     animation: cover-copy-arrive .5s 1.88s cubic-bezier(.16, 1, .3, 1) both;
   }
 
+}
+
+@keyframes cover-to-sky {
+  from {
+    -webkit-mask-position: 100% 0;
+    mask-position: 100% 0;
+  }
+  to {
+    -webkit-mask-position: 0 0;
+    mask-position: 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora-cover.sky-transitioning,
+  .aurora-cover.sky-returning {
+    animation-duration: .04s;
+  }
 }
 
 @keyframes cover-earth-arrive {

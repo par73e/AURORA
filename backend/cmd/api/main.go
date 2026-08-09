@@ -18,6 +18,7 @@ import (
 	"aurora/backend/internal/mars"
 	"aurora/backend/internal/moon"
 	"aurora/backend/internal/orbit"
+	"aurora/backend/internal/observatory"
 	"aurora/backend/internal/syncer"
 	"aurora/backend/internal/voyage"
 	"github.com/joho/godotenv"
@@ -45,9 +46,10 @@ func main() {
 	marsRepository := mars.NewRepository(pool)
 	voyageRepository := voyage.NewRepository(pool)
 	geocoder := observerlocation.NewAMapClient(cfg.AMapWebKey)
+	conditions := observatory.NewClient()
 	dataSyncer := syncer.NewWithMoonVoyageMars(repository, moonRepository, marsRepository, voyageRepository)
 
-	server := &http.Server{Addr: ":" + cfg.Port, Handler: httpapi.Router(repository, moonRepository, marsRepository, voyageRepository, geocoder), ReadHeaderTimeout: 5 * time.Second}
+	server := &http.Server{Addr: ":" + cfg.Port, Handler: httpapi.Router(repository, moonRepository, marsRepository, voyageRepository, geocoder, conditions), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		slog.Info("AURORA API started", "address", "http://localhost:"+cfg.Port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {

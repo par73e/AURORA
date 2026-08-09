@@ -116,27 +116,16 @@ defineProps<{
 }
 .mission-scene-label.is-compact small { display: none; }
 .mission-scene-label.is-compact:hover,
-.mission-scene-label.is-compact:focus-visible,
+.mission-scene-label.is-compact:focus-visible {
+  border-color: color-mix(in srgb, var(--mission-accent, #72d7ff) 54%, transparent);
+  background: rgba(6, 17, 26, .62);
+  backdrop-filter: blur(4px);
+}
 .mission-scene-label.is-compact.selected {
-  gap: 7px;
-  max-width: none;
-  min-height: 28px;
-  padding: 4px 7px;
   border-color: var(--mission-accent, #72d7ff);
-  background: var(--mission-label-surface-active, rgba(6, 17, 26, .9));
-  backdrop-filter: blur(8px);
+  background: var(--mission-label-surface-active, rgba(6, 17, 26, .86));
+  backdrop-filter: blur(5px);
 }
-.mission-scene-label.is-compact:hover strong,
-.mission-scene-label.is-compact:focus-visible strong,
-.mission-scene-label.is-compact.selected strong {
-  overflow: visible;
-  max-width: none;
-  font-size: 10px;
-  text-overflow: clip;
-}
-.mission-scene-label.is-compact:hover small,
-.mission-scene-label.is-compact:focus-visible small,
-.mission-scene-label.is-compact.selected small { display: block; }
 @media (prefers-reduced-motion: reduce) {
   .mission-scene-label { transition-duration: .01ms; }
 }
