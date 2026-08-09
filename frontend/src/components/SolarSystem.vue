@@ -310,11 +310,9 @@ onMounted(() => {
     // 封面路径：由远及近飞入默认视角
     scene.flyInFromDistance(props.flyDelay ?? 0)
   }
-  // 从行星/月球/ORBIT 返回：对应行星轨道保持高亮（activeId 已由 enterFromX props 恢复）
-  // ——否则组件重挂载后 selectedId 为 null，轨道回到默认暗淡
-  if (props.enterFromOrbit || props.enterFromMoon || props.enterFromMars || props.enterFromVenus || props.enterFromSaturn || props.enterFromJupiter || props.enterFromMercury || props.enterFromUranus || props.enterFromNeptune || props.enterFromSun) {
-    scene.setSelected(activeId.value)
-  }
+  // 把组件的初始选中同步给 Three.js 场景：首次从封面进入时 activeId 默认是地球，
+  // 也应立即点亮地球轨道；从其他页面返回时则恢复对应天体的选中状态。
+  scene.setSelected(activeId.value)
   // 刷新/直接加载：不播推镜，静态恢复默认构图（resize 触发 refit 定位）
   // 深空探测器：挂载后拉取 JPL Horizons 位置采样并传入场景（标记点 + 轨迹线）
   fetchDeepSpaceProbes()

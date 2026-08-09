@@ -36,11 +36,11 @@
           :data-icon="label.icon"
           :class="{ selected: selectedSite === label.id, 'leaving-fade': leaving }"
           :style="labelStyle(label)"
-          :aria-label="`${label.name}${label.nameEn !== label.name ? `（${label.nameEn}）` : ''}`"
+          :aria-label="`${label.name}${label.nameEn !== label.name ? `（${label.nameEn}）` : ''}${planet.exploration?.title === '任务终点' ? '，任务终点' : ''}`"
           @click.stop="selectSite(label.id)"
         >
           <span class="planet-site-glyph" v-html="siteGlyph(label.icon)" />
-          <span>{{ label.name }}</span>
+          <span>{{ label.name }}<template v-if="planet.exploration?.title === '任务终点'"> · 终点</template></span>
         </button>
 
         <!-- 选中探测器的信息卡：与月球/火星场景保持同一互斥选择逻辑 -->
@@ -78,6 +78,7 @@
             <div v-if="siteById(selectedSite)?.latitude != null && siteById(selectedSite)?.longitude != null"><dt>坐标</dt><dd>{{ formatCoordinate(siteById(selectedSite)!.latitude!, siteById(selectedSite)!.longitude!) }}</dd></div>
             <div><dt>简介</dt><dd>{{ siteById(selectedSite)?.description }}</dd></div>
           </dl>
+          <p class="planet-source-caption">资料核实：{{ siteById(selectedSite)?.verifiedAt ?? '静态资料' }} · {{ siteById(selectedSite)?.source ?? '公开任务档案' }}</p>
         </aside>
 
         <!-- 左下角读数：常驻行星（返回时随元素一起淡出） -->
@@ -135,8 +136,8 @@
       <div class="section-heading">
         <div><p class="section-kicker">{{ planet.spacecraft.kicker }}</p><h2><i class="sec-num">Ⅲ</i>{{ planet.spacecraft.title }}</h2><p class="section-sub">{{ planet.spacecraft.sub }}</p></div>
       </div>
-      <div class="catalog-workspace">
-        <div class="catalog-controls">
+      <div class="catalog-workspace" :class="{ compact: planet.spacecraft.compact }">
+        <div v-if="!planet.spacecraft.compact" class="catalog-controls">
           <label class="search-field">
             <span>名称、任务、机构或正则表达式</span>
             <input v-model="craftQuery" type="search" placeholder="输入 Parker，或使用 /Helios|Ulysses/i" spellcheck="false" />
@@ -154,7 +155,7 @@
           </button>
           <div v-if="!filteredCrafts.length" class="catalog-empty">没有符合条件的飞行器。请修改搜索词。</div>
         </div>
-        <div class="pagination-space"><span>第 {{ craftPage }} / {{ craftPageCount }} 页 · {{ filteredCrafts.length }} 个飞行器</span><div><button :disabled="craftPage <= 1" @click="craftGotoPage(-1)">上一页</button><button :disabled="craftPage >= craftPageCount" @click="craftGotoPage(1)">下一页</button></div></div>
+        <div v-if="!planet.spacecraft.compact" class="pagination-space"><span>第 {{ craftPage }} / {{ craftPageCount }} 页 · {{ filteredCrafts.length }} 个飞行器</span><div><button :disabled="craftPage <= 1" @click="craftGotoPage(-1)">上一页</button><button :disabled="craftPage >= craftPageCount" @click="craftGotoPage(1)">下一页</button></div></div>
       </div>
     </div>
   </section>
@@ -165,8 +166,8 @@
       <div class="section-heading">
         <div><p class="section-kicker">{{ planet.exploration.kicker }}</p><h2><i class="sec-num">Ⅳ</i>{{ planet.exploration.title }}</h2><p class="section-sub">{{ planet.exploration.sub }}</p></div>
       </div>
-      <div class="catalog-workspace">
-        <div class="catalog-controls">
+      <div class="catalog-workspace" :class="{ compact: planet.exploration.compact }">
+        <div v-if="!planet.exploration.compact" class="catalog-controls">
           <label class="search-field">
             <span>名称、任务或机构</span>
             <input v-model="siteQuery" type="search" :placeholder="`输入 ${planet.exploration.sites[0]?.name ?? ''}…`" spellcheck="false" />
@@ -227,7 +228,7 @@ const canvasHost = ref<HTMLDivElement | null>(null)
 const terminatorEnabled = ref(false)
 const spacecraftEnabled = ref(true)
 const orbitsEnabled = ref(true)
-/** 着陆点/任务终点开关（金星着陆点、水星撞击点等；大气坠毁无坐标不画标记只入目录） */
+/** 着陆点/任务终点开关；大气坠毁仅在有官方发布或可靠复算坐标时绘制标记。 */
 const sitesEnabled = ref(true)
 const selectedCraft = ref<string | null>(null)
 /** 鼠标悬停的飞行器（标签或 3D 圆点）：高亮优先于选中，移开即恢复 */
@@ -405,7 +406,7 @@ function planFocusMotion(targetPos: THREE.Vector3, targetDistance: number) {
   controls.enabled = false
 }
 
-/** 聚焦表面点：大气层终点没有经纬度时只保留任务卡，不伪造位置。 */
+/** 聚焦着陆点/任务终点：只有具备可靠坐标的记录才会进入 markerSites。 */
 function startSiteFocus(id: string) {
   const marker = siteMarkers.get(id)
   if (!marker || !camera || !controls) return
@@ -440,6 +441,7 @@ const SPIN_DECEL_SWEEP = (SPIN_SPEED * SPIN_DECEL_MS) / 2000 // ≈2.88°（匀�
 // 预设偏角与速度方向相反（火星 -18° + 正速度 → 转回 0°）；金星 177.4° 轴倾角已表达逆向，
 // 自转方向与太阳系一致（spinSign 恒为 +1，入场与持续方向统一为正方向）
 const SPIN_OFFSET = -THREE.MathUtils.degToRad(18) * props.planet.spinSign
+const craftMotionStartedAt = performance.now()
 let spinPhase: 'spin' | 'stop' | 'done' = 'done'
 let spinStartAt = 0
 let spinStopAt = 0
@@ -711,7 +713,10 @@ onMounted(() => {
   // 初始朝向：绕自转轴（局部 Y）旋转，让 lon 0° 子午线朝向相机——
   // 用绕 Y 轴的四元数（北极保持在局部 +Y = 自转轴，不产生极轴漂移；
   // 不能 setFromUnitVectors((1,0,0), cameraDir)——那会把北极也转离自转轴）
-  planetMesh.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(-camera.position.z, camera.position.x))
+  planetMesh.quaternion.setFromAxisAngle(
+    new THREE.Vector3(0, 1, 0),
+    Math.atan2(-camera.position.z, camera.position.x) + THREE.MathUtils.degToRad(props.planet.surfaceYawDeg ?? 0),
+  )
 
   // 轴倾角组（真实轴倾角；金星 177.4° = 倒置自转轴）→ 自转组（入场自转绕倾斜后的极轴）
   tiltPivot = new THREE.Object3D()
@@ -731,7 +736,7 @@ onMounted(() => {
     const ringMaterial = new THREE.MeshBasicMaterial({
       color: props.planet.ring.color ?? 0xd8c9a3,
       transparent: true,
-      opacity: 0.9,
+      opacity: props.planet.ring.opacity ?? 0.9,
       side: THREE.DoubleSide,
       depthWrite: false,
     })
@@ -750,10 +755,10 @@ onMounted(() => {
       })
       ringTexture.colorSpace = THREE.SRGBColorSpace
       ringTexture.anisotropy = 4
-      if (ringTexture.image) {
-        ringMaterial.map = ringTexture
-        ringMaterial.needsUpdate = true
-      }
+      // 即使预加载纹理仍在解码，也先绑定同一个 Texture 实例；加载完成后 Three.js 会自动上传图像。
+      // 否则直接通过 hash 进入土星页时，环会短暂甚至持续显示成一整块纯色圆盘。
+      ringMaterial.map = ringTexture
+      ringMaterial.needsUpdate = true
     }
     swingPivot.add(ringMesh)
   }
@@ -779,7 +784,12 @@ onMounted(() => {
       new THREE.MeshBasicMaterial({ color: craft.status === '运行中' ? props.planet.sceneAccent : 0xd7e4ea, transparent: true, opacity: 0.96, depthTest: true, depthWrite: false }),
     )
     dot.userData = { kind: 'planet-craft', craftId: craft.id }
-    dot.position.copy(path[Math.min(path.length - 1, craft.status === '运行中' || craft.status === '即将入轨' ? 12 : Math.floor(path.length * 0.78))])
+    const displayProgress = THREE.MathUtils.clamp(
+      trajectory.displayProgress ?? (craft.status === '运行中' || craft.status === '即将入轨' ? 12 / (path.length - 1) : 0.78),
+      0,
+      1,
+    )
+    dot.position.copy(path[Math.min(path.length - 1, Math.floor(path.length * displayProgress))])
     // 视觉圆点保持克制；透明拾取球沿用月球/火星，确保鼠标命中不依赖像素级精度。
     const hit = new THREE.Mesh(
       new THREE.SphereGeometry(Math.max(0.16, props.planet.radius * 0.07), 10, 10),
@@ -920,14 +930,18 @@ onMounted(() => {
       runtime.dot.getWorldPosition(labelTmp)
       const notOccluded = isNotOccluded(labelTmp)
       labelTmp.project(cam)
-      const visible = labelTmp.z <= 1 && notOccluded
+      const x = bounds.left + (labelTmp.x * 0.5 + 0.5) * bounds.width
+      const y = bounds.top + (-labelTmp.y * 0.5 + 0.5) * bounds.height
+      // 轨迹可以延伸出画面，但可交互标签必须完整落在场景安全区内。
+      const insideSafeArea = x >= bounds.left + 16 && x <= bounds.right - 170 && y >= bounds.top + 24 && y <= bounds.bottom - 36
+      const visible = labelTmp.z <= 1 && notOccluded && insideSafeArea
       return {
         id: runtime.spec.id,
         name: runtime.spec.name,
         nameEn: runtime.spec.nameEn,
         type: runtime.spec.status === '运行中' ? '运行中' : runtime.spec.type,
-        x: bounds.left + (labelTmp.x * 0.5 + 0.5) * bounds.width,
-        y: bounds.top + (-labelTmp.y * 0.5 + 0.5) * bounds.height,
+        x,
+        y,
         visible,
       }
     })
@@ -938,7 +952,7 @@ onMounted(() => {
   if (!props.planet.star) {
     ambientLight = new THREE.AmbientLight(0x3a2a22, 0.8)
     scene.add(ambientLight)
-    observationLight = new THREE.DirectionalLight(0xfff3dd, 3.1)
+    observationLight = new THREE.DirectionalLight(0xfff3dd, props.planet.observationLightIntensity ?? 3.1)
     observationLight.position.copy(camera.position)
     scene.add(observationLight)
     sunLight = new THREE.DirectionalLight(0xfff3dd, 0)
@@ -1022,11 +1036,15 @@ onMounted(() => {
       if (!trajectory) continue
       if ((runtime.spec.status === '运行中' || runtime.spec.status === '即将入轨') && trajectory.kind === 'orbit') {
         const period = visualTrajectoryPeriodSeconds(trajectory)
-        runtime.dot.position.copy(craftTrajectoryPosition(trajectory, (now / 1000 / period) % 1))
+        const progress = trajectory.displayProgress == null
+          ? (now / 1000 / period) % 1
+          : (trajectory.displayProgress + (now - craftMotionStartedAt) / 1000 / period) % 1
+        runtime.dot.position.copy(craftTrajectoryPosition(trajectory, progress))
       } else {
         // 已结束的飞行器：圆点固定停在自己的轨道/弧线上（path 78% 处）——
         // 不能把圆点覆盖到大气终点（endpoint），否则飞行器会脱离轨道、轨道上看起来没有对应点
-        runtime.dot.position.copy(runtime.path[Math.min(runtime.path.length - 1, Math.floor(runtime.path.length * 0.78))])
+        const displayProgress = THREE.MathUtils.clamp(trajectory.displayProgress ?? 0.78, 0, 1)
+        runtime.dot.position.copy(runtime.path[Math.min(runtime.path.length - 1, Math.floor(runtime.path.length * displayProgress))])
       }
       runtime.dot.visible = spacecraftEnabled.value
     }
@@ -1686,6 +1704,9 @@ onBeforeUnmount(() => {
   background: color-mix(in srgb, var(--planet-accent) 4%, rgba(5, 11, 17, .82));
   border: 1px solid var(--planet-line);
 }
+.planet-spacecraft-section .catalog-workspace.compact,
+.planet-sites-section .catalog-workspace.compact { max-width: 980px; }
+.catalog-workspace.compact .object-row { min-height: 76px; }
 .planet-spacecraft-section .object-table-head,
 .planet-spacecraft-section .object-row { border-color: var(--planet-line); }
 .planet-spacecraft-section .object-table-head { color: var(--planet-quiet); }

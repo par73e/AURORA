@@ -80,8 +80,12 @@ export interface PlanetPageConfig {
   star?: boolean
   /** 场景纹理（与太阳系页同源，solarTexture 缓存复用） */
   textureUrl: string
+  /** 只旋转行星表面纹理，不改变轨迹/标记；用于把最有辨识度的地貌放进首屏 */
+  surfaceYawDeg?: number
+  /** 观测光强度；默认 3.1，纹理对比强的行星可单独收敛高光 */
+  observationLightIntensity?: number
   /** 环（可选；inner/outer 以行星视觉半径为单位；kind: 'saturn' 用环带纹理，'uranus' 用程序化 13 细环） */
-  ring?: { inner: number; outer: number; textureUrl?: string; color?: number; kind?: 'saturn' | 'uranus' }
+  ring?: { inner: number; outer: number; textureUrl?: string; color?: number; opacity?: number; kind?: 'saturn' | 'uranus' }
   /** 场景视觉半径：以地球 ORBIT 页基准半径 2.15 为锚，按真实直径做 sqrt 压缩
    *  （radius = 2.15 × √(真实直径/地球直径 12,742km)），保持真实大小排序且差异可感知 */
   radius: number
@@ -114,6 +118,8 @@ export interface PlanetCraftTrajectory {
   inclinationDeg?: number
   /** 起始相位（度） */
   phaseDeg?: number
+  /** 首屏标记在轨迹上的初始位置（0..1）；运行中任务从这里继续运动 */
+  displayProgress?: number
   /** 飞掠弧线跨度（度） */
   spanDeg?: number
   /** 终点距球心的相对半径，1.04 表示上层大气/云顶附近 */
@@ -145,6 +151,8 @@ export interface PlanetSpacecraft {
   title: string
   kicker: string
   sub: string
+  /** 单条稀有任务使用紧凑档案，不展示无意义的搜索、筛选和分页 */
+  compact?: boolean
   items: PlanetCraft[]
 }
 
@@ -246,21 +254,21 @@ const JUPITER_SPACECRAFT: PlanetSpacecraft = {
       status: '运行中', type: '极轨轨道器', date: '2016-07-04', endpoint: '延长任务至 2028-09',
       description: '仍在运行的木星极轨探测器，EM2 延长任务期间继续研究木星内部、磁场和极光。',
       // 视觉示意：保持极轨倾角，但把轨道收在镜头可读范围内，保证运行点不会长期游离出画面。
-      trajectory: { kind: 'orbit', radius: 1.22, eccentricity: 0.18, inclinationDeg: 52, phaseDeg: 36, periodDays: 53 },
+      trajectory: { kind: 'orbit', radius: 1.22, eccentricity: 0.18, inclinationDeg: 52, phaseDeg: 36, displayProgress: 0.34, periodDays: 53 },
       verifiedAt: '2026-08-06', source: 'NASA Juno mission archive',
     },
     {
       id: 'galileo', name: 'Galileo 伽利略号', nameEn: 'Galileo', operator: 'NASA',
       status: '已结束', type: '轨道器', date: '1995-12-07', endpoint: '2003-09-21 坠入木星大气',
       description: '为避免污染木卫二，燃料耗尽后按计划进入木星大气层焚毁。',
-      trajectory: { kind: 'orbit', radius: 1.95, eccentricity: 0.22, inclinationDeg: 14, phaseDeg: 176, endpointRadius: 1.04 },
+      trajectory: { kind: 'orbit', radius: 1.95, eccentricity: 0.22, inclinationDeg: 14, phaseDeg: 176, displayProgress: 0.02, endpointRadius: 1.04 },
       verifiedAt: '2026-08-06', source: 'NASA Galileo archive',
     },
     {
       id: 'voyager-1-jupiter', name: 'Voyager 1 旅行者号', nameEn: 'Voyager 1', operator: 'NASA',
       status: '飞掠', type: '飞掠器', date: '1979-03-05', endpoint: '木星系统飞掠',
       description: '完成木星系统飞掠后继续前往外太阳系。',
-      trajectory: { kind: 'flyby', radius: 2.25, inclinationDeg: 12, phaseDeg: 42, spanDeg: 130 },
+      trajectory: { kind: 'flyby', radius: 1.45, inclinationDeg: 12, phaseDeg: 42, displayProgress: 1, spanDeg: 130 },
       verifiedAt: '2026-08-06', source: 'NASA Voyager archive',
     },
   ],
@@ -270,12 +278,13 @@ const SATURN_SPACECRAFT: PlanetSpacecraft = {
   title: '飞行器',
   kicker: 'SATURN SPACECRAFT',
   sub: '飞行器 · Cassini 轨道与 Grand Finale 终段（轨迹为视觉示意）',
+  compact: true,
   items: [
     {
       id: 'cassini', name: 'Cassini 卡西尼号', nameEn: 'Cassini', operator: 'NASA / ESA / ASI',
       status: '已结束', type: '轨道器', date: '2004-07-01', endpoint: '2017-09-15 坠入土星上层大气',
       description: '完成 22 次 Grand Finale 环缝穿越后主动坠入土星上层大气，信号于 11:55:46 UTC 消失。',
-      trajectory: { kind: 'orbit', radius: 1.72, eccentricity: 0.3, inclinationDeg: 24, phaseDeg: 142, endpointRadius: 1.04 },
+      trajectory: { kind: 'orbit', radius: 1.72, eccentricity: 0.3, inclinationDeg: 24, phaseDeg: 142, displayProgress: 0.14, endpointRadius: 1.04 },
       verifiedAt: '2026-08-06', source: 'NASA Cassini archive',
     },
   ],
@@ -285,12 +294,13 @@ const URANUS_SPACECRAFT: PlanetSpacecraft = {
   title: '飞行器',
   kicker: 'URANUS FLYBY',
   sub: '飞行器 · 人类目前唯一一次天王星近距离飞掠（轨迹为视觉示意）',
+  compact: true,
   items: [
     {
       id: 'voyager-2-uranus', name: 'Voyager 2 旅行者号', nameEn: 'Voyager 2', operator: 'NASA',
       status: '飞掠', type: '飞掠器', date: '1986-01-24', endpoint: '距云顶约 81,500 km',
       description: '人类唯一一次天王星近距离探访，飞掠持续约 6 小时并发现了新的环与卫星。',
-      trajectory: { kind: 'flyby', radius: 2.2, inclinationDeg: 68, phaseDeg: 18, spanDeg: 145 },
+      trajectory: { kind: 'flyby', radius: 1.55, inclinationDeg: 18, phaseDeg: 135, displayProgress: 0.54, spanDeg: 145 },
       verifiedAt: '2026-08-06', source: 'NASA Voyager 2 archive',
     },
   ],
@@ -300,12 +310,13 @@ const NEPTUNE_SPACECRAFT: PlanetSpacecraft = {
   title: '飞行器',
   kicker: 'NEPTUNE FLYBY',
   sub: '飞行器 · 人类目前唯一一次海王星近距离飞掠（轨迹为视觉示意）',
+  compact: true,
   items: [
     {
       id: 'voyager-2-neptune', name: 'Voyager 2 旅行者号', nameEn: 'Voyager 2', operator: 'NASA',
       status: '飞掠', type: '飞掠器', date: '1989-08-25', endpoint: '距云顶约 4,950 km',
       description: '完成海王星唯一一次近距离飞掠，观测到大暗斑和高速风暴。',
-      trajectory: { kind: 'flyby', radius: 2.18, inclinationDeg: 34, phaseDeg: 198, spanDeg: 145 },
+      trajectory: { kind: 'flyby', radius: 2.18, inclinationDeg: 34, phaseDeg: 198, displayProgress: 0.78, spanDeg: 145 },
       verifiedAt: '2026-08-06', source: 'NASA Voyager 2 archive',
     },
   ],
@@ -327,9 +338,9 @@ export interface PlanetSite {
   operator: string
   /** 日期（着陆/撞击/坠毁） */
   date: string
-  /** 纬度（无表面坐标的大气坠毁为 null） */
+  /** 纬度；只有官方发布或可由官方轨迹可靠复算时才填写 */
   latitude: number | null
-  /** 经度（无表面坐标的大气坠毁为 null） */
+  /** 东经；原始资料为西经时统一换算到 0..360°E */
   longitude: number | null
   /** 类型：landing=软着陆 / impact=表面撞击 / atmospheric=大气层坠毁 */
   kind: 'landing' | 'impact' | 'atmospheric'
@@ -337,6 +348,10 @@ export interface PlanetSite {
   icon: 'lander' | 'probe' | 'impact'
   /** 一句话简介 */
   description: string
+  /** 坐标/任务资料核实日期 */
+  verifiedAt?: string
+  /** 坐标/任务资料来源 */
+  source?: string
 }
 
 export interface PlanetExploration {
@@ -346,6 +361,8 @@ export interface PlanetExploration {
   kicker: string
   /** 板块副标题 */
   sub: string
+  /** 单条任务终点使用紧凑档案，不展示无意义的搜索框 */
+  compact?: boolean
   sites: PlanetSite[]
 }
 
@@ -565,6 +582,7 @@ export const SATURN_PAGE: PlanetPageConfig = {
     title: '任务终点',
     kicker: 'SATURN MISSION ENDPOINTS',
     sub: '任务终点 · 结束任务并坠入土星的航天器',
+    compact: true,
     sites: [
       {
         id: 'cassini',
@@ -573,11 +591,13 @@ export const SATURN_PAGE: PlanetPageConfig = {
         mission: 'Cassini–Huygens',
         operator: 'NASA / ESA / ASI',
         date: '2017-09-15',
-        latitude: null,
-        longitude: null,
+        latitude: 9.4,
+        longitude: 307, // NASA: 53°W = 307°E
         kind: 'atmospheric',
         icon: 'probe',
         description: 'Grand Finale 终结：22 次穿越环缝后坠入土星上层大气烧毁（信号 11:55:46 UTC 消失）。',
+        verifiedAt: '2026-08-09',
+        source: 'NASA / JPL Cassini End of Mission',
       },
     ],
   },
@@ -592,6 +612,8 @@ export const JUPITER_PAGE: PlanetPageConfig = {
   sceneAccent: 0xcf9257,
   sceneAccentDim: 0x7d5230,
   textureUrl: jupiterUrl,
+  surfaceYawDeg: 52,
+  observationLightIntensity: 2.45,
   radius: 7.1,
   axialTiltDeg: 3.13,
   spinSign: 1,
@@ -619,6 +641,7 @@ export const JUPITER_PAGE: PlanetPageConfig = {
     title: '任务终点',
     kicker: 'JUPITER MISSION ENDPOINTS',
     sub: '任务终点 · 结束任务并坠入木星的航天器',
+    compact: true,
     sites: [
       {
         id: 'galileo',
@@ -627,11 +650,15 @@ export const JUPITER_PAGE: PlanetPageConfig = {
         mission: 'Galileo',
         operator: 'NASA',
         date: '2003-09-21',
-        latitude: null,
-        longitude: null,
+        // JPL 任务资料给出约 0.25°S；Horizons GALILEO_MERGED 在 2003-09-21 18:57 UTC
+        // 给出 0.27376°S、System III 167.58681°W，统一换算为 192.41319°E。
+        latitude: -0.27376,
+        longitude: 192.41319,
         kind: 'atmospheric',
         icon: 'probe',
         description: '为防止污染木卫二，燃料耗尽后故意坠入木星大气焚毁。',
+        verifiedAt: '2026-08-09',
+        source: 'NASA/JPL Galileo End of Mission · JPL Horizons GALILEO_MERGED',
       },
     ],
   },
@@ -698,10 +725,10 @@ export const URANUS_PAGE: PlanetPageConfig = {
   name: '天王星',
   nameEn: 'URANUS',
   themeKey: 'uranus',
-  sceneAccent: 0x6aa8e0,
-  sceneAccentDim: 0x3a5f85,
+  sceneAccent: 0x8fd8d0,
+  sceneAccentDim: 0x4e8a84,
   textureUrl: uranusUrl,
-  ring: { inner: 1.58, outer: 2.4, kind: 'uranus' }, // 程序化 13 细环（Zeta..μ，覆盖真实环系范围）
+  ring: { inner: 1.58, outer: 2.4, color: 0xa9c9c8, opacity: 0.52, kind: 'uranus' }, // 程序化 13 细环（Zeta..μ，覆盖真实环系范围）
   radius: 4.3,
   axialTiltDeg: 97.77,
   spinSign: 1,
@@ -734,8 +761,8 @@ export const NEPTUNE_PAGE: PlanetPageConfig = {
   name: '海王星',
   nameEn: 'NEPTUNE',
   themeKey: 'neptune',
-  sceneAccent: 0x5b8fd9,
-  sceneAccentDim: 0x33537f,
+  sceneAccent: 0x6aa8e0,
+  sceneAccentDim: 0x3e5e84,
   textureUrl: neptuneUrl,
   radius: 4.2,
   axialTiltDeg: 28.32,
