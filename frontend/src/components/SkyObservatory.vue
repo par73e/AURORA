@@ -9,7 +9,6 @@ FORM: desktop field observatory; three focused workspaces share one clock, one l
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { fetchObserverPlace, fetchObservingConditions, fetchMoonDay, fetchObservingScore, fetchLightPollution, type ObservingConditions, type MoonDay, type ObservingScore, type LightPollution } from '../api'
 import { bodies, bearing, calculatePosition, calculateTrack, calculateTwilight, daylightFactor, moonPhase, observeTips, observingStatus, upcomingMoonPhases, analyzeNight, type BodyId, type BodyTrack, type NightAnalysis } from '../astronomy'
-import { projectToSky, trackToPath } from '../skyProjection'
 import moonNearsideTexture from '../assets/solar/2k_moon.jpg'
 import AuroraBrand from './AuroraBrand.vue'
 
@@ -67,7 +66,8 @@ let moonTextureHeight = 0
 let skyViewStartX = 0
 let skyViewStartAzimuth = 180
 const skyViewFieldOfView = 120
-// 高度坐标由 skyProjection 透视投影统一驱动（替代原 skyHorizonBase/skyAltitudeSpan 线性映射）。
+const skyHorizonBase = 15
+const skyAltitudeSpan = 77
 
 const activeCoordinates = computed(() => latitude.value != null && longitude.value != null ? { latitude: latitude.value, longitude: longitude.value } : null)
 const simulatedTime = computed(() => {
@@ -133,17 +133,6 @@ function windowRange(window: NightAnalysis['astronomicalNight']) {
 const daylight = computed(() => twilight.value ? daylightFactor(twilight.value, simulatedTime.value) : 0)
 const visibleSkyBodies = computed(() => tracks.value.filter((track) => track.visible))
 const horizonBodies = computed(() => visibleSkyBodies.value.filter((track) => Math.abs(azimuthDelta(track.azimuth, skyViewAzimuth.value)) <= skyViewFieldOfView / 2 + 4))
-// 30°/60° 等高度弧线：随罗盘旋转实时重算（投影采样生成穹顶弧线）。
-const altitudeGuides = computed(() => altitudeGuidePaths(skyViewAzimuth.value))
-// 弧线标签位置：取弧线在视场中心的投影点。
-function altitudeGuideLabel(line: number) {
-  const projected = projectToSky(skyViewAzimuth.value, line, skyViewAzimuth.value)
-  return { left: `${projected.x}%`, top: `${projected.y}%` }
-}
-// 升落轨迹弧线：把每颗行星全天的 (az, alt) 采样投影成天空轨迹（随罗盘旋转实时重算）。
-const trackPaths = computed(() => new Map(
-  tracks.value.map((track) => [track.id, trackToPath(track.samples.map((sample) => ({ az: sample.azimuth, alt: sample.altitude })), skyViewAzimuth.value)]),
-))
 const skyViewDirection = computed(() => bearing(skyViewAzimuth.value))
 const skyViewHeadingLabel = computed(() => `${skyViewDirection.value} ${skyViewAzimuth.value.toFixed(2)}°`)
 const directionNames: Record<number, string> = { 0:'北', 45:'东北', 90:'东', 135:'东南', 180:'南', 225:'西南', 270:'西', 315:'西北' }
@@ -646,32 +635,27 @@ function azimuthDelta(target: number, origin: number) {
 }
 
 function horizonStyle(track: BodyTrack) {
-  // 第一视角透视投影：天体 (az, alt) → 屏幕坐标，图标中心精确落位。
-  const projected = projectToSky(track.azimuth, track.altitude, skyViewAzimuth.value)
+  const relativeAzimuth = azimuthDelta(track.azimuth, skyViewAzimuth.value)
   // 太阳恒为不透明；其余天体白天也标注位置：正午（daylight=1）保持 50%，
   // 随天黑（daylight→0）线性变亮到 100%——行星常在白天天空，不应完全隐藏。
   const opacity = track.id === 'sun' ? 1 : 1 - .5 * daylight.value
   return {
-    left: `${projected.x}%`,
-    top: `${projected.y}%`,
-    display: projected.visible ? 'grid' : 'none',
+    left: `${50 + relativeAzimuth / (skyViewFieldOfView / 2) * 45}%`,
+    bottom: `${skyHorizonBase + Math.min(skyAltitudeSpan, Math.max(0, track.altitude) / 90 * skyAltitudeSpan)}%`,
     '--body-tint': track.tint,
     '--body-opacity': String(opacity), // 入场动画终点跟随静止透明度，避免黄昏时"先亮后暗"
     opacity: String(opacity),
   }
 }
 
-// 30°/60° 等高度弧线：沿方位角（±70° 覆盖视场）采样投影，生成真实穹顶弧线。
-function altitudeGuidePaths(viewAzimuth: number): Record<number, string> {
-  const paths: Record<number, string> = {}
-  for (const altitude of [30, 60]) {
-    const samples: Array<{ az: number; alt: number }> = []
-    for (let delta = -70; delta <= 70; delta += 5) {
-      samples.push({ az: normalizeAzimuth(viewAzimuth + delta), alt: altitude })
-    }
-    paths[altitude] = trackToPath(samples, viewAzimuth)
-  }
-  return paths
+function horizonAltitudePercent(altitude: number) {
+  return skyHorizonBase + altitude / 90 * skyAltitudeSpan
+}
+
+function altitudeGuidePath(altitude: number) {
+  const edgeY = 100 - horizonAltitudePercent(altitude) + 1.5
+  const crestY = edgeY - 7
+  return `M 0 ${edgeY.toFixed(2)} Q 500 ${crestY.toFixed(2)} 1000 ${edgeY.toFixed(2)}`
 }
 
 function rotateSkyView(change: number) {
@@ -1030,11 +1014,8 @@ onBeforeUnmount(() => {
           <div class="horizon-field" :class="{ 'has-location': activeCoordinates, 'is-dragging': skyViewDragging }" :style="{ '--sky-daylight': String(daylight) }" @pointerdown="beginSkyViewDrag" @pointermove="dragSkyView" @pointerup="endSkyViewDrag" @pointercancel="endSkyViewDrag">
             <div class="sky-night" aria-hidden="true" />
             <div class="star-grain" aria-hidden="true" />
-            <svg class="altitude-guides" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-              <g v-for="track in tracks" :key="`track-${track.id}`"><path class="body-track" :d="trackPaths.get(track.id)" vector-effect="non-scaling-stroke" :style="{ '--body-tint': track.tint }" /></g>
-              <path v-for="line in [30, 60]" :key="line" class="altitude-line" :d="altitudeGuides[line]" vector-effect="non-scaling-stroke" />
-            </svg>
-            <span v-for="line in [30, 60]" :key="`label-${line}`" class="altitude-label" :style="altitudeGuideLabel(line)">{{ line }}°</span>
+            <svg class="altitude-guides" viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true"><path v-for="line in [30, 60]" :key="line" :d="altitudeGuidePath(line)" vector-effect="non-scaling-stroke" /></svg>
+            <span v-for="line in [30, 60]" :key="`label-${line}`" class="altitude-label" :style="{ top: `calc(${100 - horizonAltitudePercent(line)}% - 9px)` }">{{ line }}°</span>
             <div v-for="body in horizonBodies" :key="body.id" class="sky-body" :style="horizonStyle(body)"><i>{{ body.glyph }}</i><span>{{ body.name }}</span></div>
             <div class="horizon-ridge horizon-ridge-far" aria-hidden="true" />
             <div class="horizon-ridge horizon-ridge-near" aria-hidden="true" />
@@ -1232,10 +1213,8 @@ onBeforeUnmount(() => {
 .star-grain { position:absolute; inset:0; opacity:calc(.24 * (1 - var(--sky-daylight,0))); background-image:radial-gradient(#c9d8ee 1px,transparent 1px); background-size:79px 83px; }
 .sky-night { position:absolute; inset:0; background:linear-gradient(180deg,#081322 0%,#0e2034 66%,#0a1322 100%); opacity:calc(1 - var(--sky-daylight,0)); pointer-events:none; transition:opacity .45s ease; }
 .altitude-guides { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
-.altitude-guides path { fill:none; stroke-width:1; }
-.altitude-guides .altitude-line { stroke:color-mix(in srgb,rgba(10,20,36,.72) calc(var(--sky-daylight,0) * 100%),rgba(165,188,222,.3)); stroke-dasharray:3 4; }
-.altitude-guides .body-track { stroke:color-mix(in srgb,var(--body-tint) 68%,transparent); stroke-width:1.4; stroke-dasharray:2 3; opacity:.75; }
-.altitude-label { position:absolute; z-index:1; transform:translate(-50%,-50%); color:color-mix(in srgb,rgba(10,20,36,.85) calc(var(--sky-daylight,0) * 100%),var(--sky-muted)); font:8px var(--font-mono,monospace); pointer-events:none; }
+.altitude-guides path { fill:none; stroke:color-mix(in srgb,rgba(10,20,36,.72) calc(var(--sky-daylight,0) * 100%),rgba(165,188,222,.3)); stroke-width:1; stroke-dasharray:3 4; }
+.altitude-label { position:absolute; z-index:1; left:8px; color:color-mix(in srgb,rgba(10,20,36,.85) calc(var(--sky-daylight,0) * 100%),var(--sky-muted)); font:8px var(--font-mono,monospace); pointer-events:none; }
 .horizon-ridge { position:absolute; z-index:0; right:-3%; left:-3%; pointer-events:none; }
 .horizon-ridge-far { bottom:3px; height:52px; background:linear-gradient(180deg,rgba(53,82,112,.72),rgba(18,34,52,.92)); clip-path:polygon(0 86%,8% 70%,17% 78%,29% 45%,38% 68%,47% 52%,57% 76%,68% 54%,78% 74%,89% 48%,100% 72%,100% 100%,0 100%); opacity:.48; }
 .horizon-ridge-near { bottom:0; height:39px; background:linear-gradient(180deg,#17283b 0%,#0a1422 100%); clip-path:polygon(0 82%,11% 58%,21% 76%,33% 51%,43% 82%,56% 63%,66% 79%,79% 54%,90% 74%,100% 62%,100% 100%,0 100%); opacity:.62; }
