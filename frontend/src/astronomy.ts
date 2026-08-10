@@ -48,7 +48,7 @@ export interface BodyTrack extends CelestialBody, BodyPosition {
   rise: Date | null
   set: Date | null
   transit: Date | null
-  samples: Array<{ at: Date; altitude: number }>
+  samples: Array<{ at: Date; altitude: number; azimuth: number }>
   best: Date | null
 }
 
@@ -126,7 +126,9 @@ export function calculateTrack(config: CelestialBody, at: Date, latitude: number
   const samples = Array.from({ length: 97 }, (_, index) => {
     const sampleAt = new Date(dayStart.getTime() + index * 15 * 60_000)
     const equator = Equator(config.body, sampleAt, place, true, true)
-    return { at: sampleAt, altitude: Horizon(sampleAt, place, equator.ra, equator.dec, 'normal').altitude }
+    const horizontal = Horizon(sampleAt, place, equator.ra, equator.dec, 'normal')
+    // 方位角纳入采样：供星图第一视角投影的升落轨迹弧线使用。
+    return { at: sampleAt, altitude: horizontal.altitude, azimuth: horizontal.azimuth }
   })
   const current = calculatePosition(config, at, latitude, longitude, elevation)
   const transit = transitFor(config, place, dayStart)
