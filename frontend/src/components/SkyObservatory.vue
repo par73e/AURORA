@@ -8,7 +8,7 @@ FORM: desktop field observatory; three focused workspaces share one clock, one l
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { fetchObserverPlace, fetchObservingConditions, fetchMoonDay, fetchObservingScore, fetchLightPollution, type ObservingConditions, type MoonDay, type ObservingScore, type LightPollution } from '../api'
-import { bodies, bearing, calculateTrack, calculateTwilight, daylightFactor, moonPhase, observeTips, observingStatus, upcomingMoonPhases, analyzeNight, type BodyId, type BodyTrack, type NightAnalysis } from '../astronomy'
+import { bodies, bearing, calculatePosition, calculateTrack, calculateTwilight, daylightFactor, moonPhase, observeTips, observingStatus, upcomingMoonPhases, analyzeNight, type BodyId, type BodyTrack, type NightAnalysis } from '../astronomy'
 import moonNearsideTexture from '../assets/solar/2k_moon.jpg'
 import AuroraBrand from './AuroraBrand.vue'
 
@@ -233,28 +233,15 @@ function locateRecommendedBody(body: BodyId) {
   expandedBodyId.value = body
   window.setTimeout(() => document.querySelector('.horizon-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0)
 }
-// 某时刻的天体高度（取 track.samples 中最接近的采样点）
-function altitudeAt(track: BodyTrack | undefined, at: Date): number | null {
-  if (!track?.samples.length) return null
-  let nearest = track.samples[0]
-  let nearestDiff = Infinity
-  for (const sample of track.samples) {
-    const diff = Math.abs(sample.at.getTime() - at.getTime())
-    if (diff < nearestDiff) {
-      nearestDiff = diff
-      nearest = sample
-    }
-  }
-  return nearest.altitude
-}
 const recommendation = computed(() => {
   const hourly = conditions.value?.scores ?? []
-  if (!tracks.value.length || !twilight.value) return null
-  const sunTrack = tracks.value.find((track) => track.id === 'sun')
-  const moonTrack = tracks.value.find((track) => track.id === 'moon')
-  const nightStart = twilight.value.astronomicalDusk
-  const nightEnd = twilight.value.astronomicalDawn
-  const inAstronomicalNight = (at: Date) => nightStart && nightEnd && at.getTime() >= nightStart.getTime() && at.getTime() <= nightEnd.getTime()
+  // 天文夜窗口必须用 analyzeNight 的跨午夜结果（今晚昏影 → 次日晨光）；
+  // calculateTwilight 的 astronomicalDawn 是当天早晨的晨光，直接用会得到反向窗口。
+  const night = nightAnalysis.value?.astronomicalNight
+  const coords = activeCoordinates.value
+  if (!tracks.value.length || !night || !coords) return null
+  const nightStart = night.start
+  const nightEnd = night.end
   const magnitudeLimit = equipmentOptions.find((item) => item.id === equipment.value)?.magnitudeLimit ?? Infinity
   // 天气评分可用性：conditions.scores 为空表示天气源失败/未返回，此时降级为纯星历推荐。
   const weatherAvailable = hourly.length > 0
@@ -264,12 +251,10 @@ const recommendation = computed(() => {
   let bestHour: (typeof hourly)[number] | null = null
   let windowLabel: string
   if (weatherAvailable) {
-    const darkHours = nightStart && nightEnd
-      ? hourly.filter((item) => {
-        const at = new Date(item.time)
-        return at.getTime() >= nightStart!.getTime() && at.getTime() <= nightEnd!.getTime()
-      })
-      : []
+    const darkHours = hourly.filter((item) => {
+      const at = new Date(item.time)
+      return at.getTime() >= nightStart.getTime() && at.getTime() <= nightEnd.getTime()
+    })
     const windowPool = darkHours.length ? darkHours : hourly
     const bestScore = Math.max(...windowPool.map((item) => item.score))
     if (bestScore >= 40) {
@@ -279,41 +264,42 @@ const recommendation = computed(() => {
       windowLabel = '未来 24 小时天气与月光条件有限'
     }
   } else {
-    windowLabel = nightStart && nightEnd
-      ? `天气源暂不可用，天文夜 ${formatTime(nightStart)} – ${formatTime(nightEnd)}`
-      : '天气源暂不可用，本地星历仍可推荐'
+    windowLabel = `天气源暂不可用，天文夜 ${formatTime(nightStart)} – ${formatTime(nightEnd)}`
   }
 
-  // 逐目标：在当天每 15 分钟采样上评估 暗夜 × 高度 × 月光，取综合最佳时刻。
-  const targets = tracks.value
-    .filter((track) => track.id !== 'sun')
-    .map((track) => {
-      let best: { at: Date; altitude: number; score: number } | null = null
-      for (const sample of track.samples) {
-        if (!inAstronomicalNight(sample.at) || sample.altitude <= 10) continue
-        const sunAltitude = altitudeAt(sunTrack, sample.at)
-        if (sunAltitude == null || sunAltitude > -18) continue // 天文夜硬边界（防极昼误差）
-        const moonAltitude = altitudeAt(moonTrack, sample.at) ?? -90
-        const moonInterference = moonAltitude > 0 ? moonPanel.value.illumination * .65 : 0
-        const score = sample.altitude * (1 - moonInterference)
-        if (!best || score > best.score) best = { at: sample.at, altitude: sample.altitude, score }
+  // 逐目标：在天文夜窗口内每 15 分钟用星历重算 暗夜 × 高度 × 月光，取综合最佳时刻。
+  // 用 calculatePosition 而非 track.samples——samples 只覆盖当天 0–24 点，
+  // 会漏掉跨午夜窗口凌晨（次日 0:00–晨光）的高质量时段。
+  const moonBody = bodies.find((body) => body.id === 'moon')!
+  const targets = bodies
+    .filter((body) => body.id !== 'sun')
+    .map((body) => {
+      let best: { at: Date; altitude: number; magnitude: number | null; score: number } | null = null
+      for (let sampleAt = nightStart.getTime(); sampleAt <= nightEnd.getTime(); sampleAt += 15 * 60_000) {
+        const at = new Date(sampleAt)
+        const position = calculatePosition(body, at, coords.latitude, coords.longitude, elevation.value)
+        if (position.altitude <= 10) continue
+        const moonPosition = calculatePosition(moonBody, at, coords.latitude, coords.longitude, elevation.value)
+        const moonInterference = moonPosition.altitude > 0 ? moonPanel.value.illumination * .65 : 0
+        const score = position.altitude * (1 - moonInterference)
+        if (!best || score > best.score) best = { at, altitude: position.altitude, magnitude: position.magnitude, score }
       }
-      return { track, best }
+      return { body, best }
     })
-    .filter((entry) => entry.best && (entry.track.magnitude ?? Infinity) <= magnitudeLimit)
+    .filter((entry) => entry.best && (entry.best.magnitude ?? Infinity) <= magnitudeLimit)
     .sort((a, b) => (b.best?.score ?? -Infinity) - (a.best?.score ?? -Infinity))
     .slice(0, 3)
     .map((entry) => {
       const best = entry.best!
-      const moonAltitude = altitudeAt(moonTrack, best.at) ?? -90
-      const moonNote = moonAltitude > 0 ? (moonPanel.value.illumination > .5 ? '月光较强' : '月光较弱') : '无月光干扰'
+      const moonPosition = calculatePosition(moonBody, best.at, coords.latitude, coords.longitude, elevation.value)
+      const moonNote = moonPosition.altitude > 0 ? (moonPanel.value.illumination > .5 ? '月光较强' : '月光较弱') : '无月光干扰'
       return {
-        id: entry.track.id,
-        name: entry.track.name,
-        glyph: entry.track.glyph,
-        tint: entry.track.tint,
+        id: entry.body.id,
+        name: entry.body.name,
+        glyph: entry.body.glyph,
+        tint: entry.body.tint,
         summary: `最佳 ${formatTime(best.at)} · ${Math.round(best.altitude)}° 高 · ${moonNote}`,
-        tip: observeTips[entry.track.id],
+        tip: observeTips[entry.body.id],
       }
     })
   return { window: bestHour, windowLabel, targets, weatherAvailable }
