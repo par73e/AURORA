@@ -22,6 +22,19 @@ export interface CelestialBody {
   archiveHash?: string
 }
 
+// 目标知识库：每颗天体一句可解释的观测提示（供今夜建议/展开详情引用）。
+export const observeTips: Record<BodyId, string> = {
+  sun: '太阳观测必须使用合格的全口径太阳滤镜，绝不可直视。',
+  moon: '月面适合在明暗交界附近观察；满月虽明亮，地形阴影反而较少。',
+  mercury: '水星离太阳很近，最佳观测窗口在日落后/日出前的低空，且常受大气扰动。',
+  venus: '金星是除日月外最亮的星，黄昏或黎明低空可见；大气浓密，望远镜中呈均匀乳白色。',
+  mars: '火星的极冠与暗区只有在冲日前后大而亮时才有辨识度。',
+  jupiter: '木星的四颗伽利略卫星用双筒即可看见排成一条直线。',
+  saturn: '土星环用小型望远镜就能看出轮廓，是入门最值得一看的目标。',
+  uranus: '天王星亮度约 5.7 等，需要双筒或望远镜，且要在极暗的天空下才有机会。',
+  neptune: '海王星亮度约 7.9 等，必须用望远镜，并最好对照星图确认位置。',
+}
+
 export interface BodyPosition {
   altitude: number
   azimuth: number
@@ -185,4 +198,95 @@ export function observingStatus(track: BodyTrack) {
 export function bearing(azimuth: number) {
   const points = ['北', '东北', '东', '东南', '南', '西南', '西', '西北']
   return points[Math.round(azimuth / 45) % 8]
+}
+
+/* ---------- 今夜夜空分析：天文夜、无月黑夜与银河核心窗口 ---------- */
+
+// 银河核心（人马座 A* 方向）固定赤道坐标：RA 17h45m40s / Dec −29°00′28″。
+// 用固定坐标可直接经 Horizon 求地平高度，不依赖具体天体。
+export const GALACTIC_CORE = { ra: 266.4167, dec: -29.0078 }
+
+export interface NightWindow {
+  start: Date
+  end: Date
+}
+
+export interface NightAnalysis {
+  // 天文夜（太阳低于地平线 −18°）：当晚昏影 → 次日晨光（可能跨午夜）。
+  astronomicalNight: NightWindow | null
+  // 天文夜内月亮在地平线以下的连续时段（无月黑夜）。
+  moonlessWindows: NightWindow[]
+  // 银河核心：天文夜内高度 ≥ 20° 的可见窗口，及窗口内最高高度与时刻。
+  galacticCore: {
+    maxAltitude: number
+    maxTime: Date | null
+    windows: NightWindow[]
+  }
+}
+
+const NIGHT_SAMPLE_MINUTES = 10
+
+function collectWindows(points: Array<{ at: Date; active: boolean }>): NightWindow[] {
+  const windows: NightWindow[] = []
+  let runStart: Date | null = null
+  for (const point of points) {
+    if (point.active) {
+      if (runStart == null) runStart = point.at
+    } else if (runStart != null) {
+      windows.push({ start: runStart, end: point.at })
+      runStart = null
+    }
+  }
+  if (runStart != null && points.length) windows.push({ start: runStart, end: points[points.length - 1].at })
+  return windows
+}
+
+/**
+ * 基于本地星历计算今夜的分析结果：天文夜窗口、无月黑夜与银河核心可见时段。
+ * 全部为几何计算（太阳/月亮/固定赤道坐标 → 地平高度），不依赖天气或外部 Key。
+ *
+ * "今夜"窗口 = 自当前时刻起下一个天文昏影（太阳降至 −18°）→ 其后的天文晨光（次日）。
+ */
+export function analyzeNight(at: Date, latitude: number, longitude: number, elevation = 0): NightAnalysis {
+  const empty: NightAnalysis = { astronomicalNight: null, moonlessWindows: [], galacticCore: { maxAltitude: 0, maxTime: null, windows: [] } }
+  const place = observer(latitude, longitude, elevation)
+  // 太阳低于 −18° 的下降交点 = 今晚天文昏影；从该时刻起的下一个上升交点 = 次日天文晨光。
+  const dusk = SearchAltitude(Body.Sun, place, -1, at, 1.1, -18)?.date ?? null
+  if (!dusk) return empty
+  const dawn = SearchAltitude(Body.Sun, place, 1, new Date(dusk.getTime() + 60_000), 1.1, -18)?.date ?? null
+  if (!dawn) return empty
+  const nightStart = dusk.getTime()
+  const nightEnd = dawn.getTime()
+  const dayStart = localStartOfDay(at).getTime()
+
+  const points: Array<{ at: Date; moonless: boolean; coreVisible: boolean; coreAltitude: number }> = []
+  let maxCore = { altitude: -Infinity, time: null as Date | null }
+  // 天文夜可能跨午夜（如 20:10 → 次日 03:46），采样必须覆盖到 nightEnd，
+  // 不能只到 dayStart+24h（那会漏掉午夜后到晨光之间的时段）。
+  const lastSampleMinute = Math.ceil((nightEnd - dayStart) / 60_000)
+  for (let minute = 0; minute <= lastSampleMinute; minute += NIGHT_SAMPLE_MINUTES) {
+    const sampleAt = new Date(dayStart + minute * 60_000)
+    const moment = sampleAt.getTime()
+    const dark = moment >= nightStart && moment <= nightEnd
+    const moonEquator = Equator(Body.Moon, sampleAt, place, true, true)
+    const moonAltitude = Horizon(sampleAt, place, moonEquator.ra, moonEquator.dec, 'normal').altitude
+    const coreAltitude = Horizon(sampleAt, place, GALACTIC_CORE.ra, GALACTIC_CORE.dec, 'normal').altitude
+    if (dark && coreAltitude > maxCore.altitude) maxCore = { altitude: coreAltitude, time: sampleAt }
+    points.push({
+      at: sampleAt,
+      moonless: dark && moonAltitude <= 0,
+      coreVisible: dark && coreAltitude >= 20,
+      coreAltitude,
+    })
+  }
+
+  return {
+    astronomicalNight: { start: dusk, end: dawn },
+    moonlessWindows: collectWindows(points.map((point) => ({ at: point.at, active: point.moonless }))),
+    galacticCore: {
+      maxAltitude: maxCore.altitude === -Infinity ? 0 : Math.round(maxCore.altitude),
+      maxTime: maxCore.time,
+      windows: collectWindows(points.map((point) => ({ at: point.at, active: point.coreVisible }))),
+    },
+  }
 }
