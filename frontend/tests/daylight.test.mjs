@@ -20,6 +20,15 @@ function minutesInto(at, dayStart) {
   return Math.round((at.getTime() - value.getTime()) / 60_000)
 }
 
+// 边界断言使用真实时刻（不再经过分钟取整）：日出/日落本身是硬边界，
+// 构造的时刻若因取整早于真实时刻几十秒，会得到 0.9956 而非 1 的脆弱结果。
+function atExact(value) {
+  return new Date(value.getTime())
+}
+function plusMinutes(value, minutes) {
+  return new Date(value.getTime() + minutes * 60_000)
+}
+
 test('daylightFactor 依据当天当地日出/日落切换昼夜，晨昏为渐变过渡', () => {
   const dayStart = new Date()
   dayStart.setHours(0, 0, 0, 0)
@@ -35,14 +44,14 @@ test('daylightFactor 依据当天当地日出/日落切换昼夜，晨昏为渐�
   assert.ok(dawn < sunrise && sunrise < sunset && sunset < dusk, '时间顺序：晨光 < 日出 < 日落 < 昏影')
 
   // 深夜与深夜前后均为 0
-  assert.equal(daylightFactor(times, at(dawn - 1)), 0)
+  assert.equal(daylightFactor(times, atExact(plusMinutes(times.astronomicalDawn, -1))), 0)
   assert.equal(daylightFactor(times, at(3 * 60)), 0)
   // 日出/日落之间恒为 1（正午取 12:00，保证在区间内）
   assert.equal(daylightFactor(times, at(12 * 60)), 1)
-  assert.equal(daylightFactor(times, at(sunrise)), 1)
-  assert.equal(daylightFactor(times, at(sunset)), 1)
+  assert.equal(daylightFactor(times, atExact(times.sunrise)), 1)
+  assert.equal(daylightFactor(times, atExact(times.sunset)), 1)
   // 昏影之后回到 0
-  assert.equal(daylightFactor(times, at(dusk + 1)), 0)
+  assert.equal(daylightFactor(times, atExact(plusMinutes(times.astronomicalDusk, 1))), 0)
   assert.equal(daylightFactor(times, at(23 * 60)), 0)
 
   // 晨光→日出 单调上升且严格落在 (0,1)
