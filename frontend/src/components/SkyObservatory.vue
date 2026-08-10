@@ -7,7 +7,7 @@ FORM: desktop field observatory; three focused workspaces share one clock, one l
 -->
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { fetchObserverPlace, fetchObservingConditions, type ObservingConditions } from '../api'
+import { fetchObserverPlace, fetchObservingConditions, fetchMoonDay, fetchObservingScore, fetchLightPollution, type ObservingConditions, type MoonDay, type ObservingScore, type LightPollution } from '../api'
 import { bodies, bearing, calculateTrack, calculateTwilight, daylightFactor, moonPhase, observingStatus, upcomingMoonPhases, type BodyId, type BodyTrack } from '../astronomy'
 import moonNearsideTexture from '../assets/solar/2k_moon.jpg'
 import AuroraBrand from './AuroraBrand.vue'
@@ -40,6 +40,12 @@ const longitude = ref<number | null>(null)
 const locationStatus = ref<'idle' | 'locating' | 'resolving' | 'located' | 'partial' | 'denied' | 'unavailable'>('idle')
 const conditions = ref<ObservingConditions | null>(null)
 const conditionsStatus = ref<'idle' | 'loading' | 'ready' | 'error'>('idle')
+// 后端数据源：月相每日、评分按时刻、光污染按地点；任一失败均回退本地计算/诚实占位。
+const moonDay = ref<MoonDay | null>(null)
+const backendScore = ref<ObservingScore | null>(null)
+const lightPollution = ref<LightPollution | null>(null)
+let scoreTimer: number | undefined
+let scoreController: AbortController | undefined
 const expandedBodyId = ref<BodyId | null>(null)
 const skyLeaving = ref(false)
 const moonCanvas = ref<HTMLCanvasElement | null>(null)
@@ -71,11 +77,35 @@ const coordinateLabel = computed(() => activeCoordinates.value
   : '允许定位后生成本地数据')
 const locationAction = computed(() => locationStatus.value === 'located' ? 'GPS' : locationStatus.value === 'resolving' || locationStatus.value === 'locating' ? '请求中' : '重试')
 const moon = computed(() => moonPhase(now.value))
-const moonIllumination = computed(() => (moon.value.illumination * 100).toFixed(1))
+const elevation = computed(() => conditions.value?.elevation ?? 0)
+const timezoneName = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
 const tracks = computed<BodyTrack[]>(() => activeCoordinates.value
-  ? bodies.map((body) => calculateTrack(body, simulatedTime.value, activeCoordinates.value!.latitude, activeCoordinates.value!.longitude))
+  ? bodies.map((body) => calculateTrack(body, simulatedTime.value, activeCoordinates.value!.latitude, activeCoordinates.value!.longitude, elevation.value))
   : [])
 const moonTrack = computed(() => tracks.value.find((track) => track.id === 'moon') ?? null)
+// 月相面板：后端每日数据优先（相位/亮度/月龄/月出月落），未就绪或失败时退回本地 Astronomy Engine。
+const moonPanel = computed(() => {
+  const day = moonDay.value
+  if (!day) {
+    return {
+      phase: moon.value.phase,
+      illumination: moon.value.illumination,
+      age: moon.value.age,
+      label: moon.value.label,
+      moonrise: moonTrack.value?.rise ?? null,
+      moonset: moonTrack.value?.set ?? null,
+    }
+  }
+  return {
+    phase: day.phase,
+    illumination: day.illumination,
+    age: day.age,
+    label: day.label,
+    moonrise: day.moonrise ? new Date(day.moonrise * 1000) : null,
+    moonset: day.moonset ? new Date(day.moonset * 1000) : null,
+  }
+})
+const moonIllumination = computed(() => (moonPanel.value.illumination * 100).toFixed(1))
 // 展开后行内就地替换时间条的高度角-时间波形（只在展开时计算）
 const expandedWave = computed(() => {
   const track = expandedBodyId.value ? tracks.value.find((item) => item.id === expandedBodyId.value) : null
@@ -88,7 +118,7 @@ const railCurrentMarkers = computed(() => new Map(
     { left: minuteOfDay.value / 1439 * 100, aboveHorizon: idealWaveAltitude(track, minuteOfDay.value) > 0 },
   ]),
 ))
-const twilight = computed(() => activeCoordinates.value ? calculateTwilight(simulatedTime.value, activeCoordinates.value.latitude, activeCoordinates.value.longitude) : null)
+const twilight = computed(() => activeCoordinates.value ? calculateTwilight(simulatedTime.value, activeCoordinates.value.latitude, activeCoordinates.value.longitude, elevation.value) : null)
 // 白昼系数 0（深夜）→ 1（正午）：以当天当地日出/日落为边界，天文晨光/昏影为渐变过渡带；星图视场与天体淡出共用。
 const daylight = computed(() => twilight.value ? daylightFactor(twilight.value, simulatedTime.value) : 0)
 const visibleSkyBodies = computed(() => tracks.value.filter((track) => track.visible))
@@ -131,7 +161,34 @@ const observingScore = computed(() => {
   const precipitationPenalty = forecast.current.precipitation > 0 ? 18 : 0
   return Math.max(0, Math.min(100, Math.round(50 + visibilityBonus - cloudPenalty - moonPenalty - precipitationPenalty)))
 })
-const scoreVerdict = computed(() => observingScore.value == null ? '正在读取环境预报' : observingScore.value >= 70 ? '条件较好，适合安排观测' : observingScore.value >= 45 ? '条件一般，优先安排亮目标' : '条件受限，建议短时观察亮目标')
+const scoreVerdict = computed(() => backendScore.value?.verdict ?? (observingScore.value == null ? '正在读取环境预报' : observingScore.value >= 70 ? '条件较好，适合安排观测' : observingScore.value >= 45 ? '条件一般，优先安排亮目标' : '条件受限，建议短时观察亮目标'))
+// 后端评分优先（含时刻维度与光污染因子），未就绪时退回本地启发式。
+const scorePanel = computed(() => backendScore.value?.score ?? observingScore.value)
+// 今夜建议：每小时评分（后端 conditions?Scores） × 本地星历 → 最佳窗口与推荐目标。
+const recommendation = computed(() => {
+  const hourly = conditions.value?.scores ?? []
+  if (!hourly.length || !tracks.value.length) return null
+  const bestScore = Math.max(...hourly.map((item) => item.score))
+  if (bestScore < 40) {
+    return { window: null, windowLabel: '未来 24 小时天气与月光条件有限', targets: [] }
+  }
+  const bestHour = hourly.find((item) => item.score === bestScore) ?? null
+  const windowLabel = bestHour ? `最佳窗口 ${bestHour.time.slice(11, 16)} · 评分 ${bestScore}` : '未来 24 小时未见理想窗口'
+  const targets = tracks.value
+    .filter((track) => track.id !== 'sun')
+    .map((track) => ({ track, peak: track.samples.reduce<number>((highest, sample) => Math.max(highest, sample.altitude), -Infinity) }))
+    .filter((entry) => entry.peak > 20)
+    .sort((a, b) => b.peak - a.peak)
+    .slice(0, 3)
+    .map((entry) => ({
+      id: entry.track.id,
+      name: entry.track.name,
+      glyph: entry.track.glyph,
+      tint: entry.track.tint,
+      summary: `今日最高约 ${Math.round(entry.peak)}° · ${observingStatus(entry.track)}`,
+    }))
+  return { window: bestHour, windowLabel, targets }
+})
 const hourlyForecast = computed(() => conditions.value?.hourly.slice(0, 24) ?? [])
 const forecastDateGroups = computed(() => {
   const groups: Array<{ date: string; hours: number }> = []
@@ -218,7 +275,7 @@ function renderMoon() {
   if (!context) return
   const output = context.createImageData(size, size)
   const source = moonTexturePixels.data
-  const phaseRadians = moon.value.phase * Math.PI / 180
+  const phaseRadians = moonPanel.value.phase * Math.PI / 180
   const sunX = Math.sin(phaseRadians)
   const sunZ = -Math.cos(phaseRadians)
 
@@ -604,13 +661,38 @@ async function loadConditions(currentLatitude: number, currentLongitude: number)
   conditionsController = controller
   conditionsStatus.value = 'loading'
   try {
-    conditions.value = await fetchObservingConditions(currentLatitude, currentLongitude, controller.signal)
+    conditions.value = await fetchObservingConditions(currentLatitude, currentLongitude, controller.signal, true)
     conditionsStatus.value = 'ready'
   } catch {
     if (!controller.signal.aborted) conditionsStatus.value = 'error'
   } finally {
     if (conditionsController === controller) conditionsController = undefined
   }
+}
+
+async function loadMoonDay(currentLatitude: number, currentLongitude: number) {
+  try {
+    moonDay.value = await fetchMoonDay(currentLatitude, currentLongitude, elevation.value, timezoneName, Math.floor(now.value.getTime() / 1000))
+  } catch {
+    moonDay.value = null // 后端不可用时退回本地计算
+  }
+}
+
+async function loadScore(currentLatitude: number, currentLongitude: number, at: number) {
+  scoreController?.abort()
+  const controller = new AbortController()
+  scoreController = controller
+  try {
+    backendScore.value = await fetchObservingScore(currentLatitude, currentLongitude, at, controller.signal)
+  } catch {
+    if (!controller.signal.aborted) backendScore.value = null
+  } finally {
+    if (scoreController === controller) scoreController = undefined
+  }
+}
+
+async function loadLightPollution(currentLatitude: number, currentLongitude: number) {
+  lightPollution.value = await fetchLightPollution(currentLatitude, currentLongitude)
 }
 
 function onPopState() {
@@ -625,9 +707,28 @@ function beginHomeExit() {
 }
 
 watch(activeCoordinates, (coordinates) => {
-  if (coordinates) void loadConditions(coordinates.latitude, coordinates.longitude)
+  if (coordinates) {
+    void loadConditions(coordinates.latitude, coordinates.longitude)
+    void loadMoonDay(coordinates.latitude, coordinates.longitude)
+    void loadScore(coordinates.latitude, coordinates.longitude, Math.floor(now.value.getTime() / 1000))
+    void loadLightPollution(coordinates.latitude, coordinates.longitude)
+  }
 }, { immediate: true })
+// 天气接口返回真实海拔后，用该海拔重取每日月相。
+watch(elevation, () => {
+  if (activeCoordinates.value) void loadMoonDay(activeCoordinates.value.latitude, activeCoordinates.value.longitude)
+})
+// 拖动时间条时按模拟时刻重取后端评分（防抖，避免连续滑动打满请求）。
+watch(minuteOfDay, () => {
+  window.clearTimeout(scoreTimer)
+  scoreTimer = window.setTimeout(() => {
+    if (activeCoordinates.value) {
+      void loadScore(activeCoordinates.value.latitude, activeCoordinates.value.longitude, Math.floor(simulatedTime.value.getTime() / 1000))
+    }
+  }, 1200)
+})
 watch(moon, renderMoon)
+watch(moonDay, renderMoon)
 watch(moonCanvas, (canvas) => {
   if (canvas) renderMoon()
 })
@@ -643,6 +744,8 @@ onBeforeUnmount(() => {
   locationRevision += 1
   locationLookupController?.abort()
   conditionsController?.abort()
+  scoreController?.abort()
+  if (scoreTimer !== undefined) window.clearTimeout(scoreTimer)
   if (homeExitTimer !== undefined) window.clearTimeout(homeExitTimer)
   window.removeEventListener('popstate', onPopState)
   if (clock) window.clearInterval(clock)
@@ -675,20 +778,28 @@ onBeforeUnmount(() => {
     <main class="sky-content-scroll">
       <section v-if="activePage === 'conditions'" class="conditions-page page-stack">
         <div class="condition-hero">
-          <div class="moon-disc" role="img" :aria-label="`${moon.label}，月球面向地球的一面，亮面占比 ${moonIllumination}%`">
+          <div class="moon-disc" role="img" :aria-label="`${moonPanel.label}，月球面向地球的一面，亮面占比 ${moonIllumination}%`">
             <canvas ref="moonCanvas" aria-hidden="true" />
           </div>
-          <div class="moon-copy"><p>MOON / 今日月相</p><h2>{{ moon.label }}</h2><span>月球亮面占比 {{ moonIllumination }}% · 月龄 {{ moon.age.toFixed(1) }} 日</span></div>
-          <div class="moon-rise" v-if="moonTrack">
-            <div class="moon-rise-times"><strong><i>↑</i> 月出 <time>{{ formatTime(moonTrack.rise) }}</time></strong><strong><i>↓</i> 月落 <time>{{ formatTime(moonTrack.set) }}</time></strong></div>
+          <div class="moon-copy"><p>MOON / 今日月相</p><h2>{{ moonPanel.label }}</h2><span>月球亮面占比 {{ moonIllumination }}% · 月龄 {{ moonPanel.age.toFixed(1) }} 日</span></div>
+          <div class="moon-rise" v-if="moonPanel.moonrise || moonPanel.moonset">
+            <div class="moon-rise-times"><strong><i>↑</i> 月出 <time>{{ formatTime(moonPanel.moonrise) }}</time></strong><strong><i>↓</i> 月落 <time>{{ formatTime(moonPanel.moonset) }}</time></strong></div>
             <small>亮面占比 <b>{{ moonIllumination }}%</b></small>
           </div>
         </div>
 
         <section class="condition-verdict" :class="{ loading: conditionsStatus === 'loading' }">
-          <div><strong>{{ observingScore == null ? '—' : String(observingScore).padStart(2, '0') }}<small>/100</small></strong></div>
+          <div><strong>{{ scorePanel == null ? '—' : String(scorePanel).padStart(2, '0') }}<small>/100</small></strong></div>
           <div><h2>{{ scoreVerdict }}</h2><p v-if="conditions">云量 {{ Math.round(conditions.current.cloudCover) }}%，能见度 {{ (conditions.current.visibilityMeters / 1000).toFixed(1) }} km；{{ conditionDescription(conditions.current.weatherCode) }} 是当前的主导条件。</p><p v-else-if="conditionsStatus === 'error'">天气源暂不可用；本地星历仍可计算天体位置与升落。</p><p v-else>正在读取云层、能见度、湿度与风的未来 24 小时预报。</p></div>
-          <small>评分解释：云量、能见度、降水与月光；暂未将未经校准的光污染等级伪装为 Bortle/SQM。</small>
+          <small>评分解释：云量、能见度、降水与月光<template v-if="lightPollution">与光污染（Bortle {{ lightPollution.bortle }} · SQM {{ lightPollution.sqm.toFixed(1) }}）</template><template v-else>；暂未将未经校准的光污染等级伪装为 Bortle/SQM</template>。</small>
+        </section>
+
+        <section class="tonight-advice" v-if="recommendation">
+          <div><p>今夜建议</p><h3>{{ recommendation.windowLabel }}</h3><span v-if="recommendation.window">{{ recommendation.window.verdict }}</span></div>
+          <ul v-if="recommendation.targets.length">
+            <li v-for="target in recommendation.targets" :key="target.id"><i :style="{ color: target.tint }">{{ target.glyph }}</i><span><strong>{{ target.name }}</strong><small>{{ target.summary }}</small></span></li>
+          </ul>
+          <p v-else>未来 24 小时天气与月光条件有限，建议短时观察亮目标，或改日再安排。</p>
         </section>
 
         <section class="instrument-grid" aria-label="当前观测条件">
@@ -859,6 +970,16 @@ onBeforeUnmount(() => {
 .condition-verdict h2 { margin:2px 0 8px; font-size:24px; font-weight:500; }
 .condition-verdict div:nth-child(2) p { color:var(--sky-muted); font-family:inherit; letter-spacing:0; line-height:1.6; }
 .condition-verdict > small { grid-column:2; color:var(--sky-muted); font-size:10px; line-height:1.5; }
+.tonight-advice { display:grid; grid-template-columns:auto 1fr; gap:26px; align-items:center; margin-top:18px; padding:20px 28px; border:1px solid var(--sky-line); background:rgba(172,193,226,.03); }
+.tonight-advice p:first-child { margin:0; color:var(--sky-muted); font-size:10px; }
+.tonight-advice h3 { margin:5px 0 3px; font-size:20px; font-weight:500; }
+.tonight-advice div > span { color:var(--sky-muted); font-size:11px; }
+.tonight-advice ul { display:flex; gap:22px; margin:0; padding:0; list-style:none; }
+.tonight-advice li { display:flex; gap:10px; align-items:center; }
+.tonight-advice li i { font-style:normal; font-size:22px; line-height:1; }
+.tonight-advice li strong { display:block; font-size:14px; font-weight:500; }
+.tonight-advice li small { display:block; margin-top:2px; color:var(--sky-muted); font-size:10px; }
+.tonight-advice > p { margin:0; color:var(--sky-muted); font-size:12px; line-height:1.6; }
 .instrument-grid { display:grid; grid-template-columns:repeat(3,1fr); border:1px solid var(--sky-line); border-bottom:0; }
 .instrument-grid article { min-height:128px; padding:19px; border-right:1px solid var(--sky-line); border-bottom:1px solid var(--sky-line); }
 .instrument-grid article:nth-child(3n) { border-right:0; }
@@ -1061,6 +1182,7 @@ onBeforeUnmount(() => {
   .moon-rise { grid-column:1 / -1; min-width:0; padding:14px 0 0; border-top:1px solid var(--sky-line); border-left:0; }
   .condition-verdict { grid-template-columns:1fr; }
   .condition-verdict > small { grid-column:1; }
+  .tonight-advice { grid-template-columns:1fr; gap:14px; }
   .instrument-grid { grid-template-columns:1fr; }
   .instrument-grid article,.instrument-grid article:nth-child(3n) { border-right:0; }
   .window-summary { grid-template-columns:repeat(2,1fr); }

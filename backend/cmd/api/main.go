@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+	_ "time/tzdata" // 内嵌 IANA 时区数据：月相/评分按 timezone 参数解析本地日期，不依赖系统 zoneinfo
 
 	"aurora/backend/internal/config"
 	"aurora/backend/internal/database"
@@ -47,9 +48,14 @@ func main() {
 	voyageRepository := voyage.NewRepository(pool)
 	geocoder := observerlocation.NewAMapClient(cfg.AMapWebKey)
 	conditions := observatory.NewClient()
+	moons := observatory.NewMoonService()
+	lights := observatory.NewLightPollutionClient(cfg.LightPollutionKey)
+	if cfg.LightPollutionURL != "" {
+		lights = observatory.NewLightPollutionClientWithURLs(cfg.LightPollutionKey, cfg.LightPollutionURL, &http.Client{Timeout: 8 * time.Second})
+	}
 	dataSyncer := syncer.NewWithMoonVoyageMars(repository, moonRepository, marsRepository, voyageRepository)
 
-	server := &http.Server{Addr: ":" + cfg.Port, Handler: httpapi.Router(repository, moonRepository, marsRepository, voyageRepository, geocoder, conditions), ReadHeaderTimeout: 5 * time.Second}
+	server := &http.Server{Addr: ":" + cfg.Port, Handler: httpapi.Router(repository, moonRepository, marsRepository, voyageRepository, geocoder, conditions, moons, lights), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		slog.Info("AURORA API started", "address", "http://localhost:"+cfg.Port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {

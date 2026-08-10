@@ -16,14 +16,17 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-func Router(repository *orbit.Repository, moonRepository *moon.Repository, marsRepository *mars.Repository, voyageRepository *voyage.Repository, geocoder observerlocation.ReverseGeocoder, conditions observatory.ConditionsProvider) http.Handler {
+func Router(repository *orbit.Repository, moonRepository *moon.Repository, marsRepository *mars.Repository, voyageRepository *voyage.Repository, geocoder observerlocation.ReverseGeocoder, conditions observatory.ConditionsProvider, moons *observatory.MoonService, lights observatory.LightPollutionProvider) http.Handler {
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer)
 	router.Get("/api/health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	router.Get("/api/v1/location/reverse", reverseLocationHandler(geocoder))
-	router.Get("/api/v1/astronomy/conditions", observingConditionsHandler(conditions))
+	router.Get("/api/v1/astronomy/conditions", observingConditionsHandler(conditions, moons, lights))
+	router.Get("/api/v1/astronomy/moon", moonHandler(moons))
+	router.Get("/api/v1/astronomy/score", observingScoreHandler(conditions, moons, lights))
+	router.Get("/api/v1/astronomy/light-pollution", lightPollutionHandler(lights))
 	router.Get("/api/v1/orbit/overview", func(w http.ResponseWriter, r *http.Request) {
 		overview, err := repository.Overview(r.Context())
 		if err != nil {

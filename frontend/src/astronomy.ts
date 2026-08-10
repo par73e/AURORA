@@ -58,12 +58,12 @@ export const bodies: CelestialBody[] = [
   { id: 'neptune', body: Body.Neptune, name: '海王星', nameEn: 'NEPTUNE', glyph: '♆', tint: '#7798d6', archiveHash: '#neptune' },
 ]
 
-function observer(latitude: number, longitude: number) {
-  return new Observer(latitude, longitude, 0)
+function observer(latitude: number, longitude: number, elevation = 0) {
+  return new Observer(latitude, longitude, elevation)
 }
 
-export function calculatePosition(config: CelestialBody, at: Date, latitude: number, longitude: number): BodyPosition {
-  const place = observer(latitude, longitude)
+export function calculatePosition(config: CelestialBody, at: Date, latitude: number, longitude: number, elevation = 0): BodyPosition {
+  const place = observer(latitude, longitude, elevation)
   const equator = Equator(config.body, at, place, true, true)
   const horizontal = Horizon(at, place, equator.ra, equator.dec, 'normal')
   const light = Illumination(config.body, at)
@@ -103,15 +103,15 @@ function transitFor(config: CelestialBody, place: Observer, start: Date): Date |
   return best
 }
 
-export function calculateTrack(config: CelestialBody, at: Date, latitude: number, longitude: number): BodyTrack {
-  const place = observer(latitude, longitude)
+export function calculateTrack(config: CelestialBody, at: Date, latitude: number, longitude: number, elevation = 0): BodyTrack {
+  const place = observer(latitude, longitude, elevation)
   const dayStart = localStartOfDay(at)
   const samples = Array.from({ length: 97 }, (_, index) => {
     const sampleAt = new Date(dayStart.getTime() + index * 15 * 60_000)
     const equator = Equator(config.body, sampleAt, place, true, true)
     return { at: sampleAt, altitude: Horizon(sampleAt, place, equator.ra, equator.dec, 'normal').altitude }
   })
-  const current = calculatePosition(config, at, latitude, longitude)
+  const current = calculatePosition(config, at, latitude, longitude, elevation)
   const transit = transitFor(config, place, dayStart)
   const best = samples.reduce<{ at: Date; altitude: number } | null>((bestSample, sample) => !bestSample || sample.altitude > bestSample.altitude ? sample : bestSample, null)
   return {
@@ -125,8 +125,8 @@ export function calculateTrack(config: CelestialBody, at: Date, latitude: number
   }
 }
 
-export function calculateTwilight(at: Date, latitude: number, longitude: number): TwilightTimes {
-  const place = observer(latitude, longitude)
+export function calculateTwilight(at: Date, latitude: number, longitude: number, elevation = 0): TwilightTimes {
+  const place = observer(latitude, longitude, elevation)
   const start = localStartOfDay(at)
   return {
     sunrise: SearchRiseSet(Body.Sun, place, 1, start, 1.1)?.date ?? null,

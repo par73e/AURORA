@@ -27,9 +27,20 @@ type Conditions struct {
 	RetrievedAt string       `json:"retrievedAt"`
 	Timezone    string       `json:"timezone"`
 	Source      string       `json:"source"`
+	Elevation   float64      `json:"elevation"` // Open-Meteo 返回的观测点海拔（米）
 	Current     Current      `json:"current"`
 	Hourly      []Hourly     `json:"hourly"`
 	AirQuality  []AirQuality `json:"airQuality"`
+	// Selected 仅在请求携带 time 参数时返回：该时刻最近的逐小时预报快照。
+	Selected *SelectedObservation `json:"selected,omitempty"`
+	// Scores 仅在请求携带 scores=1 时返回：逐小时观测评分（供动态推荐）。
+	Scores []HourScore `json:"scores,omitempty"`
+}
+
+// SelectedObservation 是 conditions 接口的可选 time 参数产物。
+type SelectedObservation struct {
+	Hour                 Hourly `json:"hour"`
+	WithinForecastWindow bool   `json:"withinForecastWindow"`
 }
 
 type Current struct {
@@ -129,7 +140,8 @@ func (client *Client) Conditions(ctx context.Context, latitude, longitude float6
 	weather.Source = "Open-Meteo forecast"
 
 	client.mu.Lock()
-	client.cache[key] = cacheEntry{until: client.now().Add(15 * time.Minute), value: weather}
+	// 天气数据源按小时更新；缓存节奏对齐为 1 小时，避免把旧预报当新预报提供。
+	client.cache[key] = cacheEntry{until: client.now().Add(time.Hour), value: weather}
 	client.mu.Unlock()
 	return weather, nil
 }
@@ -149,8 +161,9 @@ func (client *Client) weather(ctx context.Context, latitude, longitude float64) 
 	endpoint.RawQuery = query.Encode()
 
 	var payload struct {
-		Timezone string `json:"timezone"`
-		Current  struct {
+		Timezone  string  `json:"timezone"`
+		Elevation float64 `json:"elevation"`
+		Current   struct {
 			Time               string  `json:"time"`
 			Temperature        float64 `json:"temperature_2m"`
 			DewPoint           float64 `json:"dew_point_2m"`
@@ -183,7 +196,7 @@ func (client *Client) weather(ctx context.Context, latitude, longitude float64) 
 	if err := client.getJSON(ctx, endpoint.String(), &payload); err != nil {
 		return Conditions{}, err
 	}
-	result := Conditions{Timezone: payload.Timezone, Current: Current{
+	result := Conditions{Timezone: payload.Timezone, Elevation: payload.Elevation, Current: Current{
 		Time: payload.Current.Time, Temperature: payload.Current.Temperature, DewPoint: payload.Current.DewPoint, CloudCover: payload.Current.CloudCover, VisibilityMeters: payload.Current.Visibility,
 		Humidity: payload.Current.Humidity, Precipitation: payload.Current.Precipitation, WindSpeed: payload.Current.WindSpeed,
 		WindGusts: payload.Current.WindGusts, WeatherCode: payload.Current.WeatherCode,

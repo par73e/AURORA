@@ -1,0 +1,79 @@
+{
+  "cases": [
+    {
+      "name": "shanghai-20260809",
+      "latitude": 31.23,
+      "longitude": 121.47,
+      "at": 1786276800,
+      "timezone": "Asia/Shanghai",
+      "dayStart": 1786204800,
+      "phase": 315.66364993900356,
+      "illumination": 0.1423752523425535,
+      "age": 25.89370406162787,
+      "label": "残月",
+      "moonrise": 1786207866,
+      "moonset": 1786262173,
+      "transit": 1786235100
+    },
+    {
+      "name": "beijing-fullmoon-20260303",
+      "latitude": 39.9042,
+      "longitude": 116.4074,
+      "at": 1772539200,
+      "timezone": "Asia/Shanghai",
+      "dayStart": 1772467200,
+      "phase": 180.17048777257477,
+      "illumination": 0.9999977864930145,
+      "age": 14.779279438489915,
+      "label": "满月",
+      "moonrise": 1772532114,
+      "moonset": 1772490748,
+      "transit": 1772467200
+    },
+    {
+      "name": "newyork-20260118",
+      "latitude": 40.7128,
+      "longitude": -74.006,
+      "at": 1768716000,
+      "timezone": "America/New_York",
+      "dayStart": 1768712400,
+      "phase": 353.3939239321349,
+      "illumination": 0.003319714385071615,
+      "age": 28.98869630774509,
+      "label": "朔月",
+      "moonrise": 1768739401,
+      "moonset": 1768772613,
+      "transit": 1768755900
+    },
+    {
+      "name": "sydney-20260621",
+      "latitude": -33.8688,
+      "longitude": 151.2093,
+      "at": 1782014400,
+      "timezone": "Australia/Sydney",
+      "dayStart": 1781964000,
+      "phase": 81.03915961537237,
+      "illumination": 0.4221203105438262,
+      "age": 6.6475947322061195,
+      "label": "上弦月",
+      "moonrise": 1782005171,
+      "moonset": 1782049051,
+      "transit": 1782027000
+    },
+    {
+      "name": "tokyo-20261102",
+      "latitude": 35.6762,
+      "longitude": 139.6503,
+      "at": 1793631600,
+      "timezone": "Asia/Tokyo",
+      "dayStart": 1793631600,
+      "phase": 279.88868953098495,
+      "illumination": 0.41413268425058497,
+      "age": 22.959105042068007,
+      "label": "下弦月",
+      "moonrise": null,
+      "moonset": 1793679889,
+      "transit": 1793655300
+    }
+  ]
+}

@@ -1,0 +1,180 @@
+// 观测评分：把天气（能见度/云量/降水）、月光与光污染结合，为指定时刻生成观测评分。
+// 公式与前端 SkyObservatory.vue 的启发式保持一致（50 基线 + 能见度加成 − 云量 − 月光 − 降水 − 光污染），
+// 但加入时间维度：时刻落在未来 24 小时预报窗口内使用真实天气，窗口外降级为"仅星历"并明示。
+package observatory
+
+import (
+	"context"
+	"math"
+	"time"
+)
+
+// ScoreFactors 是评分的因子分解，前端可据此解释分数来源。
+type ScoreFactors struct {
+	VisibilityBonus        float64 `json:"visibilityBonus"`
+	CloudPenalty           float64 `json:"cloudPenalty"`
+	MoonPenalty            float64 `json:"moonPenalty"`
+	PrecipitationPenalty   float64 `json:"precipitationPenalty"`
+	LightPollutionPenalty  float64 `json:"lightPollutionPenalty"`
+}
+
+// ObservingScore 是一次观测评分结果。
+type ObservingScore struct {
+	At                   int64            `json:"at"`                   // 评分时刻（Unix 秒）
+	Timezone             string           `json:"timezone"`             // 天气预报时区
+	Score                *int             `json:"score"`                // 0–100；预报窗口外为 null
+	Verdict              string           `json:"verdict"`              // 结论文案
+	WithinForecastWindow bool             `json:"withinForecastWindow"` // 时刻是否在预报窗口内
+	Factors              ScoreFactors     `json:"factors"`
+	Weather              *Hourly          `json:"weather"`          // 命中的逐小时预报；窗口外为 null
+	Moon                 MoonPhaseResult  `json:"moon"`             // 评分时刻的月相
+	LightPollution       *LightPollution  `json:"lightPollution,omitempty"` // 可用时返回光污染数据
+}
+
+// HourScore 是逐小时评分（供动态推荐单请求获取）。
+type HourScore struct {
+	Time    string `json:"time"`    // 本地时间 "2006-01-02T15:04"
+	Score   int    `json:"score"`   // 0–100
+	Verdict string `json:"verdict"` // 结论文案
+}
+
+// ScoreObserving 计算指定时刻的观测评分。weather 失败时直接返回错误；
+// 光污染源未配置或失败时评分不含光污染因子（诚实降级，不伪造 Bortle/SQM）。
+func ScoreObserving(ctx context.Context, conditions ConditionsProvider, moon MoonProvider, light LightPollutionProvider, latitude, longitude float64, at time.Time) (ObservingScore, error) {
+	report, err := conditions.Conditions(ctx, latitude, longitude)
+	if err != nil {
+		return ObservingScore{}, err
+	}
+	lp := resolveLight(ctx, light, latitude, longitude)
+	return scoreFromReport(report, moon, lp, at), nil
+}
+
+// ScoreSeries 为逐小时预报生成每小时评分（单请求，供前端动态推荐）。
+func ScoreSeries(hourly []Hourly, timezone string, moon MoonProvider, light LightPollutionProvider, latitude, longitude float64) []HourScore {
+	if moon == nil || len(hourly) == 0 {
+		return nil
+	}
+	lp := resolveLight(context.Background(), light, latitude, longitude)
+	location := time.UTC
+	if parsed, err := time.LoadLocation(timezone); err == nil {
+		location = parsed
+	}
+	scores := make([]HourScore, 0, len(hourly))
+	for _, hour := range hourly {
+		parsed, err := time.ParseInLocation("2006-01-02T15:04", hour.Time, location)
+		if err != nil {
+			continue
+		}
+		report := Conditions{Timezone: timezone, Hourly: []Hourly{hour}}
+		score := scoreFromReport(report, moon, lp, parsed)
+		if score.Score == nil {
+			continue
+		}
+		scores = append(scores, HourScore{Time: hour.Time, Score: *score.Score, Verdict: score.Verdict})
+	}
+	return scores
+}
+
+func resolveLight(ctx context.Context, light LightPollutionProvider, latitude, longitude float64) *LightPollution {
+	if light == nil {
+		return nil
+	}
+	value, err := light.Light(ctx, latitude, longitude)
+	if err != nil {
+		return nil // 未配置或失败：不含光污染因子，也不把估算当实测
+	}
+	return &value
+}
+
+func scoreFromReport(report Conditions, moon MoonProvider, lp *LightPollution, at time.Time) ObservingScore {
+	result := ObservingScore{
+		At:             at.Unix(),
+		Timezone:       report.Timezone,
+		Moon:           moon.Phase(at),
+		LightPollution: lp,
+	}
+
+	selected, _, within := NearestHour(report.Hourly, report.Timezone, at)
+	result.WithinForecastWindow = within
+	if !within {
+		result.Verdict = "超出未来 24 小时预报窗口，暂无天气评分；本地星历仍可计算"
+		return result
+	}
+
+	result.Weather = &selected
+	factors := ScoreFactors{
+		VisibilityBonus: math.Min(24, selected.VisibilityMeters/1000*2.4),
+		CloudPenalty:    selected.CloudCover * 0.52,
+		MoonPenalty:     result.Moon.Illumination * 22,
+	}
+	if selected.Precipitation > 0 {
+		factors.PrecipitationPenalty = 18
+	}
+	if lp != nil {
+		factors.LightPollutionPenalty = lightPenaltyFrom(*lp)
+	}
+	raw := 50 + factors.VisibilityBonus - factors.CloudPenalty - factors.MoonPenalty - factors.PrecipitationPenalty - factors.LightPollutionPenalty
+	score := int(math.Round(math.Max(0, math.Min(100, raw))))
+	result.Score = &score
+	result.Factors = factors
+	result.Verdict = scoreVerdict(score)
+	return result
+}
+
+// lightPenaltyFrom 把光污染换算为评分惩罚（0–30）：SQM 优先，其次 Bortle。
+func lightPenaltyFrom(lp LightPollution) float64 {
+	if lp.SQM > 0 {
+		return math.Max(0, math.Min(30, (22-lp.SQM)*6))
+	}
+	if lp.Bortle > 0 {
+		return math.Max(0, math.Min(30, (lp.Bortle-1)*4))
+	}
+	return 0
+}
+
+// scoreVerdict 与前端 scoreVerdict 的分档保持一致。
+func scoreVerdict(score int) string {
+	switch {
+	case score >= 70:
+		return "条件较好，适合安排观测"
+	case score >= 45:
+		return "条件一般，优先安排亮目标"
+	default:
+		return "条件受限，建议短时观察亮目标"
+	}
+}
+
+// NearestHour 在逐小时序列中定位最接近 at 的时刻（按预报时区解释）。
+// within 表示 at 落在预报覆盖区间内：不早于首小时、不晚于末小时后 1 小时。
+func NearestHour(hourly []Hourly, timezone string, at time.Time) (Hourly, int, bool) {
+	if len(hourly) == 0 {
+		return Hourly{}, -1, false
+	}
+	location := time.UTC
+	if parsed, err := time.LoadLocation(timezone); err == nil {
+		location = parsed
+	}
+	local := at.In(location)
+
+	best := 0
+	bestDiff := time.Duration(1<<62 - 1)
+	for index, hour := range hourly {
+		parsed, err := time.ParseInLocation("2006-01-02T15:04", hour.Time, location)
+		if err != nil {
+			continue
+		}
+		diff := parsed.Sub(local)
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff < bestDiff {
+			bestDiff = diff
+			best = index
+		}
+	}
+
+	first, firstErr := time.ParseInLocation("2006-01-02T15:04", hourly[0].Time, location)
+	last, lastErr := time.ParseInLocation("2006-01-02T15:04", hourly[len(hourly)-1].Time, location)
+	within := firstErr == nil && lastErr == nil && !local.Before(first) && !local.After(last.Add(time.Hour))
+	return hourly[best], best, within
+}

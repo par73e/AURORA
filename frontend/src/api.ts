@@ -75,6 +75,7 @@ export interface ObservingConditions {
   retrievedAt: string
   timezone: string
   source: string
+  elevation?: number // Open-Meteo 返回的观测点海拔（米）
   current: {
     time: string
     temperature: number
@@ -110,9 +111,93 @@ export interface ObservingConditions {
     pm10: number
     aerosolOpticalDepth: number
   }>
+  /** 携带 time 参数时返回：该时刻最近的逐小时预报快照。 */
+  selected?: {
+    hour: ObservingConditions['hourly'][number]
+    withinForecastWindow: boolean
+  }
+  /** 携带 scores=1 时返回：逐小时观测评分（动态推荐的输入）。 */
+  scores?: Array<{ time: string; score: number; verdict: string }>
 }
 
-export function fetchObservingConditions(latitude: number, longitude: number, signal?: AbortSignal) {
+export function fetchObservingConditions(latitude: number, longitude: number, signal?: AbortSignal, scores = false) {
   const search = new URLSearchParams({ latitude: latitude.toFixed(6), longitude: longitude.toFixed(6) })
+  if (scores) search.set('scores', '1')
   return requestJSON<ObservingConditions>(`/api/v1/astronomy/conditions?${search}`, signal)
+}
+
+export interface MoonPhaseSnapshot {
+  phase: number // 相位角 0–360（0 朔、180 望）
+  illumination: number // 亮面占比 0–1
+  age: number // 月龄（天）
+  label: string
+}
+
+export interface MoonDay {
+  date: string
+  timezone: string
+  phase: number
+  illumination: number
+  age: number
+  label: string
+  moonrise: number | null // Unix 秒
+  moonset: number | null
+  transit: number | null
+  computedAt: number
+}
+
+/** 后端每日月相数据（按经纬度+海拔+时区，每天缓存一次）。 */
+export function fetchMoonDay(latitude: number, longitude: number, elevation: number, timezone: string, at?: number, signal?: AbortSignal) {
+  const search = new URLSearchParams({
+    latitude: latitude.toFixed(6),
+    longitude: longitude.toFixed(6),
+    elevation: String(elevation),
+    timezone,
+  })
+  if (at) search.set('at', String(at))
+  return requestJSON<MoonDay>(`/api/v1/astronomy/moon?${search}`, signal)
+}
+
+export interface ScoreFactors {
+  visibilityBonus: number
+  cloudPenalty: number
+  moonPenalty: number
+  precipitationPenalty: number
+  lightPollutionPenalty: number
+}
+
+export interface ObservingScore {
+  at: number
+  timezone: string
+  score: number | null
+  verdict: string
+  withinForecastWindow: boolean
+  factors: ScoreFactors
+  weather: ObservingConditions['hourly'][number] | null
+  moon: MoonPhaseSnapshot
+  lightPollution?: { bortle: number; sqm: number; source: string; retrievedAt: number }
+}
+
+/** 后端观测评分（天气×月相×时刻，可选光污染因子）。 */
+export function fetchObservingScore(latitude: number, longitude: number, at?: number, signal?: AbortSignal) {
+  const search = new URLSearchParams({ latitude: latitude.toFixed(6), longitude: longitude.toFixed(6) })
+  if (at) search.set('at', String(at))
+  return requestJSON<ObservingScore>(`/api/v1/astronomy/score?${search}`, signal)
+}
+
+export interface LightPollution {
+  bortle: number
+  sqm: number
+  source: string
+  retrievedAt: number
+}
+
+/** 光污染数据（未配置数据源时后端返回 503）。 */
+export async function fetchLightPollution(latitude: number, longitude: number, signal?: AbortSignal): Promise<LightPollution | null> {
+  const search = new URLSearchParams({ latitude: latitude.toFixed(6), longitude: longitude.toFixed(6) })
+  try {
+    return await requestJSON<LightPollution>(`/api/v1/astronomy/light-pollution?${search}`, signal)
+  } catch {
+    return null // 未配置或失败：保持诚实占位
+  }
 }
