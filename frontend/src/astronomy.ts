@@ -57,6 +57,10 @@ export interface TwilightTimes {
   sunset: Date | null
   astronomicalDawn: Date | null
   astronomicalDusk: Date | null
+  // 民用晨昏（太阳 −6°）：视觉上"天基本黑了/亮了"的感知边界，
+  // 用于白天系数渐变带（天文 −18° 只适合深空观测判断，不适合当视觉天色）。
+  civilDawn: Date | null
+  civilDusk: Date | null
 }
 
 export const bodies: CelestialBody[] = [
@@ -146,6 +150,8 @@ export function calculateTwilight(at: Date, latitude: number, longitude: number,
     sunset: SearchRiseSet(Body.Sun, place, -1, start, 1.1)?.date ?? null,
     astronomicalDawn: SearchAltitude(Body.Sun, place, 1, start, 1.1, -18)?.date ?? null,
     astronomicalDusk: SearchAltitude(Body.Sun, place, -1, start, 1.1, -18)?.date ?? null,
+    civilDawn: SearchAltitude(Body.Sun, place, 1, start, 1.1, -6)?.date ?? null,
+    civilDusk: SearchAltitude(Body.Sun, place, -1, start, 1.1, -6)?.date ?? null,
   }
 }
 
@@ -155,16 +161,18 @@ function clamp01(value: number) {
 
 /**
  * 白昼系数 0（深夜）→ 1（正午）。以当天当地日出/日落为硬边界，
- * 天文晨光/昏影作为 0↔1 的线性渐变过渡带。
+ * 民用晨光/昏影（太阳 −6°）作为 0↔1 的线性渐变过渡带——这是人眼
+ * 感知"天黑了/亮了"的边界，日落约 30–40 分钟后视觉上即全黑；
+ * 天文 −18° 只用于深空观测判断，不作为视觉天色。
  * 极昼极夜或定位缺失导致 sunrise/sunset 为空时，保守地按黑夜（0）处理。
  */
 export function daylightFactor(times: TwilightTimes, at: Date): number {
-  if (!times.sunrise || !times.sunset || !times.astronomicalDawn || !times.astronomicalDusk) return 0
+  if (!times.sunrise || !times.sunset || !times.civilDawn || !times.civilDusk) return 0
   const moment = at.getTime()
-  const dawn = times.astronomicalDawn.getTime()
+  const dawn = times.civilDawn.getTime()
   const sunrise = times.sunrise.getTime()
   const sunset = times.sunset.getTime()
-  const dusk = times.astronomicalDusk.getTime()
+  const dusk = times.civilDusk.getTime()
   if (moment <= dawn || moment >= dusk) return 0
   if (moment >= sunrise && moment <= sunset) return 1
   if (moment < sunrise) return clamp01((moment - dawn) / (sunrise - dawn))
