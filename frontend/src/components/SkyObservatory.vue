@@ -31,6 +31,11 @@ function pageFromHash(): SkyPage {
 
 const activePage = ref<SkyPage>(pageFromHash())
 const now = ref(new Date())
+// 侧栏时钟：独立于仿真时钟，每秒更新只驱动秒数显示，避免全页星历每秒重算。
+const wallClock = ref(new Date())
+// 仿真时钟跟随真实时间：进度条每分钟前进一格、行星位置随之移动。
+// 用户拖动进度条时暂停跟随（预览未来/过去时刻）；点"现在"恢复。
+const followingRealTime = ref(true)
 const minuteOfDay = ref(now.value.getHours() * 60 + now.value.getMinutes())
 const skyViewAzimuth = ref(180)
 const skyViewDragging = ref(false)
@@ -708,11 +713,18 @@ function stopMinuteAnimation() {
   }
 }
 
+// 用户开始拖动/键盘调整进度条：暂停跟随真实时间，避免自动推进打断预览。
+function pauseFollowing() {
+  stopMinuteAnimation()
+  followingRealTime.value = false
+}
+
 function jumpToNow() {
   const current = new Date()
   const target = current.getHours() * 60 + current.getMinutes()
   const start = minuteOfDay.value
   stopMinuteAnimation()
+  followingRealTime.value = true
   if (start === target) return
   const duration = Math.min(1500, Math.max(450, Math.abs(target - start) * 5))
   const startTime = performance.now()
@@ -862,7 +874,16 @@ watch(moonCanvas, (canvas) => {
 
 onMounted(() => {
   window.addEventListener('popstate', onPopState)
-  clock = window.setInterval(() => { now.value = new Date() }, 30_000)
+  // 侧栏时钟每秒走秒数；仿真时钟仅在"跟随真实时间"时每分钟推进一格
+  // （驱动行星位置移动），用户拖动进度条预览时暂停。
+  clock = window.setInterval(() => {
+    const real = new Date()
+    wallClock.value = real
+    if (followingRealTime.value) {
+      now.value = real
+      minuteOfDay.value = real.getHours() * 60 + real.getMinutes()
+    }
+  }, 1000)
   loadMoonTexture()
   requestLocation()
 })
@@ -899,7 +920,7 @@ onBeforeUnmount(() => {
       </nav>
 
       <div class="sidebar-source"><span />{{ activeCoordinates ? '本地星历计算 · 实时地点' : '需要地点以计算本地天空' }}</div>
-      <time>{{ new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(now) }} <small>LOCAL</small></time>
+      <time>{{ new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(wallClock) }} <small>LOCAL</small></time>
     </aside>
 
     <main class="sky-content-scroll">
@@ -1028,7 +1049,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
         </section>
-        <div class="time-scrubber"><div class="time-scrubber-inner"><div><span>时刻</span><strong>{{ timeLabel }}</strong></div><div class="time-scrubber-track"><output class="time-scrubber-bubble" :style="{ '--scrub-f': scrubFraction }">{{ timeLabel }}</output><input v-model.number="minuteOfDay" type="range" min="0" max="1439" step="5" aria-label="时刻" @pointerdown="stopMinuteAnimation" @keydown="stopMinuteAnimation" /></div><button class="time-scrubber-now" type="button" @click="jumpToNow">现在</button><div><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div></div></div>
+        <div class="time-scrubber"><div class="time-scrubber-inner"><div><span>时刻</span><strong>{{ timeLabel }}</strong></div><div class="time-scrubber-track"><output class="time-scrubber-bubble" :style="{ '--scrub-f': scrubFraction }">{{ timeLabel }}</output><input v-model.number="minuteOfDay" type="range" min="0" max="1439" step="1" aria-label="时刻" @pointerdown="pauseFollowing" @keydown="pauseFollowing" /></div><button class="time-scrubber-now" type="button" @click="jumpToNow">现在</button><div><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div></div></div>
 
         <section class="window-section">
           <div class="section-heading"><h2>行星升落</h2></div>
