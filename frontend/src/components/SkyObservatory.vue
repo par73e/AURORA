@@ -631,8 +631,9 @@ function azimuthDelta(target: number, origin: number) {
 
 function horizonStyle(track: BodyTrack) {
   const relativeAzimuth = azimuthDelta(track.azimuth, skyViewAzimuth.value)
-  // 白昼时除太阳外的天体按昼光淡出（月球保留低可见度，它常出现在白天天空）。
-  const opacity = track.id === 'sun' ? 1 : track.id === 'moon' ? Math.max(.2, 1 - daylight.value) : Math.max(0, 1 - daylight.value)
+  // 太阳恒为不透明；其余天体白天也标注位置：正午（daylight=1）保持 50%，
+  // 随天黑（daylight→0）线性变亮到 100%——行星常在白天天空，不应完全隐藏。
+  const opacity = track.id === 'sun' ? 1 : 1 - .5 * daylight.value
   return {
     left: `${50 + relativeAzimuth / (skyViewFieldOfView / 2) * 45}%`,
     bottom: `${skyHorizonBase + Math.min(skyAltitudeSpan, Math.max(0, track.altitude) / 90 * skyAltitudeSpan)}%`,
