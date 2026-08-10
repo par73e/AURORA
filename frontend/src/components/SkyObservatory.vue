@@ -697,6 +697,14 @@ function selectBody(body: BodyId) {
   expandedBodyId.value = expandedBodyId.value === body ? null : body
 }
 
+// 从星图点击行星图标：展开下方对应行星行并平滑滚动到该行。
+function revealBody(body: BodyId) {
+  expandedBodyId.value = body
+  window.setTimeout(() => {
+    document.getElementById(`track-trigger-${body}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, 0)
+}
+
 function locateBody(body: BodyId) {
   const track = tracks.value.find((item) => item.id === body)
   // 只有当前在地平线以上的天体才值得定位：转罗盘到其方位，再展开行并滚动到视场。
@@ -1016,7 +1024,7 @@ onBeforeUnmount(() => {
             <div class="star-grain" aria-hidden="true" />
             <svg class="altitude-guides" viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true"><path v-for="line in [30, 60]" :key="line" :d="altitudeGuidePath(line)" vector-effect="non-scaling-stroke" /></svg>
             <span v-for="line in [30, 60]" :key="`label-${line}`" class="altitude-label" :style="{ top: `calc(${100 - horizonAltitudePercent(line)}% - 9px)` }">{{ line }}°</span>
-            <div v-for="body in horizonBodies" :key="body.id" class="sky-body" :style="horizonStyle(body)"><i>{{ body.glyph }}</i><span>{{ body.name }}</span></div>
+            <div v-for="body in horizonBodies" :key="body.id" class="sky-body" :class="{ 'is-active': expandedBodyId === body.id }" :style="horizonStyle(body)" role="button" tabindex="0" :aria-label="`查看${body.name}详情`" :aria-expanded="expandedBodyId === body.id" @click="revealBody(body.id)" @keydown.enter.prevent="revealBody(body.id)" @keydown.space.prevent="revealBody(body.id)" @pointerdown.stop><i>{{ body.glyph }}</i><span>{{ body.name }}</span></div>
             <div class="horizon-ridge horizon-ridge-far" aria-hidden="true" />
             <div class="horizon-ridge horizon-ridge-near" aria-hidden="true" />
             <div class="horizon-line" aria-hidden="true" />
@@ -1220,8 +1228,11 @@ onBeforeUnmount(() => {
 .horizon-ridge-near { bottom:0; height:39px; background:linear-gradient(180deg,#17283b 0%,#0a1422 100%); clip-path:polygon(0 82%,11% 58%,21% 76%,33% 51%,43% 82%,56% 63%,66% 79%,79% 54%,90% 74%,100% 62%,100% 100%,0 100%); opacity:.62; }
 .horizon-line { position:absolute; z-index:2; right:0; bottom:58px; left:0; height:1px; background:linear-gradient(90deg,transparent,rgba(174,196,226,.24) 7%,rgba(174,196,226,.34) 50%,rgba(174,196,226,.24) 93%,transparent); pointer-events:none; }
 .compass { position:absolute; right:28px; bottom:14px; left:28px; display:flex; justify-content:space-between; color:rgba(165,188,222,.48); font:9px var(--font-mono,monospace); }
-.sky-body { position:absolute; z-index:3; width:0; height:0; animation:body-arrive .5s cubic-bezier(.22,1,.36,1); transition:opacity .45s ease; }
-.sky-body i { position:absolute; left:0; top:0; display:grid; width:25px; height:25px; place-items:center; transform:translate(-50%,-50%); border-radius:50%; color:#0d1828; background:var(--body-tint); box-shadow:0 0 18px color-mix(in srgb,var(--body-tint) 45%,transparent); font-size:16px; font-style:normal; }
+.sky-body { position:absolute; z-index:3; width:0; height:0; cursor:pointer; animation:body-arrive .5s cubic-bezier(.22,1,.36,1); transition:opacity .45s ease; }
+.sky-body i { position:absolute; left:0; top:0; display:grid; width:25px; height:25px; place-items:center; transform:translate(-50%,-50%); border-radius:50%; color:#0d1828; background:var(--body-tint); box-shadow:0 0 18px color-mix(in srgb,var(--body-tint) 45%,transparent); font-size:16px; font-style:normal; transition:transform .18s ease, box-shadow .18s ease; }
+.sky-body:hover i, .sky-body:focus-visible i { transform:translate(-50%,-50%) scale(1.22); box-shadow:0 0 24px color-mix(in srgb,var(--body-tint) 75%,transparent); }
+.sky-body:focus-visible { outline:2px solid color-mix(in srgb,var(--body-tint) 60%,white); outline-offset:6px; border-radius:8px; }
+.sky-body.is-active i { transform:translate(-50%,-50%) scale(1.3); box-shadow:0 0 30px color-mix(in srgb,var(--body-tint) 90%,transparent); }
 .sky-body span { position:absolute; left:0; top:17px; padding:2px 5px; color:var(--sky-ink); background:rgba(11,19,34,.8); font-size:9px; white-space:nowrap; transform:translateX(-50%); }
 .sky-reading { position:absolute; z-index:3; left:28px; bottom:38px; }
 .sky-reading strong { display:block; margin:5px 0; font:36px var(--font-mono,monospace); }
