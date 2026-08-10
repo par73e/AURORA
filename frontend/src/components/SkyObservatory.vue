@@ -202,13 +202,37 @@ function factorBarWidth(part: ScoreFactorPart) {
   return `${Math.max(6, Math.abs(part.value) / Math.max(1, scale) * 100)}%`
 }
 // 今夜建议（动态推荐）：器材选择 → 逐小时评分 × 天文夜窗口 × 逐目标月光/曙暮光 → 最佳窗口与推荐目标。
-const equipment = ref<'naked' | 'binoculars' | 'telescope'>('naked')
+const EQUIPMENT_STORAGE_KEY = 'aurora.observatory.equipment'
+const equipment = ref<'naked' | 'binoculars' | 'telescope'>(loadEquipmentPreference())
+function loadEquipmentPreference(): 'naked' | 'binoculars' | 'telescope' {
+  try {
+    const stored = window.localStorage.getItem(EQUIPMENT_STORAGE_KEY)
+    return stored === 'binoculars' || stored === 'telescope' ? stored : 'naked'
+  } catch {
+    return 'naked'
+  }
+}
+watch(equipment, (value) => {
+  try {
+    window.localStorage.setItem(EQUIPMENT_STORAGE_KEY, value)
+  } catch {
+    // localStorage 不可用时静默失败，不影响功能
+  }
+})
 const equipmentOptions = [
   { id: 'naked' as const, label: '裸眼', magnitudeLimit: 4.5, note: '只推荐最亮目标' },
   { id: 'binoculars' as const, label: '双筒', magnitudeLimit: 8.5, note: '可尝试天王星' },
   { id: 'telescope' as const, label: '望远镜', magnitudeLimit: Infinity, note: '全部九体' },
 ]
 const equipmentNote = computed(() => equipmentOptions.find((item) => item.id === equipment.value)?.note ?? '')
+// 推荐目标 → 星图定位：切到星图页、把地平视场转到该天体当前方位、并展开该行详情。
+function locateRecommendedBody(body: BodyId) {
+  if (activePage.value !== 'sky') selectPage('sky')
+  const track = tracks.value.find((item) => item.id === body)
+  if (track) skyViewAzimuth.value = Math.round(track.azimuth)
+  expandedBodyId.value = body
+  window.setTimeout(() => document.querySelector('.horizon-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0)
+}
 // 某时刻的天体高度（取 track.samples 中最接近的采样点）
 function altitudeAt(track: BodyTrack | undefined, at: Date): number | null {
   if (!track?.samples.length) return null
@@ -225,28 +249,40 @@ function altitudeAt(track: BodyTrack | undefined, at: Date): number | null {
 }
 const recommendation = computed(() => {
   const hourly = conditions.value?.scores ?? []
-  if (!hourly.length || !tracks.value.length || !twilight.value) return null
+  if (!tracks.value.length || !twilight.value) return null
   const sunTrack = tracks.value.find((track) => track.id === 'sun')
   const moonTrack = tracks.value.find((track) => track.id === 'moon')
   const nightStart = twilight.value.astronomicalDusk
   const nightEnd = twilight.value.astronomicalDawn
   const inAstronomicalNight = (at: Date) => nightStart && nightEnd && at.getTime() >= nightStart.getTime() && at.getTime() <= nightEnd.getTime()
   const magnitudeLimit = equipmentOptions.find((item) => item.id === equipment.value)?.magnitudeLimit ?? Infinity
+  // 天气评分可用性：conditions.scores 为空表示天气源失败/未返回，此时降级为纯星历推荐。
+  const weatherAvailable = hourly.length > 0
 
   // 最佳窗口：仅在天文夜内的逐小时评分里取最高分；夜内无评分时退回全天最高。
-  const darkHours = nightStart && nightEnd
-    ? hourly.filter((item) => {
-      const at = new Date(item.time)
-      return at.getTime() >= nightStart!.getTime() && at.getTime() <= nightEnd!.getTime()
-    })
-    : []
-  const windowPool = darkHours.length ? darkHours : hourly
-  const bestScore = Math.max(...windowPool.map((item) => item.score))
-  if (bestScore < 40) {
-    return { window: null, windowLabel: '未来 24 小时天气与月光条件有限', targets: [] }
+  // 天气不可用时没有评分窗口，窗口信息退化为天文夜时段本身。
+  let bestHour: (typeof hourly)[number] | null = null
+  let windowLabel: string
+  if (weatherAvailable) {
+    const darkHours = nightStart && nightEnd
+      ? hourly.filter((item) => {
+        const at = new Date(item.time)
+        return at.getTime() >= nightStart!.getTime() && at.getTime() <= nightEnd!.getTime()
+      })
+      : []
+    const windowPool = darkHours.length ? darkHours : hourly
+    const bestScore = Math.max(...windowPool.map((item) => item.score))
+    if (bestScore >= 40) {
+      bestHour = windowPool.find((item) => item.score === bestScore) ?? null
+      windowLabel = bestHour ? `最佳窗口 ${bestHour.time.slice(11, 16)} · 评分 ${bestScore}` : '未来 24 小时未见理想窗口'
+    } else {
+      windowLabel = '未来 24 小时天气与月光条件有限'
+    }
+  } else {
+    windowLabel = nightStart && nightEnd
+      ? `天气源暂不可用，天文夜 ${formatTime(nightStart)} – ${formatTime(nightEnd)}`
+      : '天气源暂不可用，本地星历仍可推荐'
   }
-  const bestHour = windowPool.find((item) => item.score === bestScore) ?? null
-  const windowLabel = bestHour ? `最佳窗口 ${bestHour.time.slice(11, 16)} · 评分 ${bestScore}` : '未来 24 小时未见理想窗口'
 
   // 逐目标：在当天每 15 分钟采样上评估 暗夜 × 高度 × 月光，取综合最佳时刻。
   const targets = tracks.value
@@ -280,7 +316,7 @@ const recommendation = computed(() => {
         tip: observeTips[entry.track.id],
       }
     })
-  return { window: bestHour, windowLabel, targets }
+  return { window: bestHour, windowLabel, targets, weatherAvailable }
 })
 const hourlyForecast = computed(() => conditions.value?.hourly.slice(0, 24) ?? [])
 const forecastDateGroups = computed(() => {
@@ -882,23 +918,23 @@ onBeforeUnmount(() => {
         </div>
 
         <section class="condition-verdict" :class="{ loading: conditionsStatus === 'loading' }">
-          <div><strong>{{ scorePanel == null ? '—' : String(scorePanel).padStart(2, '0') }}<small>/100</small></strong></div>
+          <div class="score-now"><strong>{{ scorePanel == null ? '—' : String(scorePanel).padStart(2, '0') }}<small>/100</small></strong><i>当前时刻</i></div>
           <div><h2>{{ scoreVerdict }}</h2><p v-if="conditions">云量 {{ Math.round(conditions.current.cloudCover) }}%，能见度 {{ (conditions.current.visibilityMeters / 1000).toFixed(1) }} km；{{ conditionDescription(conditions.current.weatherCode) }} 是当前的主导条件。</p><p v-else-if="conditionsStatus === 'error'">天气源暂不可用；本地星历仍可计算天体位置与升落。</p><p v-else>正在读取云层、能见度、湿度与风的未来 24 小时预报。</p></div>
-          <small>评分解释：云量、能见度、降水与月光<template v-if="lightPollution">与光污染（Bortle {{ lightPollution.bortle }} · SQM {{ lightPollution.sqm.toFixed(1) }}）</template><template v-else>；暂未将未经校准的光污染等级伪装为 Bortle/SQM</template>。</small>
           <div v-if="scoreFactors" class="score-factors" aria-label="评分构成">
             <span v-for="part in scoreFactors" :key="part.key" :class="part.kind"><i :style="{ width: factorBarWidth(part) }" /><small>{{ part.label }}</small><strong>{{ part.value > 0 ? `+${part.value.toFixed(1)}` : part.value.toFixed(1) }}</strong></span>
+            <span class="score-source"><i /><small>光污染</small><strong><template v-if="lightPollution">Bortle {{ lightPollution.bortle }} · SQM {{ lightPollution.sqm.toFixed(1) }}</template><template v-else>未接入</template></strong></span>
           </div>
         </section>
 
         <section class="tonight-advice" v-if="recommendation">
-          <div class="advice-window"><p>今夜建议</p><h3>{{ recommendation.windowLabel }}</h3><span v-if="recommendation.window">{{ recommendation.window.verdict }}</span></div>
+          <div class="advice-window"><p>今夜建议</p><h3>{{ recommendation.windowLabel }}</h3><span v-if="recommendation.window">{{ recommendation.window.verdict }}</span><em v-if="!recommendation.weatherAvailable" class="advice-degraded">天气源不可用，以下为目标与窗口来自本地星历</em></div>
           <div class="advice-equipment" role="group" aria-label="观测器材">
             <button v-for="option in equipmentOptions" :key="option.id" type="button" :class="{ active: equipment === option.id }" :title="option.note" @click="equipment = option.id">{{ option.label }}</button>
           </div>
           <ul v-if="recommendation.targets.length">
-            <li v-for="target in recommendation.targets" :key="target.id"><i :style="{ color: target.tint }">{{ target.glyph }}</i><span><strong>{{ target.name }}</strong><small>{{ target.summary }}</small><em v-if="target.tip">{{ target.tip }}</em></span></li>
+            <li v-for="target in recommendation.targets" :key="target.id"><i :style="{ color: target.tint }">{{ target.glyph }}</i><span><strong>{{ target.name }}</strong><small>{{ target.summary }}</small><em v-if="target.tip">{{ target.tip }}</em></span><button type="button" :title="`在星图中定位${target.name}`" @click="locateRecommendedBody(target.id)">定位</button></li>
           </ul>
-          <p v-else>未来 24 小时天气与月光条件有限，建议短时观察亮目标，或改日再安排。</p>
+          <p v-else>{{ recommendation.weatherAvailable ? '未来 24 小时天气与月光条件有限，建议短时观察亮目标，或改日再安排。' : '天文夜内暂无可观测的亮目标，可切换器材或改日再安排。' }}</p>
         </section>
 
         <section class="instrument-grid" aria-label="当前观测条件">
@@ -920,7 +956,7 @@ onBeforeUnmount(() => {
         </section>
 
         <section class="forecast-section">
-          <div class="forecast-heading"><p>天气预报</p><span>未来 24 小时 · {{ conditions?.source ?? '等待天气源' }} · {{ conditions?.timezone ?? '—' }}</span></div>
+          <div class="forecast-heading"><p>天气预报</p><span>未来 24 小时 · {{ conditions?.source ?? '等待天气源' }} · {{ conditions?.timezone ?? '—' }}<i class="matrix-scroll-hint">← 可横向滚动查看全部字段 →</i></span></div>
           <div v-if="hourlyForecast.length" class="forecast-matrix" role="table" aria-label="未来24小时观测天气预报">
             <div class="matrix-labels" aria-hidden="true">
               <span>日期</span><span>时间</span><span>天气</span><span>云量</span><span>高云</span><span>中云</span><span>低云</span><span>气温</span><span>露点</span><span>湿度</span><span>降水</span><span>风速</span><span>风向</span><span>能见度</span><span>气溶胶</span>
@@ -1075,9 +1111,9 @@ onBeforeUnmount(() => {
 .condition-verdict { display:grid; grid-template-columns:180px 1fr; gap:28px; margin-top:18px; padding:26px 28px 22px; border-top:1px solid var(--sky-amber); border-bottom:1px solid var(--sky-line); background:rgba(172,193,226,.03); }
 .condition-verdict > div:first-child strong { display:block; margin-top:7px; font:58px/.9 var(--font-mono,monospace); }
 .condition-verdict > div:first-child small { color:var(--sky-muted); font-size:15px; }
+.score-now i { display:block; margin-top:6px; color:var(--sky-muted); font:8px var(--font-mono,monospace); font-style:normal; letter-spacing:.1em; }
 .condition-verdict h2 { margin:2px 0 8px; font-size:24px; font-weight:500; }
 .condition-verdict div:nth-child(2) p { color:var(--sky-muted); font-family:inherit; letter-spacing:0; line-height:1.6; }
-.condition-verdict > small { grid-column:2; color:var(--sky-muted); font-size:10px; line-height:1.5; }
 .score-factors { grid-column:1 / -1; display:grid; grid-template-columns:repeat(auto-fit,minmax(108px,1fr)); gap:8px; margin-top:16px; }
 .score-factors span { position:relative; display:grid; grid-template-columns:1fr auto; gap:2px 8px; align-items:end; padding:8px 10px; overflow:hidden; border:1px solid var(--sky-line); border-radius:8px; background:var(--sky-sunken); }
 .score-factors span > i { position:absolute; inset:auto 0 0; height:2px; background:var(--sky-muted); opacity:.4; }
@@ -1085,10 +1121,12 @@ onBeforeUnmount(() => {
 .score-factors small { grid-column:1; color:var(--sky-muted); font-size:9px; }
 .score-factors strong { grid-column:2; font:11px var(--font-mono,monospace); }
 .score-factors span.bonus strong { color:var(--sky-amber); }
+.score-factors .score-source strong { color:var(--sky-muted); font-size:9px; }
 .tonight-advice { display:grid; grid-template-columns:auto 1fr; gap:26px; align-items:center; margin-top:18px; padding:20px 28px; border:1px solid var(--sky-line); background:rgba(172,193,226,.03); }
 .tonight-advice p:first-child { margin:0; color:var(--sky-muted); font-size:10px; }
 .tonight-advice h3 { margin:5px 0 3px; font-size:20px; font-weight:500; }
 .tonight-advice div > span { color:var(--sky-muted); font-size:11px; }
+.advice-degraded { display:block; margin-top:6px; color:var(--sky-amber); font-size:10px; font-style:normal; }
 .advice-equipment { display:flex; gap:6px; align-self:end; }
 .advice-equipment button { padding:6px 12px; color:var(--sky-muted); font-size:10px; border:1px solid var(--sky-line); border-radius:999px; background:transparent; cursor:pointer; }
 .advice-equipment button:hover { border-color:rgba(165,188,222,.4); }
@@ -1099,6 +1137,8 @@ onBeforeUnmount(() => {
 .tonight-advice li strong { display:block; font-size:14px; font-weight:500; }
 .tonight-advice li small { display:block; margin-top:2px; color:var(--sky-muted); font-size:10px; }
 .tonight-advice li em { display:block; margin-top:4px; max-width:34ch; color:var(--sky-muted); font-size:9px; font-style:normal; line-height:1.5; }
+.tonight-advice li > button { align-self:center; padding:5px 10px; color:var(--sky-cyan); font-size:9px; white-space:nowrap; border:1px solid var(--sky-line); border-radius:6px; background:transparent; cursor:pointer; }
+.tonight-advice li > button:hover { border-color:rgba(157,184,232,.5); background:rgba(157,184,232,.08); }
 .tonight-advice > p { grid-column:1 / -1; margin:0; color:var(--sky-muted); font-size:12px; line-height:1.6; }
 .instrument-grid { display:grid; grid-template-columns:repeat(3,1fr); border:1px solid var(--sky-line); border-bottom:0; }
 .instrument-grid article { min-height:128px; padding:19px; border-right:1px solid var(--sky-line); border-bottom:1px solid var(--sky-line); }
@@ -1120,6 +1160,7 @@ onBeforeUnmount(() => {
 .forecast-heading { display:flex; justify-content:space-between; align-items:baseline; gap:16px; margin-bottom:16px; }
 .forecast-heading p { margin:0; color:var(--sky-amber); font:9px var(--font-mono,monospace); letter-spacing:.12em; }
 .forecast-heading span { color:var(--sky-muted); font-size:10px; }
+.matrix-scroll-hint { display:inline-block; margin-left:10px; color:var(--sky-cyan); font:8px var(--font-mono,monospace); font-style:normal; letter-spacing:.06em; }
 .forecast-matrix { display:grid; grid-template-columns:102px minmax(0,1fr); overflow:hidden; border:1px solid var(--sky-line); background:var(--sky-sunken); }
 .matrix-labels { display:grid; grid-template-rows:34px 38px 58px repeat(12,44px); background:var(--sky-panel); border-right:1px solid var(--sky-line); }
 .matrix-labels span { display:grid; place-items:center start; padding-left:14px; color:var(--sky-muted); font-size:10px; border-bottom:1px solid rgba(165,188,222,.1); }
