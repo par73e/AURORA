@@ -1213,16 +1213,16 @@ onBeforeUnmount(() => {
 .star-grain { position:absolute; inset:0; opacity:calc(.24 * (1 - var(--sky-daylight,0))); background-image:radial-gradient(#c9d8ee 1px,transparent 1px); background-size:79px 83px; }
 .sky-night { position:absolute; inset:0; background:linear-gradient(180deg,#081322 0%,#0e2034 66%,#0a1322 100%); opacity:calc(1 - var(--sky-daylight,0)); pointer-events:none; transition:opacity .45s ease; }
 .altitude-guides { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
-.altitude-guides path { fill:none; stroke:rgba(165,188,222,.18); stroke-width:1; stroke-dasharray:3 4; }
-.altitude-label { position:absolute; z-index:1; left:8px; color:var(--sky-muted); font:8px var(--font-mono,monospace); pointer-events:none; }
+.altitude-guides path { fill:none; stroke:color-mix(in srgb,rgba(10,20,36,.72) calc(var(--sky-daylight,0) * 100%),rgba(165,188,222,.3)); stroke-width:1; stroke-dasharray:3 4; }
+.altitude-label { position:absolute; z-index:1; left:8px; color:color-mix(in srgb,rgba(10,20,36,.85) calc(var(--sky-daylight,0) * 100%),var(--sky-muted)); font:8px var(--font-mono,monospace); pointer-events:none; }
 .horizon-ridge { position:absolute; z-index:0; right:-3%; left:-3%; pointer-events:none; }
 .horizon-ridge-far { bottom:3px; height:52px; background:linear-gradient(180deg,rgba(53,82,112,.72),rgba(18,34,52,.92)); clip-path:polygon(0 86%,8% 70%,17% 78%,29% 45%,38% 68%,47% 52%,57% 76%,68% 54%,78% 74%,89% 48%,100% 72%,100% 100%,0 100%); opacity:.48; }
 .horizon-ridge-near { bottom:0; height:39px; background:linear-gradient(180deg,#17283b 0%,#0a1422 100%); clip-path:polygon(0 82%,11% 58%,21% 76%,33% 51%,43% 82%,56% 63%,66% 79%,79% 54%,90% 74%,100% 62%,100% 100%,0 100%); opacity:.62; }
 .horizon-line { position:absolute; z-index:2; right:0; bottom:58px; left:0; height:1px; background:linear-gradient(90deg,transparent,rgba(174,196,226,.24) 7%,rgba(174,196,226,.34) 50%,rgba(174,196,226,.24) 93%,transparent); pointer-events:none; }
 .compass { position:absolute; right:28px; bottom:14px; left:28px; display:flex; justify-content:space-between; color:rgba(165,188,222,.48); font:9px var(--font-mono,monospace); }
-.sky-body { position:absolute; z-index:3; display:grid; justify-items:center; transform:translateX(-50%); animation:body-arrive .5s cubic-bezier(.22,1,.36,1); transition:opacity .45s ease; }
+.sky-body { position:absolute; z-index:3; display:grid; width:25px; height:25px; place-items:center; transform:translateX(-50%) translateY(-50%); animation:body-arrive .5s cubic-bezier(.22,1,.36,1); transition:opacity .45s ease; }
 .sky-body i { display:grid; width:25px; height:25px; place-items:center; border-radius:50%; color:#0d1828; background:var(--body-tint); box-shadow:0 0 18px color-mix(in srgb,var(--body-tint) 45%,transparent); font-size:16px; font-style:normal; }
-.sky-body span { margin-top:5px; padding:2px 5px; color:var(--sky-ink); background:rgba(11,19,34,.8); font-size:9px; white-space:nowrap; }
+.sky-body span { position:absolute; top:calc(100% + 4px); left:50%; padding:2px 5px; color:var(--sky-ink); background:rgba(11,19,34,.8); font-size:9px; white-space:nowrap; transform:translateX(-50%); }
 .sky-reading { position:absolute; z-index:3; left:28px; bottom:38px; }
 .sky-reading strong { display:block; margin:5px 0; font:36px var(--font-mono,monospace); }
 .sky-reading span { color:var(--sky-muted); font-size:11px; }
@@ -1342,7 +1342,7 @@ onBeforeUnmount(() => {
 .image-placeholder-grid p { margin:0; color:var(--sky-muted); font-size:11px; line-height:1.55; }
 
 /* ---------- 动画与响应式 ---------- */
-@keyframes body-arrive { from { opacity:0; transform:translate(-50%,6px); } to { opacity:var(--body-opacity,1); transform:translate(-50%,0); } }
+@keyframes body-arrive { from { opacity:0; transform:translate(-50%,calc(-50% + 8px)); } to { opacity:var(--body-opacity,1); transform:translate(-50%,-50%); } }
 @keyframes track-detail-reveal { from { opacity:.2; clip-path:inset(0 0 100% 0); } to { opacity:1; clip-path:inset(0 0 0 0); } }
 @keyframes wave-reveal { from { opacity:.35; clip-path:inset(0 100% 0 0); } to { opacity:1; clip-path:inset(0 0 0 0); } }
 @media (max-width:900px) {
