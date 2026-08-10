@@ -227,9 +227,11 @@ const equipmentOptions = [
 const equipmentNote = computed(() => equipmentOptions.find((item) => item.id === equipment.value)?.note ?? '')
 // 推荐目标 → 星图定位：切到星图页、把地平视场转到该天体当前方位、并展开该行详情。
 function locateRecommendedBody(body: BodyId) {
-  if (activePage.value !== 'sky') selectPage('sky')
   const track = tracks.value.find((item) => item.id === body)
-  if (track) skyViewAzimuth.value = Math.round(track.azimuth)
+  // 与星图页"在星图定位"一致：当前在地平线以下的天体无法定位，直接忽略。
+  if (!track || !track.visible) return
+  if (activePage.value !== 'sky') selectPage('sky')
+  skyViewAzimuth.value = Math.round(track.azimuth)
   expandedBodyId.value = body
   window.setTimeout(() => document.querySelector('.horizon-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0)
 }
@@ -293,6 +295,9 @@ const recommendation = computed(() => {
       const best = entry.best!
       const moonPosition = calculatePosition(moonBody, best.at, coords.latitude, coords.longitude, elevation.value)
       const moonNote = moonPosition.altitude > 0 ? (moonPanel.value.illumination > .5 ? '月光较强' : '月光较弱') : '无月光干扰'
+      // 定位按钮的可用性由"当前模拟时刻"的地平高度决定（此刻能转到才有意义）；
+      // 最佳时刻可能在未来凌晨，此刻在地平线下时按钮应置灰。
+      const current = tracks.value.find((item) => item.id === entry.body.id)
       return {
         id: entry.body.id,
         name: entry.body.name,
@@ -300,6 +305,7 @@ const recommendation = computed(() => {
         tint: entry.body.tint,
         summary: `最佳 ${formatTime(best.at)} · ${Math.round(best.altitude)}° 高 · ${moonNote}`,
         tip: observeTips[entry.body.id],
+        visible: current?.visible ?? false,
       }
     })
   return { window: bestHour, windowLabel, targets, weatherAvailable }
@@ -631,6 +637,7 @@ function horizonStyle(track: BodyTrack) {
     left: `${50 + relativeAzimuth / (skyViewFieldOfView / 2) * 45}%`,
     bottom: `${skyHorizonBase + Math.min(skyAltitudeSpan, Math.max(0, track.altitude) / 90 * skyAltitudeSpan)}%`,
     '--body-tint': track.tint,
+    '--body-opacity': String(opacity), // 入场动画终点跟随静止透明度，避免黄昏时"先亮后暗"
     opacity: String(opacity),
   }
 }
@@ -685,6 +692,10 @@ function selectBody(body: BodyId) {
 }
 
 function locateBody(body: BodyId) {
+  const track = tracks.value.find((item) => item.id === body)
+  // 只有当前在地平线以上的天体才值得定位：转罗盘到其方位，再展开行并滚动到视场。
+  if (!track || !track.visible) return
+  skyViewAzimuth.value = Math.round(track.azimuth)
   expandedBodyId.value = body
   window.setTimeout(() => document.querySelector('.horizon-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0)
 }
@@ -918,7 +929,7 @@ onBeforeUnmount(() => {
             <button v-for="option in equipmentOptions" :key="option.id" type="button" :class="{ active: equipment === option.id }" :title="option.note" @click="equipment = option.id">{{ option.label }}</button>
           </div>
           <ul v-if="recommendation.targets.length">
-            <li v-for="target in recommendation.targets" :key="target.id"><i :style="{ color: target.tint }">{{ target.glyph }}</i><span><strong>{{ target.name }}</strong><small>{{ target.summary }}</small><em v-if="target.tip">{{ target.tip }}</em></span><button type="button" :title="`在星图中定位${target.name}`" @click="locateRecommendedBody(target.id)">定位</button></li>
+            <li v-for="target in recommendation.targets" :key="target.id"><i :style="{ color: target.tint }">{{ target.glyph }}</i><span><strong>{{ target.name }}</strong><small>{{ target.summary }}</small><em v-if="target.tip">{{ target.tip }}</em></span><button type="button" :disabled="!target.visible" :title="target.visible ? `在星图中定位${target.name}` : '当前在地平线下，无法定位'" @click="locateRecommendedBody(target.id)">定位</button></li>
           </ul>
           <p v-else>{{ recommendation.weatherAvailable ? '未来 24 小时天气与月光条件有限，建议短时观察亮目标，或改日再安排。' : '天文夜内暂无可观测的亮目标，可切换器材或改日再安排。' }}</p>
         </section>
@@ -1021,7 +1032,7 @@ onBeforeUnmount(() => {
         <section class="window-section">
           <div class="section-heading"><h2>行星升落</h2></div>
           <div class="window-summary" v-if="twilight"><article><span>日出</span><strong>{{ formatTime(twilight.sunrise) }}</strong></article><article><span>日落</span><strong>{{ formatTime(twilight.sunset) }}</strong></article><article><span>天文晨光</span><strong>{{ formatTime(twilight.astronomicalDawn) }}</strong></article><article><span>天文昏影</span><strong>{{ formatTime(twilight.astronomicalDusk) }}</strong></article></div>
-          <div class="time-axis"><div class="axis-labels"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div><article v-for="track in tracks" :key="track.id" class="time-track" :class="{ expanded: expandedBodyId === track.id }"><button :id="`track-trigger-${track.id}`" class="time-track-trigger" type="button" :aria-expanded="expandedBodyId === track.id" :aria-controls="`track-detail-${track.id}`" @click="selectBody(track.id)"><span class="time-track-label"><i :style="{ color: track.tint }">{{ track.glyph }}</i><span>{{ track.name }}<small>{{ observingStatus(track) }}</small></span><strong>{{ track.visible ? `${Math.round(track.altitude)}° ${bearing(track.azimuth)}` : '地平线下' }}</strong></span><span v-if="expandedBodyId !== track.id" class="track-rail" aria-hidden="true"><i v-for="segment in visibleSegments(track)" :key="`${segment.left}-${segment.width}`" :style="{ left: `${segment.left}%`, width: `${segment.width}%`, backgroundColor: track.tint }" /><i class="rail-current" :class="{ 'is-below': !(railCurrentMarkers.get(track.id)?.aboveHorizon ?? true) }" :style="{ left: `${railCurrentMarkers.get(track.id)?.left ?? 0}%`, '--chart-tint': track.tint }" /></span><svg v-else class="track-wave" viewBox="0 0 960 88" aria-hidden="true" :style="{ '--chart-tint': track.tint }"><line class="altitude-horizon" x1="0" y1="52" x2="960" y2="52" /><path v-for="(path, index) in expandedWave?.belowPaths ?? []" :key="`below-${index}`" class="altitude-below" :d="path" /><path v-for="(path, index) in expandedWave?.abovePaths ?? []" :key="`above-${index}`" class="altitude-above" :d="path" /><circle v-if="expandedWave" class="altitude-current" :class="{ 'is-below': !expandedWave.current.aboveHorizon }" :cx="expandedWave.current.x" :cy="expandedWave.current.y" r="5" /></svg></button><div v-if="expandedBodyId === track.id" :id="`track-detail-${track.id}`" class="track-detail" role="region" :aria-labelledby="`track-trigger-${track.id}`"><div class="track-detail-state"><span :style="{ backgroundColor: track.tint }" /><div><p>当前位置</p><h3>{{ observingStatus(track) }} · {{ Math.round(track.altitude) }}° 高度角</h3><small>方位角 {{ Math.round(track.azimuth) }}° · {{ bearing(track.azimuth) }}方</small></div></div><dl><div><dt>升起</dt><dd>{{ formatTime(track.rise) }}</dd></div><div><dt>中天</dt><dd>{{ formatTime(track.transit) }}</dd></div><div><dt>落下</dt><dd>{{ formatTime(track.set) }}</dd></div><div><dt>最佳高度</dt><dd>{{ formatTime(track.best) }}</dd></div><div v-if="track.id === 'moon'"><dt>月面亮度</dt><dd>{{ Math.round((track.illumination ?? 0) * 100) }}%</dd></div><div v-else-if="track.id !== 'sun'"><dt>视星等</dt><dd>{{ track.magnitude?.toFixed(1) ?? '—' }}</dd></div><div><dt>{{ track.id === 'moon' ? '地月距离' : '地心距离' }}</dt><dd>{{ formatDistance(track.distanceAu) }}</dd></div></dl><p class="track-caveat" v-if="track.id === 'sun'">太阳观测必须使用合格的全口径太阳滤镜；绝不可用裸眼、墨镜或未加滤镜的器材直视太阳。</p><p class="track-caveat" v-else-if="track.id === 'moon'">月面适合在明暗交界附近观察；满月虽明亮，地形阴影反而较少。</p><p class="track-caveat" v-else>实际可见性还取决于云层、曙暮光、地平线遮挡与本地光污染。</p><div class="track-detail-actions"><button type="button" @click="locateBody(track.id)">在星图定位</button></div></div></article></div>
+          <div class="time-axis"><div class="axis-labels"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div><article v-for="track in tracks" :key="track.id" class="time-track" :class="{ expanded: expandedBodyId === track.id }"><button :id="`track-trigger-${track.id}`" class="time-track-trigger" type="button" :aria-expanded="expandedBodyId === track.id" :aria-controls="`track-detail-${track.id}`" @click="selectBody(track.id)"><span class="time-track-label"><i :style="{ color: track.tint }">{{ track.glyph }}</i><span>{{ track.name }}<small>{{ observingStatus(track) }}</small></span><strong>{{ track.visible ? `${Math.round(track.altitude)}° ${bearing(track.azimuth)}` : '地平线下' }}</strong></span><span v-if="expandedBodyId !== track.id" class="track-rail" aria-hidden="true"><i v-for="segment in visibleSegments(track)" :key="`${segment.left}-${segment.width}`" :style="{ left: `${segment.left}%`, width: `${segment.width}%`, backgroundColor: track.tint }" /><i class="rail-current" :class="{ 'is-below': !(railCurrentMarkers.get(track.id)?.aboveHorizon ?? true) }" :style="{ left: `${railCurrentMarkers.get(track.id)?.left ?? 0}%`, '--chart-tint': track.tint }" /></span><svg v-else class="track-wave" viewBox="0 0 960 88" aria-hidden="true" :style="{ '--chart-tint': track.tint }"><line class="altitude-horizon" x1="0" y1="52" x2="960" y2="52" /><path v-for="(path, index) in expandedWave?.belowPaths ?? []" :key="`below-${index}`" class="altitude-below" :d="path" /><path v-for="(path, index) in expandedWave?.abovePaths ?? []" :key="`above-${index}`" class="altitude-above" :d="path" /><circle v-if="expandedWave" class="altitude-current" :class="{ 'is-below': !expandedWave.current.aboveHorizon }" :cx="expandedWave.current.x" :cy="expandedWave.current.y" r="5" /></svg></button><div v-if="expandedBodyId === track.id" :id="`track-detail-${track.id}`" class="track-detail" role="region" :aria-labelledby="`track-trigger-${track.id}`"><div class="track-detail-state"><span :style="{ backgroundColor: track.tint }" /><div><p>当前位置</p><h3>{{ observingStatus(track) }} · {{ Math.round(track.altitude) }}° 高度角</h3><small>方位角 {{ Math.round(track.azimuth) }}° · {{ bearing(track.azimuth) }}方</small></div></div><dl><div><dt>升起</dt><dd>{{ formatTime(track.rise) }}</dd></div><div><dt>中天</dt><dd>{{ formatTime(track.transit) }}</dd></div><div><dt>落下</dt><dd>{{ formatTime(track.set) }}</dd></div><div><dt>最佳高度</dt><dd>{{ formatTime(track.best) }}</dd></div><div v-if="track.id === 'moon'"><dt>月面亮度</dt><dd>{{ Math.round((track.illumination ?? 0) * 100) }}%</dd></div><div v-else-if="track.id !== 'sun'"><dt>视星等</dt><dd>{{ track.magnitude?.toFixed(1) ?? '—' }}</dd></div><div><dt>{{ track.id === 'moon' ? '地月距离' : '地心距离' }}</dt><dd>{{ formatDistance(track.distanceAu) }}</dd></div></dl><p class="track-caveat" v-if="track.id === 'sun'">太阳观测必须使用合格的全口径太阳滤镜；绝不可用裸眼、墨镜或未加滤镜的器材直视太阳。</p><p class="track-caveat" v-else-if="track.id === 'moon'">月面适合在明暗交界附近观察；满月虽明亮，地形阴影反而较少。</p><p class="track-caveat" v-else>实际可见性还取决于云层、曙暮光、地平线遮挡与本地光污染。</p><div class="track-detail-actions"><button type="button" :disabled="!track.visible" :title="track.visible ? '转动罗盘定位该天体' : '当前在地平线下，无法定位'" @click="locateBody(track.id)">在星图定位</button></div></div></article></div>
         </section>
 
       </section>
@@ -1124,7 +1135,8 @@ onBeforeUnmount(() => {
 .tonight-advice li small { display:block; margin-top:2px; color:var(--sky-muted); font-size:10px; }
 .tonight-advice li em { display:block; margin-top:4px; max-width:34ch; color:var(--sky-muted); font-size:9px; font-style:normal; line-height:1.5; }
 .tonight-advice li > button { align-self:center; padding:5px 10px; color:var(--sky-cyan); font-size:9px; white-space:nowrap; border:1px solid var(--sky-line); border-radius:6px; background:transparent; cursor:pointer; }
-.tonight-advice li > button:hover { border-color:rgba(157,184,232,.5); background:rgba(157,184,232,.08); }
+.tonight-advice li > button:hover:not(:disabled) { border-color:rgba(157,184,232,.5); background:rgba(157,184,232,.08); }
+.tonight-advice li > button:disabled { opacity:.35; cursor:not-allowed; }
 .tonight-advice > p { grid-column:1 / -1; margin:0; color:var(--sky-muted); font-size:12px; line-height:1.6; }
 .instrument-grid { display:grid; grid-template-columns:repeat(3,1fr); border:1px solid var(--sky-line); border-bottom:0; }
 .instrument-grid article { min-height:128px; padding:19px; border-right:1px solid var(--sky-line); border-bottom:1px solid var(--sky-line); }
@@ -1274,7 +1286,8 @@ onBeforeUnmount(() => {
 .track-caveat { grid-column:1; margin:0; color:var(--sky-muted); font-size:10px; line-height:1.6; align-self:end; max-width:66ch; padding-top:2px; }
 .track-detail-actions { display:flex; flex-wrap:wrap; align-items:start; justify-content:end; gap:8px; align-self:end; }
 .track-detail-actions button { padding:8px 10px; color:var(--sky-cyan); font-size:10px; border:1px solid var(--sky-line); background:transparent; cursor:pointer; }
-.track-detail-actions button:hover { background:color-mix(in srgb,var(--sky-cyan) 8%,transparent); }
+.track-detail-actions button:hover:not(:disabled) { background:color-mix(in srgb,var(--sky-cyan) 8%,transparent); }
+.track-detail-actions button:disabled { opacity:.35; cursor:not-allowed; }
 .track-detail-actions button:focus-visible { outline:1px solid var(--sky-cyan); outline-offset:2px; }
 
 /* 展开详情：高度角-时间曲线（从地平线下穿出、拱起、再回到地平线下） */
@@ -1307,7 +1320,7 @@ onBeforeUnmount(() => {
 .image-placeholder-grid p { margin:0; color:var(--sky-muted); font-size:11px; line-height:1.55; }
 
 /* ---------- 动画与响应式 ---------- */
-@keyframes body-arrive { from { opacity:0; transform:translate(-50%,6px); } to { opacity:1; transform:translate(-50%,0); } }
+@keyframes body-arrive { from { opacity:0; transform:translate(-50%,6px); } to { opacity:var(--body-opacity,1); transform:translate(-50%,0); } }
 @keyframes track-detail-reveal { from { opacity:.2; clip-path:inset(0 0 100% 0); } to { opacity:1; clip-path:inset(0 0 0 0); } }
 @keyframes wave-reveal { from { opacity:.35; clip-path:inset(0 100% 0 0); } to { opacity:1; clip-path:inset(0 0 0 0); } }
 @media (max-width:900px) {
