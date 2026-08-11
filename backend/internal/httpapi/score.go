@@ -11,7 +11,8 @@ import (
 // observingScoreHandler 提供观测评分：GET /api/v1/astronomy/score?latitude&longitude&at
 //   - latitude / longitude：必填；
 //   - at：可选，Unix 秒；缺省为当前时刻。
-// 评分由天气（能见度/云量/降水）+ 月光 + 光污染因子组成，见 observatory.ScoreObserving。
+//
+// 评分由动态天气（能见度/云量/降水）+ 月光组成；光污染作为地点长期环境数据单独返回。
 func observingScoreHandler(conditions observatory.ConditionsProvider, moons observatory.MoonProvider, lights observatory.LightPollutionProvider) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		latitude, err := coordinate(r.URL.Query().Get("latitude"), -90, 90)

@@ -23,7 +23,7 @@ func Router(repository *orbit.Repository, moonRepository *moon.Repository, marsR
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	router.Get("/api/v1/location/reverse", reverseLocationHandler(geocoder))
-	router.Get("/api/v1/astronomy/conditions", observingConditionsHandler(conditions, moons, lights))
+	router.Get("/api/v1/astronomy/conditions", observingConditionsHandler(conditions, moons))
 	router.Get("/api/v1/astronomy/moon", moonHandler(moons))
 	router.Get("/api/v1/astronomy/score", observingScoreHandler(conditions, moons, lights))
 	router.Get("/api/v1/astronomy/light-pollution", lightPollutionHandler(lights))

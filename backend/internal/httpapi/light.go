@@ -8,7 +8,7 @@ import (
 )
 
 // lightPollutionHandler 提供光污染数据：GET /api/v1/astronomy/light-pollution?latitude&longitude
-// 未配置数据源（缺 Key）时返回 503，评分同步降级为不含光污染因子。
+// 未配置数据源（缺 Key）时返回 503；动态观测评分不受影响。
 func lightPollutionHandler(lights observatory.LightPollutionProvider) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if lights == nil {

@@ -1,5 +1,6 @@
-// 观测评分：把天气（能见度/云量/降水）、月光与光污染结合，为指定时刻生成观测评分。
-// 公式与前端 SkyObservatory.vue 的启发式保持一致（50 基线 + 能见度加成 − 云量 − 月光 − 降水 − 光污染），
+// 观测评分：把会随时刻变化的天气（能见度/云量/降水）与月光结合，为指定时刻生成观测评分。
+// 公式与前端 SkyObservatory.vue 的启发式保持一致（50 基线 + 能见度加成 − 云量 − 月光 − 降水）。
+// 光污染是地点的长期环境基线，随结果返回供用户判断目标类型，但不参与动态评分。
 // 但加入时间维度：时刻落在未来 24 小时预报窗口内使用真实天气，窗口外降级为"仅星历"并明示。
 package observatory
 
@@ -11,11 +12,10 @@ import (
 
 // ScoreFactors 是评分的因子分解，前端可据此解释分数来源。
 type ScoreFactors struct {
-	VisibilityBonus       float64 `json:"visibilityBonus"`
-	CloudPenalty          float64 `json:"cloudPenalty"`
-	MoonPenalty           float64 `json:"moonPenalty"`
-	PrecipitationPenalty  float64 `json:"precipitationPenalty"`
-	LightPollutionPenalty float64 `json:"lightPollutionPenalty"`
+	VisibilityBonus      float64 `json:"visibilityBonus"`
+	CloudPenalty         float64 `json:"cloudPenalty"`
+	MoonPenalty          float64 `json:"moonPenalty"`
+	PrecipitationPenalty float64 `json:"precipitationPenalty"`
 }
 
 // ObservingScore 是一次观测评分结果。
@@ -41,7 +41,7 @@ type HourScore struct {
 }
 
 // ScoreObserving 计算指定时刻的观测评分。weather 失败时直接返回错误；
-// 光污染源未配置或失败时评分不含光污染因子（诚实降级，不伪造 Bortle/SQM）。
+// 光污染源未配置或失败时只省略长期环境数据，不改变动态评分。
 func ScoreObserving(ctx context.Context, conditions ConditionsProvider, moon MoonProvider, light LightPollutionProvider, latitude, longitude float64, at time.Time) (ObservingScore, error) {
 	report, err := conditions.Conditions(ctx, latitude, longitude)
 	if err != nil {
@@ -52,11 +52,10 @@ func ScoreObserving(ctx context.Context, conditions ConditionsProvider, moon Moo
 }
 
 // ScoreSeries 为逐小时预报生成每小时评分（单请求，供前端动态推荐）。
-func ScoreSeries(report Conditions, moon MoonProvider, light LightPollutionProvider, latitude, longitude float64) []HourScore {
+func ScoreSeries(report Conditions, moon MoonProvider, latitude, longitude float64) []HourScore {
 	if moon == nil || len(report.Hourly) == 0 {
 		return nil
 	}
-	lp := resolveLight(context.Background(), light, latitude, longitude)
 	location := time.UTC
 	if parsed, err := time.LoadLocation(report.Timezone); err == nil {
 		location = parsed
@@ -68,7 +67,7 @@ func ScoreSeries(report Conditions, moon MoonProvider, light LightPollutionProvi
 			continue
 		}
 		pointReport := Conditions{Timezone: report.Timezone, Elevation: report.Elevation, Hourly: []Hourly{hour}}
-		score := scoreFromReport(pointReport, moon, lp, latitude, longitude, parsed)
+		score := scoreFromReport(pointReport, moon, nil, latitude, longitude, parsed)
 		if score.Score == nil {
 			continue
 		}
@@ -112,15 +111,12 @@ func scoreFromReport(report Conditions, moon MoonProvider, lp *LightPollution, l
 		CloudPenalty:    selected.CloudCover * 0.52,
 	}
 	if result.MoonAboveHorizon {
-		factors.MoonPenalty = result.Moon.Illumination * 22
+		factors.MoonPenalty = moonPenaltyFrom(result.Moon.Illumination, moonAltitude)
 	}
 	if selected.Precipitation > 0 {
 		factors.PrecipitationPenalty = 18
 	}
-	if lp != nil {
-		factors.LightPollutionPenalty = lightPenaltyFrom(*lp)
-	}
-	raw := 50 + factors.VisibilityBonus - factors.CloudPenalty - factors.MoonPenalty - factors.PrecipitationPenalty - factors.LightPollutionPenalty
+	raw := 50 + factors.VisibilityBonus - factors.CloudPenalty - factors.MoonPenalty - factors.PrecipitationPenalty
 	score := int(math.Round(math.Max(0, math.Min(100, raw))))
 	result.Score = &score
 	result.Factors = factors
@@ -152,15 +148,15 @@ func weatherSnapshotAt(report Conditions, at time.Time) (Hourly, bool) {
 	}, true
 }
 
-// lightPenaltyFrom 把光污染换算为评分惩罚（0–30）：SQM 优先，其次 Bortle。
-func lightPenaltyFrom(lp LightPollution) float64 {
-	if lp.SQM > 0 {
-		return math.Max(0, math.Min(30, (22-lp.SQM)*6))
+// moonPenaltyFrom 让月光影响同时随亮面比例和高度角连续变化。
+// sin(高度角) 是用于观测建议的平滑权重，不是对实际天空辐亮度的物理建模；天顶达到最大 22 分。
+func moonPenaltyFrom(illumination, altitude float64) float64 {
+	if illumination <= 0 || altitude < moonRiseSetAltitude {
+		return 0
 	}
-	if lp.Bortle > 0 {
-		return math.Max(0, math.Min(30, (lp.Bortle-1)*4))
-	}
-	return 0
+	clampedAltitude := math.Max(0, math.Min(90, altitude))
+	altitudeFactor := math.Sin(clampedAltitude * math.Pi / 180)
+	return math.Max(0, math.Min(1, illumination)) * 22 * altitudeFactor
 }
 
 // scoreVerdict 与前端 scoreVerdict 的分档保持一致。

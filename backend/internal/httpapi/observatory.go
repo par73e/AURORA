@@ -8,7 +8,7 @@ import (
 	"aurora/backend/internal/observatory"
 )
 
-func observingConditionsHandler(provider observatory.ConditionsProvider, moons observatory.MoonProvider, lights observatory.LightPollutionProvider) http.HandlerFunc {
+func observingConditionsHandler(provider observatory.ConditionsProvider, moons observatory.MoonProvider) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		latitude, err := strconv.ParseFloat(r.URL.Query().Get("latitude"), 64)
 		if err != nil {
@@ -37,7 +37,7 @@ func observingConditionsHandler(provider observatory.ConditionsProvider, moons o
 		}
 		// 可选 scores=1 参数：追加逐小时观测评分（单请求，供动态推荐）。
 		if r.URL.Query().Get("scores") == "1" {
-			conditions.Scores = observatory.ScoreSeries(conditions, moons, lights, latitude, longitude)
+			conditions.Scores = observatory.ScoreSeries(conditions, moons, latitude, longitude)
 		}
 		writeJSON(w, http.StatusOK, conditions)
 	}

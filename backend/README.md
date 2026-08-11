@@ -78,7 +78,7 @@ AMAP_WEB_KEY=
 LIGHT_POLLUTION_DATA_PATH=data/light-pollution/viirs-2025-cn.avnl
 ```
 
-接口返回 NASA Black Marble 年度卫星辐射值、数据年份和分辨率。SQM/Bortle 是 AURORA 为评分生成的估算值，响应中的 `estimated: true` 会明确这一边界。未配置栅格时仍可使用旧的 `LIGHT_POLLUTION_KEY` QueryRaster 兼容方式；两者都不可用时，该因子诚实降级，不影响天气和星历功能。
+接口返回 NASA Black Marble 年度卫星辐射值、数据年份和分辨率。SQM/Bortle 是 AURORA 为理解夜空背景亮度生成的估算值，响应中的 `estimated: true` 会明确这一边界。光污染作为地点的长期环境参数单独展示，不计入随天气和月光变化的动态观测评分。未配置栅格时仍可使用旧的 `LIGHT_POLLUTION_KEY` QueryRaster 兼容方式；两者都不可用时只缺少光污染参考，不影响评分、天气和星历功能。
 
 默认连接：
 

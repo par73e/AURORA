@@ -1,4 +1,4 @@
-// 光污染集成：观测评分的光污染因子与 /astronomy/light-pollution 端点。
+// 光污染集成：提供地点长期环境基线与 /astronomy/light-pollution 端点。
 //
 // 数据诚实边界：VIIRS 的 radiance 是卫星实测的向上夜间辐射，SQM/Bortle 则是
 // 由辐射值推导的观测参考，不是地面仪器实测值。接口同时返回原始辐射、数据年份、
@@ -73,7 +73,7 @@ func (client *LightClient) Light(ctx context.Context, latitude, longitude float6
 	return estimatedLightPollution(radiance, "Light Pollution Map QueryRaster", 0, 0, client.now()), nil
 }
 
-// estimatedLightPollution 保留卫星实测辐射，并给出兼容现有评分的启发式 SQM/Bortle。
+// estimatedLightPollution 保留卫星实测辐射，并给出便于理解夜空背景亮度的启发式 SQM/Bortle。
 // 该换算没有模拟地形、大气和周边光源传播，因此必须始终标记为 estimated。
 func estimatedLightPollution(radiance float64, source string, dataYear, resolutionMeters int, retrievedAt time.Time) LightPollution {
 	sqm := 22.3 - 2.5*math.Log10(radiance+0.05)

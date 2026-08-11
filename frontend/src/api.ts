@@ -163,7 +163,6 @@ export interface ScoreFactors {
   cloudPenalty: number
   moonPenalty: number
   precipitationPenalty: number
-  lightPollutionPenalty: number
 }
 
 export interface ObservingScore {
@@ -180,7 +179,7 @@ export interface ObservingScore {
   lightPollution?: LightPollution
 }
 
-/** 后端观测评分（天气×月相×时刻，可选光污染因子）。 */
+/** 后端动态观测评分（天气×月相×时刻）；光污染作为地点长期环境数据单独返回。 */
 export function fetchObservingScore(latitude: number, longitude: number, at?: number, signal?: AbortSignal) {
   const search = new URLSearchParams({ latitude: latitude.toFixed(6), longitude: longitude.toFixed(6) })
   if (at) search.set('at', String(at))

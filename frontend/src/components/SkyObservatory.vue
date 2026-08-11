@@ -11,6 +11,7 @@ import { fetchObserverPlace, fetchObservingConditions, fetchMoonDay, fetchObserv
 import { analyzeNight, bearing, bodies, calculatePosition, calculateTrack, calculateTwilight, dateFromZonedLocalTime, daylightFactor, moonPhase, observeTips, observingStatus, upcomingMoonPhases, zonedDateAtMinute, zonedDateKey, zonedMinuteOfDay, type BodyId, type BodyTrack, type NightAnalysis } from '../astronomy'
 import { conditionDescription, weatherGlyph } from '../observatoryWeather'
 import { projectAltitudeGuide, projectHorizontalDirection, type SkyCamera } from '../skyProjection'
+import { easeOutExpo, normalizeAzimuth, shortestAzimuthDelta, skyTurnDuration } from '../skyMotion'
 import moonNearsideTexture from '../assets/solar/2k_moon.jpg'
 import AuroraBrand from './AuroraBrand.vue'
 import ObservatoryClock from './ObservatoryClock.vue'
@@ -40,6 +41,7 @@ const followingRealTime = ref(true)
 const minuteOfDay = ref(now.value.getHours() * 60 + now.value.getMinutes())
 const skyViewAzimuth = ref(180)
 const skyViewDragging = ref(false)
+const skyViewAutoTurning = ref(false)
 const locationLabel = ref('等待位置授权')
 const latitude = ref<number | null>(null)
 const longitude = ref<number | null>(null)
@@ -70,6 +72,7 @@ let skyViewStartX = 0
 let skyViewStartAzimuth = 180
 let skyViewAnimationFrame: number | undefined
 let pendingSkyViewAzimuth: number | undefined
+let skyViewTurnAnimationFrame: number | undefined
 const skyViewFieldOfView = 120
 const fallbackTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
 
@@ -229,17 +232,22 @@ const currentAir = computed(() => {
     return Math.abs(itemTime - target) < Math.abs(nearestTime - target) ? item : nearest
   })
 })
+function moonlightPenalty(illumination: number, altitude: number) {
+  if (illumination <= 0 || altitude < 0) return 0
+  const altitudeFactor = Math.sin(Math.min(90, altitude) * Math.PI / 180)
+  return Math.min(1, illumination) * 22 * altitudeFactor
+}
 const observingScore = computed(() => {
   const weather = displayedConditions.value
   if (!weather) return null
   const visibilityBonus = Math.min(24, weather.visibilityMeters / 1000 * 2.4)
   const cloudPenalty = weather.cloudCover * .52
-  const moonPenalty = moonTrack.value?.visible ? moon.value.illumination * 22 : 0
+  const moonPenalty = moonlightPenalty(moon.value.illumination, moonTrack.value?.altitude ?? -90)
   const precipitationPenalty = weather.precipitation > 0 ? 18 : 0
   return Math.max(0, Math.min(100, Math.round(50 + visibilityBonus - cloudPenalty - moonPenalty - precipitationPenalty)))
 })
 const scoreVerdict = computed(() => alignedBackendScore.value?.verdict ?? (observingScore.value == null ? '正在读取环境预报' : observingScore.value >= 70 ? '条件较好，适合安排观测' : observingScore.value >= 45 ? '条件一般，优先安排亮目标' : '条件受限，建议短时观察亮目标'))
-// 后端评分优先（含时刻维度与光污染因子），未就绪时退回本地启发式。
+// 后端动态评分优先（天气 + 月光），未就绪时退回本地同公式启发式；光污染单独展示。
 const scorePanel = computed(() => alignedBackendScore.value ? alignedBackendScore.value.score : observingScore.value)
 // 评分因子分解（"为什么是这个分"）：后端 ScoreFactors 优先（含时刻维度），
 // 未就绪或预报窗口外退回本地启发式——与后端公式完全一致，保证展示与评分同源。
@@ -258,10 +266,10 @@ const scoreFactors = computed<ScoreFactorPart[] | null>(() => {
     if (backend.factors.cloudPenalty > 0) parts.push({ key: 'cloud', label: '云量', value: -backend.factors.cloudPenalty, kind: 'penalty' })
     if (backend.factors.moonPenalty > 0) parts.push({ key: 'moon', label: '月光', value: -backend.factors.moonPenalty, kind: 'penalty' })
     if (backend.factors.precipitationPenalty > 0) parts.push({ key: 'precip', label: '降水', value: -backend.factors.precipitationPenalty, kind: 'penalty' })
-    if (backend.factors.lightPollutionPenalty > 0) parts.push({ key: 'light', label: '光污染', value: -backend.factors.lightPollutionPenalty, kind: 'penalty' })
   } else if (!backend && weather) {
     if (weather.cloudCover > 0) parts.push({ key: 'cloud', label: '云量', value: -weather.cloudCover * .52, kind: 'penalty' })
-    if (moonTrack.value?.visible && moon.value.illumination > 0) parts.push({ key: 'moon', label: '月光', value: -moon.value.illumination * 22, kind: 'penalty' })
+    const moonPenalty = moonlightPenalty(moon.value.illumination, moonTrack.value?.altitude ?? -90)
+    if (moonPenalty > 0) parts.push({ key: 'moon', label: '月光', value: -moonPenalty, kind: 'penalty' })
     if (weather.precipitation > 0) parts.push({ key: 'precip', label: '降水', value: -18, kind: 'penalty' })
   }
   return parts
@@ -295,16 +303,14 @@ const equipmentOptions = [
   { id: 'telescope' as const, label: '望远镜', magnitudeLimit: Infinity, note: '全部九体' },
 ]
 const equipmentNote = computed(() => equipmentOptions.find((item) => item.id === equipment.value)?.note ?? '')
-// 推荐目标 → 星图定位：切到星图页、把地平视场转到该天体当前方位、并展开该行详情。
+// 推荐目标 → 星图定位：切到星图页、平滑转动罗盘到该天体当前方位、并展开该行详情。
 function locateRecommendedBody(body: BodyId) {
   const track = tracks.value.find((item) => item.id === body)
   // 与星图页"在星图定位"一致：当前在地平线以下的天体无法定位，直接忽略。
   if (!track || !track.visible) return
   if (activePage.value !== 'sky') selectPage('sky')
-  cancelPendingSkyView()
-  skyViewAzimuth.value = Math.round(track.azimuth)
   expandedBodyId.value = body
-  window.setTimeout(() => document.querySelector('.horizon-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0)
+  revealSkyDirection(track.azimuth)
 }
 const recommendation = computed(() => {
   const hourly = conditions.value?.scores ?? []
@@ -675,10 +681,6 @@ function altitudeCurve(track: BodyTrack, metrics: AltitudeChartMetrics): Altitud
   }
 }
 
-function normalizeAzimuth(value: number) {
-  return (value % 360 + 360) % 360
-}
-
 function horizonStyle(track: BodyTrack) {
   const projection = projectHorizontalDirection(track.azimuth, track.altitude, skyCamera.value)
   // 太阳恒为不透明；其余天体白天也标注位置：正午（daylight=1）保持 50%，
@@ -746,17 +748,61 @@ function cancelPendingSkyView() {
   pendingSkyViewAzimuth = undefined
 }
 
+function cancelSkyViewTurn() {
+  if (skyViewTurnAnimationFrame !== undefined) cancelAnimationFrame(skyViewTurnAnimationFrame)
+  skyViewTurnAnimationFrame = undefined
+  skyViewAutoTurning.value = false
+}
+
+function animateSkyViewTo(targetAzimuth: number) {
+  cancelPendingSkyView()
+  cancelSkyViewTurn()
+  const start = skyViewAzimuth.value
+  const delta = shortestAzimuthDelta(start, targetAzimuth)
+  if (Math.abs(delta) < .01 || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    skyViewAzimuth.value = normalizeAzimuth(targetAzimuth)
+    return
+  }
+
+  const duration = skyTurnDuration(delta)
+  const startedAt = performance.now()
+  skyViewAutoTurning.value = true
+  const step = (timestamp: number) => {
+    const progress = Math.min(1, (timestamp - startedAt) / duration)
+    skyViewAzimuth.value = normalizeAzimuth(start + delta * easeOutExpo(progress))
+    if (progress < 1) {
+      skyViewTurnAnimationFrame = requestAnimationFrame(step)
+    } else {
+      skyViewTurnAnimationFrame = undefined
+      skyViewAutoTurning.value = false
+      skyViewAzimuth.value = normalizeAzimuth(targetAzimuth)
+    }
+  }
+  skyViewTurnAnimationFrame = requestAnimationFrame(step)
+}
+
+function revealSkyDirection(targetAzimuth: number) {
+  window.setTimeout(() => {
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    document.querySelector('.horizon-section')?.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' })
+    requestAnimationFrame(() => animateSkyViewTo(targetAzimuth))
+  }, 0)
+}
+
 function rotateSkyView(change: number) {
+  cancelSkyViewTurn()
   scheduleSkyView((pendingSkyViewAzimuth ?? skyViewAzimuth.value) + change)
 }
 
 function turnSkyViewByWheel(event: WheelEvent) {
+  cancelSkyViewTurn()
   const movement = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY
   rotateSkyView(movement * .08)
 }
 
 function beginSkyViewDrag(event: PointerEvent) {
   if (!activeCoordinates.value) return
+  cancelSkyViewTurn()
   flushPendingSkyView()
   skyViewDragging.value = true
   skyViewStartX = event.clientX
@@ -778,6 +824,7 @@ function endSkyViewDrag(event: PointerEvent) {
 }
 
 function selectPage(page: SkyPage) {
+  if (page !== 'sky') cancelSkyViewTurn()
   activePage.value = page
   window.history.pushState(null, '', `#astronomy-${page}`)
   document.querySelector('.sky-content-scroll')?.scrollTo({ top: 0, behavior: 'smooth' })
@@ -797,12 +844,10 @@ function revealBody(body: BodyId) {
 
 function locateBody(body: BodyId) {
   const track = tracks.value.find((item) => item.id === body)
-  // 只有当前在地平线以上的天体才值得定位：转罗盘到其方位，再展开行并滚动到视场。
+  // 只有当前在地平线以上的天体才值得定位：平滑转动罗盘到其方位，再滚动到视场。
   if (!track || !track.visible) return
-  cancelPendingSkyView()
-  skyViewAzimuth.value = Math.round(track.azimuth)
   expandedBodyId.value = body
-  window.setTimeout(() => document.querySelector('.horizon-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0)
+  revealSkyDirection(track.azimuth)
 }
 
 function stopMinuteAnimation() {
@@ -1031,6 +1076,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('popstate', onPopState)
   if (minuteClock !== undefined) window.clearInterval(minuteClock)
   cancelPendingSkyView()
+  cancelSkyViewTurn()
   cancelPendingTimeScrub()
   stopMinuteAnimation()
 })
@@ -1054,7 +1100,7 @@ onBeforeUnmount(() => {
         </button>
       </nav>
 
-      <div class="sidebar-source"><span />{{ activeCoordinates ? '本地星历计算 · 实时地点' : '需要地点以计算本地天空' }}</div>
+      <div class="sidebar-source"><span />{{ activeCoordinates ? '本地星历计算' : '需要地点以计算本地天空' }}</div>
       <ObservatoryClock :timezone="observatoryTimezone" />
     </aside>
 
@@ -1100,7 +1146,7 @@ onBeforeUnmount(() => {
           <p v-else-if="recommendation" class="observing-targets-empty">{{ recommendation.weatherAvailable ? '未来 24 小时天气与月光条件有限，建议短时观察亮目标，或改日再安排。' : '天文夜内暂无可观测的亮目标，可切换器材或改日再安排。' }}</p>
 
           <div class="current-observation">
-            <header><div><p>CONDITION SNAPSHOT / {{ conditionsMomentLabel }}</p><h3>{{ conditionsMomentLabel }}观测环境</h3></div><span v-if="displayedConditions">{{ displayedConditions.time.slice(11, 16) }} · {{ conditions?.source }}</span><span v-else>等待环境数据</span></header>
+            <header><div><p>CONDITION SNAPSHOT / {{ conditionsMomentLabel }}</p><h3>{{ followingRealTime ? '当前' : '预览' }}观测环境</h3></div><span v-if="displayedConditions">{{ displayedConditions.time.slice(11, 16) }} · {{ conditions?.source }}</span><span v-else>等待环境数据</span></header>
             <div class="instrument-grid" :aria-label="`${conditionsMomentLabel}观测条件`">
               <article><span>总云量</span><strong>{{ displayedConditions ? `${Math.round(displayedConditions.cloudCover)}%` : '—' }}</strong><small>低 / 中 / 高云详见下方预报</small></article>
               <article><span>能见度</span><strong>{{ displayedConditions ? `${(displayedConditions.visibilityMeters / 1000).toFixed(1)} km` : '—' }}</strong><small>影响暗星与银河辨识</small></article>
@@ -1109,7 +1155,7 @@ onBeforeUnmount(() => {
               <article><span>风速 / 阵风</span><strong>{{ displayedConditions ? `${Math.round(displayedConditions.windSpeed)} / ${Math.round(displayedConditions.windGusts)}` : '—' }}<b v-if="displayedConditions"> km/h</b></strong><small>影响脚架稳定与体感</small></article>
               <article><span>降水</span><strong>{{ displayedConditions ? `${displayedConditions.precipitation.toFixed(1)} mm` : '—' }}</strong><small>{{ conditionsMomentLabel }}预报时段</small></article>
               <article><span>PM₂.₅ / 气溶胶</span><strong>{{ currentAir ? `${Math.round(currentAir.pm25)} μg/m³` : '—' }}</strong><small>{{ currentAir ? `AOD ${currentAir.aerosolOpticalDepth.toFixed(2)} · 透明度参考` : '空气质量源暂不可用' }}</small></article>
-              <article class="light-reading" :title="lightPollution ? `${lightPollution.source} · 辐射 ${lightPollution.radiance.toFixed(1)} ${lightPollution.radianceUnit} · SQM/Bortle 为模型估算` : '当前位置暂无年度卫星光污染数据'"><span>光污染</span><strong>{{ lightPollution ? `Bortle ≈ ${lightPollution.bortle}` : '—' }}</strong><small>{{ lightPollution ? `SQM ≈ ${lightPollution.sqm.toFixed(1)} · VIIRS ${lightPollution.dataYear ?? ''}` : '年度卫星数据暂不可用' }}</small></article>
+              <article class="light-reading" :title="lightPollution ? `${lightPollution.source} · 辐射 ${lightPollution.radiance.toFixed(1)} ${lightPollution.radianceUnit} · SQM/Bortle 为模型估算 · 不计入动态评分` : '当前位置暂无年度卫星光污染数据'"><span>光污染 · 长期环境</span><strong>{{ lightPollution ? `Bortle ≈ ${lightPollution.bortle}` : '—' }}</strong><small>{{ lightPollution ? `SQM ≈ ${lightPollution.sqm.toFixed(1)} · VIIRS ${lightPollution.dataYear ?? ''} · 不计入动态评分` : '年度卫星数据暂不可用' }}</small></article>
             </div>
           </div>
         </section>
@@ -1160,7 +1206,7 @@ onBeforeUnmount(() => {
       <section v-else-if="activePage === 'sky'" class="sky-map-page page-stack">
         <div class="section-heading"><h2>星图</h2></div>
         <section class="horizon-section">
-          <div class="horizon-field" :class="{ 'has-location': activeCoordinates, 'is-dragging': skyViewDragging }" :style="horizonFieldStyle" @pointerdown="beginSkyViewDrag" @pointermove="dragSkyView" @pointerup="endSkyViewDrag" @pointercancel="endSkyViewDrag">
+          <div class="horizon-field" :class="{ 'has-location': activeCoordinates, 'is-dragging': skyViewDragging, 'is-auto-turning': skyViewAutoTurning }" :style="horizonFieldStyle" @pointerdown="beginSkyViewDrag" @pointermove="dragSkyView" @pointerup="endSkyViewDrag" @pointercancel="endSkyViewDrag">
             <div class="sky-night" aria-hidden="true" />
             <div class="star-grain" aria-hidden="true" />
             <svg class="altitude-guides" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true">
