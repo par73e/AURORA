@@ -31,6 +31,10 @@ func lightPollutionHandler(lights observatory.LightPollutionProvider) http.Handl
 				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "光污染数据源尚未配置"})
 				return
 			}
+			if errors.Is(err, observatory.ErrNoCoverage) {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "当前位置不在光污染栅格覆盖范围内"})
+				return
+			}
 			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "暂时无法读取光污染数据"})
 			return
 		}

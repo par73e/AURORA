@@ -8,11 +8,12 @@ import (
 )
 
 type Config struct {
-	Port              string
-	DatabaseURL       string
-	AMapWebKey        string
-	LightPollutionKey string
-	LightPollutionURL string
+	Port                   string
+	DatabaseURL            string
+	AMapWebKey             string
+	LightPollutionKey      string
+	LightPollutionURL      string
+	LightPollutionDataPath string
 }
 
 func Load() Config {
@@ -31,10 +32,11 @@ func Load() Config {
 	}
 
 	return Config{
-		Port:              port,
-		DatabaseURL:       databaseURL,
-		AMapWebKey:        os.Getenv("AMAP_WEB_KEY"),
-		LightPollutionKey: os.Getenv("LIGHT_POLLUTION_KEY"),
-		LightPollutionURL: os.Getenv("LIGHT_POLLUTION_URL"),
+		Port:                   port,
+		DatabaseURL:            databaseURL,
+		AMapWebKey:             os.Getenv("AMAP_WEB_KEY"),
+		LightPollutionKey:      os.Getenv("LIGHT_POLLUTION_KEY"),
+		LightPollutionURL:      os.Getenv("LIGHT_POLLUTION_URL"),
+		LightPollutionDataPath: os.Getenv("LIGHT_POLLUTION_DATA_PATH"),
 	}
 }

@@ -3,6 +3,10 @@ frontend/dist/
 frontend/.env.local
 frontend/*.tsbuildinfo
 backend/.env
+backend/data/light-pollution/*.avnl
+backend/data/light-pollution/*.tif
+backend/data/light-pollution/*.tiff
+backend/data/light-pollution/*.zip
 .pnpm-store/
 .impeccable/
 .DS_Store

@@ -18,8 +18,8 @@ import (
 	observerlocation "aurora/backend/internal/location"
 	"aurora/backend/internal/mars"
 	"aurora/backend/internal/moon"
-	"aurora/backend/internal/orbit"
 	"aurora/backend/internal/observatory"
+	"aurora/backend/internal/orbit"
 	"aurora/backend/internal/syncer"
 	"aurora/backend/internal/voyage"
 	"github.com/joho/godotenv"
@@ -49,9 +49,19 @@ func main() {
 	geocoder := observerlocation.NewAMapClient(cfg.AMapWebKey)
 	conditions := observatory.NewClient()
 	moons := observatory.NewMoonService()
-	lights := observatory.NewLightPollutionClient(cfg.LightPollutionKey)
+	var lights observatory.LightPollutionProvider = observatory.NewLightPollutionClient(cfg.LightPollutionKey)
 	if cfg.LightPollutionURL != "" {
 		lights = observatory.NewLightPollutionClientWithURLs(cfg.LightPollutionKey, cfg.LightPollutionURL, &http.Client{Timeout: 8 * time.Second})
+	}
+	if cfg.LightPollutionDataPath != "" {
+		rasterLights, rasterErr := observatory.OpenRasterLightProvider(cfg.LightPollutionDataPath)
+		if rasterErr != nil {
+			slog.Warn("local light pollution raster unavailable; using configured fallback", "path", cfg.LightPollutionDataPath, "error", rasterErr)
+		} else {
+			lights = rasterLights
+			defer rasterLights.Close()
+			slog.Info("local VIIRS light pollution raster loaded", "path", cfg.LightPollutionDataPath)
+		}
 	}
 	dataSyncer := syncer.NewWithMoonVoyageMars(repository, moonRepository, marsRepository, voyageRepository)
 

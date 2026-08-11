@@ -1,11 +1,8 @@
 // 光污染集成：观测评分的光污染因子与 /astronomy/light-pollution 端点。
 //
-// 数据诚实边界：本项目不为没有实测来源的光污染伪造 Bortle/SQM 值。本模块提供
-// LightPollutionProvider 接口与可配置客户端（Light Pollution Map QueryRaster，
-// 需 API Key，配置于 LIGHT_POLLUTION_KEY / LIGHT_POLLUTION_URL）：
-//   - 未配置 Key 时返回 ErrNotConfigured，评分不含光污染因子，接口返回 503；
-//   - 配置 Key 后按所设服务拉取夜间灯光辐射值并换算为 SQM/Bortle（换算公式
-//     已单测覆盖；服务端响应契约以所用服务实际返回为准）。
+// 数据诚实边界：VIIRS 的 radiance 是卫星实测的向上夜间辐射，SQM/Bortle 则是
+// 由辐射值推导的观测参考，不是地面仪器实测值。接口同时返回原始辐射、数据年份、
+// 分辨率和 estimated 标记，避免把估算值包装成实时实测。
 package observatory
 
 import (
@@ -27,10 +24,16 @@ var ErrNotConfigured = errors.New("light pollution source is not configured")
 
 // LightPollution 是光污染数据：Bortle 等级与天顶亮度。
 type LightPollution struct {
-	Bortle      float64 `json:"bortle"` // 1（最暗）– 9（城市中心）
-	SQM         float64 `json:"sqm"`    // 天顶天空亮度 mag/arcsec²（约 17–22）
-	Source      string  `json:"source"`
-	RetrievedAt int64   `json:"retrievedAt"`
+	Bortle           float64 `json:"bortle"`       // 1（最暗）– 9（城市中心），估算
+	SQM              float64 `json:"sqm"`          // mag/arcsec²，估算
+	Radiance         float64 `json:"radiance"`     // VIIRS 年度合成辐射值
+	RadianceUnit     string  `json:"radianceUnit"` // nW/cm²/sr
+	DataYear         int     `json:"dataYear,omitempty"`
+	ResolutionMeters int     `json:"resolutionMeters,omitempty"`
+	Estimated        bool    `json:"estimated"`
+	Model            string  `json:"model,omitempty"`
+	Source           string  `json:"source"`
+	RetrievedAt      int64   `json:"retrievedAt"`
 }
 
 // LightPollutionProvider 提供指定地点的光污染数据。
@@ -64,18 +67,31 @@ func (client *LightClient) Light(ctx context.Context, latitude, longitude float6
 	if err != nil {
 		return LightPollution{}, err
 	}
-	// 夜间灯光辐射（nW/cm²/sr）→ 天顶亮度 SQM（mag/arcsec²）。
-	// 采用文献常用的对数拟合（暗空 SQM≈22 对应极小辐射），属于估算而非实测。
+	if !isFinite(radiance) || radiance < 0 {
+		return LightPollution{}, errors.New("light pollution source returned invalid radiance")
+	}
+	return estimatedLightPollution(radiance, "Light Pollution Map QueryRaster", 0, 0, client.now()), nil
+}
+
+// estimatedLightPollution 保留卫星实测辐射，并给出兼容现有评分的启发式 SQM/Bortle。
+// 该换算没有模拟地形、大气和周边光源传播，因此必须始终标记为 estimated。
+func estimatedLightPollution(radiance float64, source string, dataYear, resolutionMeters int, retrievedAt time.Time) LightPollution {
 	sqm := 22.3 - 2.5*math.Log10(radiance+0.05)
 	if sqm > 22.3 {
 		sqm = 22.3
 	}
 	return LightPollution{
-		Bortle:      sqmToBortle(sqm),
-		SQM:         math.Round(sqm*100) / 100,
-		Source:      "Light Pollution Map (VIIRS 夜间灯光，估算)",
-		RetrievedAt: client.now().UTC().Unix(),
-	}, nil
+		Bortle:           sqmToBortle(sqm),
+		SQM:              math.Round(sqm*100) / 100,
+		Radiance:         math.Round(radiance*100) / 100,
+		RadianceUnit:     "nW/cm²/sr",
+		DataYear:         dataYear,
+		ResolutionMeters: resolutionMeters,
+		Estimated:        true,
+		Model:            "AURORA VIIRS radiance heuristic v1",
+		Source:           source,
+		RetrievedAt:      retrievedAt.UTC().Unix(),
+	}
 }
 
 func (client *LightClient) queryRadiance(ctx context.Context, latitude, longitude float64) (float64, error) {

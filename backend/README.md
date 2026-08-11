@@ -72,6 +72,14 @@ AMAP_WEB_KEY=
 
 `.env` 只用于本机且不会提交到 Git；生产环境应由部署系统注入 `AMAP_WEB_KEY`。Key 缺失时其他 API 仍能启动，只有地点解析接口会返回“定位服务尚未配置”。
 
+天文观测的光污染优先读取本地 VIIRS 年度栅格，不需要第三方 API Key。数据准备步骤见 [`data/light-pollution/README.md`](data/light-pollution/README.md)，生成文件后配置：
+
+```env
+LIGHT_POLLUTION_DATA_PATH=data/light-pollution/viirs-2025-cn.avnl
+```
+
+接口返回 NASA Black Marble 年度卫星辐射值、数据年份和分辨率。SQM/Bortle 是 AURORA 为评分生成的估算值，响应中的 `estimated: true` 会明确这一边界。未配置栅格时仍可使用旧的 `LIGHT_POLLUTION_KEY` QueryRaster 兼容方式；两者都不可用时，该因子诚实降级，不影响天气和星历功能。
+
 默认连接：
 
 - API：`http://localhost:8080`
@@ -89,5 +97,6 @@ PORT=8081 DATABASE_URL='postgres://user:password@localhost:5432/aurora?sslmode=d
 
 - `GET /api/health`：检查服务和数据库是否可用。
 - `GET /api/v1/orbit/overview`：返回航天器、最新轨道数据、发射场、未来 30 天事件及数据新鲜度。
+- `GET /api/v1/astronomy/light-pollution?latitude&longitude`：返回年度 VIIRS 辐射和估算光污染等级。
 
 当前暂时没有写入类接口，也没有登录。未来增加账号时，可以新增独立的 `internal/identity` 模块和用户表，不需要让轨道数据依附于用户表。

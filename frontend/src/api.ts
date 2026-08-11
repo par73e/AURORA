@@ -175,7 +175,7 @@ export interface ObservingScore {
   factors: ScoreFactors
   weather: ObservingConditions['hourly'][number] | null
   moon: MoonPhaseSnapshot
-  lightPollution?: { bortle: number; sqm: number; source: string; retrievedAt: number }
+  lightPollution?: LightPollution
 }
 
 /** 后端观测评分（天气×月相×时刻，可选光污染因子）。 */
@@ -188,11 +188,17 @@ export function fetchObservingScore(latitude: number, longitude: number, at?: nu
 export interface LightPollution {
   bortle: number
   sqm: number
+  radiance: number
+  radianceUnit: string
+  dataYear?: number
+  resolutionMeters?: number
+  estimated: boolean
+  model?: string
   source: string
   retrievedAt: number
 }
 
-/** 光污染数据（未配置数据源时后端返回 503）。 */
+/** 年度卫星辐射与估算光污染；未配置或超出本地栅格覆盖时返回 null。 */
 export async function fetchLightPollution(latitude: number, longitude: number, signal?: AbortSignal): Promise<LightPollution | null> {
   const search = new URLSearchParams({ latitude: latitude.toFixed(6), longitude: longitude.toFixed(6) })
   try {
