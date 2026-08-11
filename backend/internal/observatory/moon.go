@@ -37,8 +37,8 @@ type MoonPhaseResult struct {
 // MoonDay 是月相板块每日数据：本地日期、相位快照与当天的月出/月落/中天。
 // 时间字段为 Unix 秒（UTC 绝对时刻），由客户端在本地时区展示。
 type MoonDay struct {
-	Date     string  `json:"date"`     // 数据所属的本地日期 YYYY-MM-DD（按 timezone 计算）
-	Timezone string  `json:"timezone"` // IANA 时区名
+	Date     string `json:"date"`     // 数据所属的本地日期 YYYY-MM-DD（按 timezone 计算）
+	Timezone string `json:"timezone"` // IANA 时区名
 	MoonPhaseResult
 	Moonrise   *int64 `json:"moonrise"` // 本地日内月出（Unix 秒）；极区当日可能无
 	Moonset    *int64 `json:"moonset"`
@@ -50,6 +50,7 @@ type MoonDay struct {
 type MoonProvider interface {
 	Day(latitude, longitude, elevation float64, at time.Time, timezone string) (MoonDay, error)
 	Phase(at time.Time) MoonPhaseResult
+	Altitude(latitude, longitude, elevation float64, at time.Time) float64
 }
 
 // MoonService 提供每日缓存的月相数据与任意时刻的相位快照。
@@ -108,6 +109,12 @@ func (s *MoonService) Phase(at time.Time) MoonPhaseResult {
 	return moonPhaseAt(at)
 }
 
+// Altitude 返回指定地点与时刻的月球地平高度角（度），包含地心视差修正。
+// 评分使用与月出月落计算相同的 moonRiseSetAltitude 阈值，避免月亮落下后仍扣月光分。
+func (s *MoonService) Altitude(latitude, longitude, elevation float64, at time.Time) float64 {
+	return moonAltitude(latitude, longitude, elevation, at)
+}
+
 // computeMoonDay 计算 at 所在本地日期（location）内的月相与升落中天。
 func computeMoonDay(latitude, longitude, elevation float64, at time.Time, location *time.Location) MoonDay {
 	local := at.In(location)
@@ -117,13 +124,13 @@ func computeMoonDay(latitude, longitude, elevation float64, at time.Time, locati
 	moonrise, moonset := moonRiseSet(latitude, longitude, elevation, start, end)
 	transit := moonTransit(latitude, longitude, elevation, start, end)
 	return MoonDay{
-		Date:           local.Format("2006-01-02"),
-		Timezone:       location.String(),
+		Date:            local.Format("2006-01-02"),
+		Timezone:        location.String(),
 		MoonPhaseResult: phase,
-		Moonrise:       moonrise,
-		Moonset:        moonset,
-		Transit:        transit,
-		ComputedAt:     at.Unix(),
+		Moonrise:        moonrise,
+		Moonset:         moonset,
+		Transit:         transit,
+		ComputedAt:      at.Unix(),
 	}
 }
 

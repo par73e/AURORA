@@ -15,10 +15,17 @@ func (s stubConditions) Conditions(_ context.Context, _, _ float64) (Conditions,
 }
 
 type stubMoon struct {
-	result MoonPhaseResult
+	result   MoonPhaseResult
+	altitude float64
 }
 
 func (s stubMoon) Phase(_ time.Time) MoonPhaseResult { return s.result }
+func (s stubMoon) Altitude(_, _, _ float64, _ time.Time) float64 {
+	if s.altitude == 0 {
+		return 30
+	}
+	return s.altitude
+}
 func (s stubMoon) Day(_, _, _ float64, _ time.Time, _ string) (MoonDay, error) {
 	return MoonDay{}, nil
 }
@@ -152,7 +159,7 @@ func TestScoreSeries(t *testing.T) {
 	conditions := stubConditions{report: Conditions{Timezone: "Asia/Shanghai", Hourly: hourly}}
 	moon := stubMoon{result: MoonPhaseResult{Illumination: 0.25}}
 
-	scores := ScoreSeries(conditions.report.Hourly, conditions.report.Timezone, moon, nil, 31.23, 121.47)
+	scores := ScoreSeries(conditions.report, moon, nil, 31.23, 121.47)
 	if len(scores) != len(hourly) {
 		t.Fatalf("scores 长度 = %d，期望 %d", len(scores), len(hourly))
 	}
@@ -164,6 +171,44 @@ func TestScoreSeries(t *testing.T) {
 		if score.Time != hourly[index].Time {
 			t.Errorf("scores[%d].time = %q，期望 %q", index, score.Time, hourly[index].Time)
 		}
+	}
+}
+
+func TestScoreObservingUsesCurrentSnapshotNearNow(t *testing.T) {
+	hourly := shanghaiHourly()
+	hourly[2].Precipitation = 2.4 // 整点预报有雨，但 10:15 current 已无降水。
+	conditions := stubConditions{report: Conditions{
+		Timezone: "Asia/Shanghai",
+		Current: Current{
+			Time: "2026-08-09T10:15", VisibilityMeters: 20000, CloudCover: 10, Precipitation: 0,
+		},
+		Hourly: hourly,
+	}}
+	moon := stubMoon{result: MoonPhaseResult{Illumination: 0.25}}
+	score, err := ScoreObserving(context.Background(), conditions, moon, nil, 31.23, 121.47, unixTime("2026-08-09T02:15:00Z"))
+	if err != nil {
+		t.Fatalf("ScoreObserving error: %v", err)
+	}
+	if score.Weather == nil || score.Weather.Time != "2026-08-09T10:15" {
+		t.Fatalf("评分应使用 current 快照，得到 %+v", score.Weather)
+	}
+	if score.Factors.PrecipitationPenalty != 0 {
+		t.Fatalf("current 无降水时不应沿用整点降水扣分，得到 %+v", score.Factors)
+	}
+}
+
+func TestScoreObservingMoonBelowHorizonHasNoMoonPenalty(t *testing.T) {
+	conditions := stubConditions{report: Conditions{Timezone: "Asia/Shanghai", Hourly: shanghaiHourly()}}
+	moon := stubMoon{result: MoonPhaseResult{Illumination: 1}, altitude: -10}
+	score, err := ScoreObserving(context.Background(), conditions, moon, nil, 31.23, 121.47, unixTime("2026-08-09T02:00:00Z"))
+	if err != nil {
+		t.Fatalf("ScoreObserving error: %v", err)
+	}
+	if score.MoonAboveHorizon || score.Factors.MoonPenalty != 0 {
+		t.Fatalf("月亮在地平线下不应扣月光分，得到 altitude=%v factors=%+v", score.MoonAltitude, score.Factors)
+	}
+	if score.Score == nil || *score.Score != 69 {
+		t.Fatalf("无月光扣分时 score=%v，期望 69", score.Score)
 	}
 }
 

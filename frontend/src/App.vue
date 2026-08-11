@@ -1830,7 +1830,10 @@ onMounted(() => {
   window.addEventListener('keydown', registerHeaderActivity)
   window.addEventListener('scroll', handlePageScroll, { passive: true })
   // 不监听 hashchange：与 popstate 竞争会跳过渐暗动画（见 syncSurfaceFromHash 说明）
-  clock = window.setInterval(() => { now.value = new Date() }, 1000)
+  // SKY 有自己的分钟级星历时钟；停留在 SKY 时不要让 App 根节点每秒参与更新。
+  clock = window.setInterval(() => {
+    if (surface.value !== 'sky') now.value = new Date()
+  }, 1000)
 })
 onBeforeUnmount(() => {
   if (clock) window.clearInterval(clock)

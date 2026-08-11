@@ -37,7 +37,7 @@ func observingConditionsHandler(provider observatory.ConditionsProvider, moons o
 		}
 		// 可选 scores=1 参数：追加逐小时观测评分（单请求，供动态推荐）。
 		if r.URL.Query().Get("scores") == "1" {
-			conditions.Scores = observatory.ScoreSeries(conditions.Hourly, conditions.Timezone, moons, lights, latitude, longitude)
+			conditions.Scores = observatory.ScoreSeries(conditions, moons, lights, latitude, longitude)
 		}
 		writeJSON(w, http.StatusOK, conditions)
 	}

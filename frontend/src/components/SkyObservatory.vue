@@ -8,10 +8,12 @@ FORM: desktop field observatory; three focused workspaces share one clock, one l
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { fetchObserverPlace, fetchObservingConditions, fetchMoonDay, fetchObservingScore, fetchLightPollution, type ObservingConditions, type MoonDay, type ObservingScore, type LightPollution } from '../api'
-import { bodies, bearing, calculatePosition, calculateTrack, calculateTwilight, daylightFactor, moonPhase, observeTips, observingStatus, upcomingMoonPhases, analyzeNight, type BodyId, type BodyTrack, type NightAnalysis } from '../astronomy'
+import { analyzeNight, bearing, bodies, calculatePosition, calculateTrack, calculateTwilight, dateFromZonedLocalTime, daylightFactor, moonPhase, observeTips, observingStatus, upcomingMoonPhases, zonedDateAtMinute, zonedDateKey, zonedMinuteOfDay, type BodyId, type BodyTrack, type NightAnalysis } from '../astronomy'
+import { conditionDescription, weatherGlyph } from '../observatoryWeather'
 import { projectAltitudeGuide, projectHorizontalDirection, type SkyCamera } from '../skyProjection'
 import moonNearsideTexture from '../assets/solar/2k_moon.jpg'
 import AuroraBrand from './AuroraBrand.vue'
+import ObservatoryClock from './ObservatoryClock.vue'
 
 type SkyPage = 'conditions' | 'sky' | 'events'
 
@@ -32,8 +34,6 @@ function pageFromHash(): SkyPage {
 
 const activePage = ref<SkyPage>(pageFromHash())
 const now = ref(new Date())
-// 侧栏时钟：独立于仿真时钟，每秒更新只驱动秒数显示，避免全页星历每秒重算。
-const wallClock = ref(new Date())
 // 仿真时钟跟随真实时间：进度条每分钟前进一格、行星位置随之移动。
 // 用户拖动进度条时暂停跟随（预览未来/过去时刻）；点"现在"恢复。
 const followingRealTime = ref(true)
@@ -55,8 +55,10 @@ let scoreController: AbortController | undefined
 const expandedBodyId = ref<BodyId | null>(null)
 const skyLeaving = ref(false)
 const moonCanvas = ref<HTMLCanvasElement | null>(null)
-let clock: number | undefined
+let minuteClock: number | undefined
 let minuteAnimationFrame: number | undefined
+let timeScrubAnimationFrame: number | undefined
+let pendingMinuteOfDay: number | undefined
 let locationRevision = 0
 let locationLookupController: AbortController | undefined
 let conditionsController: AbortController | undefined
@@ -66,7 +68,10 @@ let moonTextureWidth = 0
 let moonTextureHeight = 0
 let skyViewStartX = 0
 let skyViewStartAzimuth = 180
+let skyViewAnimationFrame: number | undefined
+let pendingSkyViewAzimuth: number | undefined
 const skyViewFieldOfView = 120
+const fallbackTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
 
 const skyCamera = computed<SkyCamera>(() => ({
   heading: skyViewAzimuth.value,
@@ -74,11 +79,11 @@ const skyCamera = computed<SkyCamera>(() => ({
 }))
 
 const activeCoordinates = computed(() => latitude.value != null && longitude.value != null ? { latitude: latitude.value, longitude: longitude.value } : null)
-const simulatedTime = computed(() => {
-  const value = new Date(now.value)
-  value.setHours(Math.floor(minuteOfDay.value / 60), minuteOfDay.value % 60, 0, 0)
-  return value
-})
+// Open-Meteo timezone=auto 返回定位点的 IANA 时区；数据到达前才暂用设备时区。
+const observatoryTimezone = computed(() => conditions.value?.timezone || fallbackTimezone)
+const simulatedTime = computed(() => zonedDateAtMinute(now.value, minuteOfDay.value, observatoryTimezone.value))
+const simulatedDateKey = computed(() => zonedDateKey(simulatedTime.value, observatoryTimezone.value))
+const simulatedDayAnchor = computed(() => dateFromZonedLocalTime(`${simulatedDateKey.value}T12:00`, observatoryTimezone.value))
 const timeLabel = computed(() => formatTime(simulatedTime.value))
 const scrubFraction = computed(() => (minuteOfDay.value / 1439).toFixed(4))
 const coordinateLabel = computed(() => activeCoordinates.value
@@ -87,10 +92,15 @@ const coordinateLabel = computed(() => activeCoordinates.value
 const locationAction = computed(() => locationStatus.value === 'located' ? 'GPS' : locationStatus.value === 'resolving' || locationStatus.value === 'locating' ? '请求中' : '重试')
 const moon = computed(() => moonPhase(now.value))
 const elevation = computed(() => conditions.value?.elevation ?? 0)
-const timezoneName = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-const tracks = computed<BodyTrack[]>(() => activeCoordinates.value
-  ? bodies.map((body) => calculateTrack(body, simulatedTime.value, activeCoordinates.value!.latitude, activeCoordinates.value!.longitude, elevation.value))
+// 升落、整日采样与中天只随“当地日期/地点”变化，不应在时间条每移动一分钟时重算。
+const dailyTracks = computed<BodyTrack[]>(() => activeCoordinates.value
+  ? bodies.map((body) => calculateTrack(body, simulatedDayAnchor.value, activeCoordinates.value!.latitude, activeCoordinates.value!.longitude, elevation.value, observatoryTimezone.value))
   : [])
+// 拖动时间条时只计算 9 个天体在当前时刻的位置，再复用当天的轨迹与升落结果。
+const tracks = computed<BodyTrack[]>(() => dailyTracks.value.map((track) => ({
+  ...track,
+  ...calculatePosition(track, simulatedTime.value, activeCoordinates.value!.latitude, activeCoordinates.value!.longitude, elevation.value),
+})))
 const moonTrack = computed(() => tracks.value.find((track) => track.id === 'moon') ?? null)
 // 月相面板：后端每日数据优先（相位/亮度/月龄/月出月落），未就绪或失败时退回本地 Astronomy Engine。
 const moonPanel = computed(() => {
@@ -115,10 +125,23 @@ const moonPanel = computed(() => {
   }
 })
 const moonIllumination = computed(() => (moonPanel.value.illumination * 100).toFixed(1))
-// 展开后行内就地替换时间条的高度角-时间波形（只在展开时计算）
-const expandedWave = computed(() => {
-  const track = expandedBodyId.value ? tracks.value.find((item) => item.id === expandedBodyId.value) : null
-  return track ? altitudeCurve(track, ALTITUDE_CHART_ROW, minuteOfDay.value) : null
+// 这些轨迹几何只随日期/地点变化，不放进每次拖动进度条的热路径。
+const visibleSegmentMap = computed(() => new Map(
+  dailyTracks.value.map((track) => [track.id, visibleSegments(track)]),
+))
+const expandedWaveGeometry = computed(() => {
+  const track = expandedBodyId.value ? dailyTracks.value.find((item) => item.id === expandedBodyId.value) : null
+  return track ? altitudeCurve(track, ALTITUDE_CHART_ROW) : null
+})
+const expandedWaveCurrent = computed(() => {
+  const track = expandedBodyId.value ? dailyTracks.value.find((item) => item.id === expandedBodyId.value) : null
+  if (!track) return null
+  const altitude = idealWaveAltitude(track, minuteOfDay.value)
+  return {
+    x: minuteOfDay.value / 1439 * ALTITUDE_CHART_ROW.width,
+    y: altitudeToY(altitude, ALTITUDE_CHART_ROW),
+    aboveHorizon: altitude > 0,
+  }
 })
 // 收起态时间条上的"当前时刻"小点：与展开波形同一平滑正弦源（idealWaveAltitude > 0 判定地平线上/下，x 与 minuteOfDay/1439 同源）
 const railCurrentMarkers = computed(() => new Map(
@@ -127,9 +150,9 @@ const railCurrentMarkers = computed(() => new Map(
     { left: minuteOfDay.value / 1439 * 100, aboveHorizon: idealWaveAltitude(track, minuteOfDay.value) > 0 },
   ]),
 ))
-const twilight = computed(() => activeCoordinates.value ? calculateTwilight(simulatedTime.value, activeCoordinates.value.latitude, activeCoordinates.value.longitude, elevation.value) : null)
+const twilight = computed(() => activeCoordinates.value ? calculateTwilight(simulatedDayAnchor.value, activeCoordinates.value.latitude, activeCoordinates.value.longitude, elevation.value, observatoryTimezone.value) : null)
 // 今夜夜空分析：天文夜窗口、无月黑夜与银河核心可见时段（纯本地星历）。
-const nightAnalysis = computed<NightAnalysis | null>(() => activeCoordinates.value ? analyzeNight(now.value, activeCoordinates.value.latitude, activeCoordinates.value.longitude, elevation.value) : null)
+const nightAnalysis = computed<NightAnalysis | null>(() => activeCoordinates.value ? analyzeNight(now.value, activeCoordinates.value.latitude, activeCoordinates.value.longitude, elevation.value, observatoryTimezone.value) : null)
 function windowRange(window: NightAnalysis['astronomicalNight']) {
   return window ? `${formatTime(window.start)} – ${formatTime(window.end)}` : '—'
 }
@@ -182,19 +205,42 @@ const skyHeadingTicks = computed(() => {
   }
   return ticks
 })
-const currentAir = computed(() => conditions.value?.airQuality[0] ?? null)
-const observingScore = computed(() => {
+// 评分返回的 weather 就是实际参与打分的快照；卡片和摘要直接复用，避免 current 与整点预报混显。
+const alignedBackendScore = computed(() => {
+  const score = backendScore.value
+  return score && Math.abs(score.at * 1000 - simulatedTime.value.getTime()) < 60_000 ? score : null
+})
+const displayedConditions = computed<ObservingConditions['current'] | null>(() => {
+  const backend = alignedBackendScore.value
+  if (backend?.withinForecastWindow && backend.weather) return backend.weather
+  if ((backend && !backend.withinForecastWindow) || !followingRealTime.value) return null
+  return conditions.value?.current ?? null
+})
+const conditionsMomentLabel = computed(() => followingRealTime.value ? '当前时刻' : '预览时刻')
+const currentAir = computed(() => {
   const forecast = conditions.value
-  if (!forecast) return null
-  const visibilityBonus = Math.min(24, forecast.current.visibilityMeters / 1000 * 2.4)
-  const cloudPenalty = forecast.current.cloudCover * .52
-  const moonPenalty = moon.value.illumination * 22
-  const precipitationPenalty = forecast.current.precipitation > 0 ? 18 : 0
+  const weather = displayedConditions.value
+  if (!forecast?.airQuality.length || !weather) return null
+  const target = dateFromZonedLocalTime(weather.time, observatoryTimezone.value).getTime()
+  if (!Number.isFinite(target)) return forecast.airQuality[0]
+  return forecast.airQuality.reduce((nearest, item) => {
+    const itemTime = dateFromZonedLocalTime(item.time, observatoryTimezone.value).getTime()
+    const nearestTime = dateFromZonedLocalTime(nearest.time, observatoryTimezone.value).getTime()
+    return Math.abs(itemTime - target) < Math.abs(nearestTime - target) ? item : nearest
+  })
+})
+const observingScore = computed(() => {
+  const weather = displayedConditions.value
+  if (!weather) return null
+  const visibilityBonus = Math.min(24, weather.visibilityMeters / 1000 * 2.4)
+  const cloudPenalty = weather.cloudCover * .52
+  const moonPenalty = moonTrack.value?.visible ? moon.value.illumination * 22 : 0
+  const precipitationPenalty = weather.precipitation > 0 ? 18 : 0
   return Math.max(0, Math.min(100, Math.round(50 + visibilityBonus - cloudPenalty - moonPenalty - precipitationPenalty)))
 })
-const scoreVerdict = computed(() => backendScore.value?.verdict ?? (observingScore.value == null ? '正在读取环境预报' : observingScore.value >= 70 ? '条件较好，适合安排观测' : observingScore.value >= 45 ? '条件一般，优先安排亮目标' : '条件受限，建议短时观察亮目标'))
+const scoreVerdict = computed(() => alignedBackendScore.value?.verdict ?? (observingScore.value == null ? '正在读取环境预报' : observingScore.value >= 70 ? '条件较好，适合安排观测' : observingScore.value >= 45 ? '条件一般，优先安排亮目标' : '条件受限，建议短时观察亮目标'))
 // 后端评分优先（含时刻维度与光污染因子），未就绪时退回本地启发式。
-const scorePanel = computed(() => backendScore.value?.score ?? observingScore.value)
+const scorePanel = computed(() => alignedBackendScore.value ? alignedBackendScore.value.score : observingScore.value)
 // 评分因子分解（"为什么是这个分"）：后端 ScoreFactors 优先（含时刻维度），
 // 未就绪或预报窗口外退回本地启发式——与后端公式完全一致，保证展示与评分同源。
 interface ScoreFactorPart {
@@ -204,19 +250,19 @@ interface ScoreFactorPart {
   kind: 'penalty'
 }
 const scoreFactors = computed<ScoreFactorPart[] | null>(() => {
-  const forecast = conditions.value
-  if (!forecast) return null
-  const backend = backendScore.value
+  const weather = displayedConditions.value
+  if (!conditions.value) return null
+  const backend = alignedBackendScore.value
   const parts: ScoreFactorPart[] = []
   if (backend?.withinForecastWindow && backend.score != null) {
     if (backend.factors.cloudPenalty > 0) parts.push({ key: 'cloud', label: '云量', value: -backend.factors.cloudPenalty, kind: 'penalty' })
     if (backend.factors.moonPenalty > 0) parts.push({ key: 'moon', label: '月光', value: -backend.factors.moonPenalty, kind: 'penalty' })
     if (backend.factors.precipitationPenalty > 0) parts.push({ key: 'precip', label: '降水', value: -backend.factors.precipitationPenalty, kind: 'penalty' })
     if (backend.factors.lightPollutionPenalty > 0) parts.push({ key: 'light', label: '光污染', value: -backend.factors.lightPollutionPenalty, kind: 'penalty' })
-  } else {
-    if (forecast.current.cloudCover > 0) parts.push({ key: 'cloud', label: '云量', value: -forecast.current.cloudCover * .52, kind: 'penalty' })
-    if (moon.value.illumination > 0) parts.push({ key: 'moon', label: '月光', value: -moon.value.illumination * 22, kind: 'penalty' })
-    if (forecast.current.precipitation > 0) parts.push({ key: 'precip', label: '降水', value: -18, kind: 'penalty' })
+  } else if (!backend && weather) {
+    if (weather.cloudCover > 0) parts.push({ key: 'cloud', label: '云量', value: -weather.cloudCover * .52, kind: 'penalty' })
+    if (moonTrack.value?.visible && moon.value.illumination > 0) parts.push({ key: 'moon', label: '月光', value: -moon.value.illumination * 22, kind: 'penalty' })
+    if (weather.precipitation > 0) parts.push({ key: 'precip', label: '降水', value: -18, kind: 'penalty' })
   }
   return parts
 })
@@ -255,6 +301,7 @@ function locateRecommendedBody(body: BodyId) {
   // 与星图页"在星图定位"一致：当前在地平线以下的天体无法定位，直接忽略。
   if (!track || !track.visible) return
   if (activePage.value !== 'sky') selectPage('sky')
+  cancelPendingSkyView()
   skyViewAzimuth.value = Math.round(track.azimuth)
   expandedBodyId.value = body
   window.setTimeout(() => document.querySelector('.horizon-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0)
@@ -278,7 +325,7 @@ const recommendation = computed(() => {
   let windowLabel: string
   if (weatherAvailable) {
     const darkHours = hourly.filter((item) => {
-      const at = new Date(item.time)
+      const at = dateFromZonedLocalTime(item.time, observatoryTimezone.value)
       return at.getTime() >= nightStart.getTime() && at.getTime() <= nightEnd.getTime()
     })
     const windowPool = darkHours.length ? darkHours : hourly
@@ -350,31 +397,21 @@ const moonEvents = computed(() => upcomingMoonPhases(now.value).slice(0, 4))
 
 function formatTime(value: Date | null) {
   if (!value) return '—'
-  return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }).format(value)
+  return new Intl.DateTimeFormat('zh-CN', { timeZone: observatoryTimezone.value, hour: '2-digit', minute: '2-digit', hour12: false }).format(value)
+}
+
+function formatEventDay(value: Date) {
+  return new Intl.DateTimeFormat('en', { timeZone: observatoryTimezone.value, day: '2-digit' }).format(value)
+}
+
+function formatEventMonth(value: Date) {
+  return new Intl.DateTimeFormat('en', { timeZone: observatoryTimezone.value, month: 'short' }).format(value).toUpperCase()
 }
 
 function formatDistance(distanceAu: number | null) {
   if (distanceAu == null) return '—'
   if (distanceAu < .01) return `${Math.round(distanceAu * 149_597_870)} km`
   return `${distanceAu.toFixed(2)} AU`
-}
-
-function conditionDescription(code: number) {
-  if (code <= 1) return '晴朗'
-  if (code <= 3) return '多云'
-  if (code <= 48) return '雾霾'
-  if (code <= 67) return '降水'
-  if (code <= 77) return '降雪'
-  return '雷暴'
-}
-
-function weatherGlyph(code: number) {
-  if (code <= 1) return '☼'
-  if (code <= 3) return '☁'
-  if (code <= 48) return '≋'
-  if (code <= 67) return '☂'
-  if (code <= 77) return '❄'
-  return 'ϟ'
 }
 
 function forecastDay(value: string) {
@@ -509,13 +546,15 @@ interface AltitudeChartMetrics {
   scale: number // 每度高度角对应的纵向 viewBox 单位
 }
 
-const ALTITUDE_CHART_ROW: AltitudeChartMetrics = { width: 960, height: 88, horizonY: 52, scale: .58 }
+// 会意式全天波形使用完整的天球高度范围：顶部 +90°、中线 0°、底部 -90°。
+// 上下各留 2 个 viewBox 单位，避免圆点和描边贴住裁切边缘。
+const ALTITUDE_CHART_ROW: AltitudeChartMetrics = { width: 960, height: 88, horizonY: 44, scale: 42 / 90 }
+const IDEAL_WAVE_AMPLITUDE = 90
 
 interface AltitudeCurve {
   fullPath: string
   belowPaths: string[]
   abovePaths: string[]
-  current: { x: number; y: number; aboveHorizon: boolean }
 }
 
 function altitudeToY(altitude: number, metrics: AltitudeChartMetrics) {
@@ -540,7 +579,7 @@ function smoothPath(points: Array<{ x: number; y: number }>) {
 }
 
 function minuteInDay(value: Date) {
-  return value.getHours() * 60 + value.getMinutes() + value.getSeconds() / 60
+  return zonedMinuteOfDay(value, observatoryTimezone.value)
 }
 
 function positiveMinuteDelta(value: number) {
@@ -548,8 +587,6 @@ function positiveMinuteDelta(value: number) {
 }
 
 function idealWaveAltitude(track: BodyTrack, minute: number) {
-  const sampledPeak = Math.max(...track.samples.map((sample) => sample.altitude))
-  const peakAltitude = Math.max(50, Math.min(60, sampledPeak))
   const riseMinute = track.rise ? minuteInDay(track.rise) : null
   const setMinute = track.set ? minuteInDay(track.set) : null
   if (riseMinute != null && setMinute != null) {
@@ -559,19 +596,19 @@ function idealWaveAltitude(track: BodyTrack, minute: number) {
     const duration = Math.max(60, positiveMinuteDelta(setMinute - riseMinute))
     const elapsed = positiveMinuteDelta(minute - riseMinute)
     if (elapsed <= duration) {
-      return peakAltitude * Math.sin(Math.PI * elapsed / duration)
+      return IDEAL_WAVE_AMPLITUDE * Math.sin(Math.PI * elapsed / duration)
     }
     const troughSpan = 1440 - duration
     const belowElapsed = elapsed - duration
-    return -peakAltitude * Math.sin(Math.PI * belowElapsed / troughSpan)
+    return -IDEAL_WAVE_AMPLITUDE * Math.sin(Math.PI * belowElapsed / troughSpan)
   }
   // 极昼极夜或数据缺失：以中天为中心取一段理想可见弧（与原实现一致）
   const transitMinute = track.transit ? minuteInDay(track.transit) : 720
   const elapsed = positiveMinuteDelta(minute - positiveMinuteDelta(transitMinute - 360))
-  return peakAltitude * Math.sin(Math.PI * elapsed / 720)
+  return IDEAL_WAVE_AMPLITUDE * Math.sin(Math.PI * elapsed / 720)
 }
 
-function altitudeCurve(track: BodyTrack, metrics: AltitudeChartMetrics, currentMinute: number): AltitudeCurve {
+function altitudeCurve(track: BodyTrack, metrics: AltitudeChartMetrics): AltitudeCurve {
   const pointCount = 193
   const points = Array.from({ length: pointCount }, (_, index) => {
     const minute = index / (pointCount - 1) * 1440
@@ -580,7 +617,6 @@ function altitudeCurve(track: BodyTrack, metrics: AltitudeChartMetrics, currentM
       y: altitudeToY(idealWaveAltitude(track, minute), metrics),
     }
   })
-  const currentAltitude = idealWaveAltitude(track, currentMinute)
   // 平滑曲线（Catmull-Rom）采样，并在地平线 y=horizonY 处切分为上/下独立段路径。
   // 实线与虚线共享同一穿越点、各自成段，不依赖 clip-path url() 引用（避免浏览器接缝渲染问题）。
   const samples: Array<{ x: number; y: number }> = []
@@ -636,11 +672,6 @@ function altitudeCurve(track: BodyTrack, metrics: AltitudeChartMetrics, currentM
     fullPath: smoothPath(points),
     belowPaths: belowRuns,
     abovePaths: aboveRuns,
-    current: {
-      x: currentMinute / 1439 * metrics.width,
-      y: altitudeToY(currentAltitude, metrics),
-      aboveHorizon: currentAltitude > 0,
-    },
   }
 }
 
@@ -690,8 +721,33 @@ function projectSkyTrackRuns(samples: Array<{ altitude: number; azimuth: number 
   return paths
 }
 
+function commitPendingSkyView() {
+  if (pendingSkyViewAzimuth !== undefined) {
+    skyViewAzimuth.value = pendingSkyViewAzimuth
+    pendingSkyViewAzimuth = undefined
+  }
+  skyViewAnimationFrame = undefined
+}
+
+// Pointer / wheel 事件可能远高于屏幕刷新率；同一帧只提交最后一次朝向，避免无意义重复投影与 DOM 更新。
+function scheduleSkyView(nextAzimuth: number) {
+  pendingSkyViewAzimuth = normalizeAzimuth(nextAzimuth)
+  if (skyViewAnimationFrame === undefined) skyViewAnimationFrame = requestAnimationFrame(commitPendingSkyView)
+}
+
+function flushPendingSkyView() {
+  if (skyViewAnimationFrame !== undefined) cancelAnimationFrame(skyViewAnimationFrame)
+  commitPendingSkyView()
+}
+
+function cancelPendingSkyView() {
+  if (skyViewAnimationFrame !== undefined) cancelAnimationFrame(skyViewAnimationFrame)
+  skyViewAnimationFrame = undefined
+  pendingSkyViewAzimuth = undefined
+}
+
 function rotateSkyView(change: number) {
-  skyViewAzimuth.value = normalizeAzimuth(skyViewAzimuth.value + change)
+  scheduleSkyView((pendingSkyViewAzimuth ?? skyViewAzimuth.value) + change)
 }
 
 function turnSkyViewByWheel(event: WheelEvent) {
@@ -701,6 +757,7 @@ function turnSkyViewByWheel(event: WheelEvent) {
 
 function beginSkyViewDrag(event: PointerEvent) {
   if (!activeCoordinates.value) return
+  flushPendingSkyView()
   skyViewDragging.value = true
   skyViewStartX = event.clientX
   skyViewStartAzimuth = skyViewAzimuth.value
@@ -709,11 +766,12 @@ function beginSkyViewDrag(event: PointerEvent) {
 
 function dragSkyView(event: PointerEvent) {
   if (!skyViewDragging.value) return
-  skyViewAzimuth.value = normalizeAzimuth(skyViewStartAzimuth - (event.clientX - skyViewStartX) * .28)
+  scheduleSkyView(skyViewStartAzimuth - (event.clientX - skyViewStartX) * .28)
 }
 
 function endSkyViewDrag(event: PointerEvent) {
   if (!skyViewDragging.value) return
+  flushPendingSkyView()
   skyViewDragging.value = false
   const field = event.currentTarget as HTMLElement
   if (field.hasPointerCapture(event.pointerId)) field.releasePointerCapture(event.pointerId)
@@ -741,6 +799,7 @@ function locateBody(body: BodyId) {
   const track = tracks.value.find((item) => item.id === body)
   // 只有当前在地平线以上的天体才值得定位：转罗盘到其方位，再展开行并滚动到视场。
   if (!track || !track.visible) return
+  cancelPendingSkyView()
   skyViewAzimuth.value = Math.round(track.azimuth)
   expandedBodyId.value = body
   window.setTimeout(() => document.querySelector('.horizon-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0)
@@ -753,6 +812,31 @@ function stopMinuteAnimation() {
   }
 }
 
+function cancelPendingTimeScrub() {
+  if (timeScrubAnimationFrame !== undefined) {
+    cancelAnimationFrame(timeScrubAnimationFrame)
+    timeScrubAnimationFrame = undefined
+  }
+  pendingMinuteOfDay = undefined
+}
+
+// 原生 range 可能在一帧内派发多次 input；星历与 SVG 投影最多每帧更新一次。
+function scheduleMinuteOfDay(event: Event) {
+  const target = event.currentTarget as HTMLInputElement
+  pendingMinuteOfDay = Number(target.value)
+  if (timeScrubAnimationFrame !== undefined) return
+  timeScrubAnimationFrame = requestAnimationFrame(() => {
+    if (pendingMinuteOfDay !== undefined) minuteOfDay.value = pendingMinuteOfDay
+    pendingMinuteOfDay = undefined
+    timeScrubAnimationFrame = undefined
+  })
+}
+
+function commitMinuteOfDay(event: Event) {
+  cancelPendingTimeScrub()
+  minuteOfDay.value = Number((event.currentTarget as HTMLInputElement).value)
+}
+
 // 用户开始拖动/键盘调整进度条：暂停跟随真实时间，避免自动推进打断预览。
 function pauseFollowing() {
   stopMinuteAnimation()
@@ -761,10 +845,12 @@ function pauseFollowing() {
 
 function jumpToNow() {
   const current = new Date()
-  const target = current.getHours() * 60 + current.getMinutes()
+  const target = Math.floor(zonedMinuteOfDay(current, observatoryTimezone.value))
   const start = minuteOfDay.value
+  cancelPendingTimeScrub()
   stopMinuteAnimation()
   followingRealTime.value = true
+  now.value = current
   if (start === target) return
   const duration = Math.min(1500, Math.max(450, Math.abs(target - start) * 5))
   const startTime = performance.now()
@@ -851,7 +937,7 @@ async function loadConditions(currentLatitude: number, currentLongitude: number)
 
 async function loadMoonDay(currentLatitude: number, currentLongitude: number) {
   try {
-    moonDay.value = await fetchMoonDay(currentLatitude, currentLongitude, elevation.value, timezoneName, Math.floor(now.value.getTime() / 1000))
+    moonDay.value = await fetchMoonDay(currentLatitude, currentLongitude, elevation.value, observatoryTimezone.value, Math.floor(now.value.getTime() / 1000))
   } catch {
     moonDay.value = null // 后端不可用时退回本地计算
   }
@@ -897,9 +983,15 @@ watch(activeCoordinates, (coordinates) => {
 watch(elevation, () => {
   if (activeCoordinates.value) void loadMoonDay(activeCoordinates.value.latitude, activeCoordinates.value.longitude)
 })
+// 定位点跨时区时，重置“现在”的当地分钟并重取按当地日期缓存的月相。
+watch(observatoryTimezone, () => {
+  if (followingRealTime.value) minuteOfDay.value = Math.floor(zonedMinuteOfDay(now.value, observatoryTimezone.value))
+  if (activeCoordinates.value) void loadMoonDay(activeCoordinates.value.latitude, activeCoordinates.value.longitude)
+})
 // 拖动时间条时按模拟时刻重取后端评分（防抖，避免连续滑动打满请求）。
 watch(minuteOfDay, () => {
   window.clearTimeout(scoreTimer)
+  if (!followingRealTime.value) backendScore.value = null
   scoreTimer = window.setTimeout(() => {
     if (activeCoordinates.value) {
       void loadScore(activeCoordinates.value.latitude, activeCoordinates.value.longitude, Math.floor(simulatedTime.value.getTime() / 1000))
@@ -914,16 +1006,17 @@ watch(moonCanvas, (canvas) => {
 
 onMounted(() => {
   window.addEventListener('popstate', onPopState)
-  // 侧栏时钟每秒走秒数；仿真时钟仅在"跟随真实时间"时每分钟推进一格
-  // （驱动行星位置移动），用户拖动进度条预览时暂停。
-  clock = window.setInterval(() => {
+  // 秒钟在独立的小组件内更新；星历只需按分钟检查一次。
+  minuteClock = window.setInterval(() => {
     const real = new Date()
-    wallClock.value = real
     if (followingRealTime.value) {
-      now.value = real
-      minuteOfDay.value = real.getHours() * 60 + real.getMinutes()
+      const localMinute = Math.floor(zonedMinuteOfDay(real, observatoryTimezone.value))
+      if (localMinute !== minuteOfDay.value) {
+        now.value = real
+        minuteOfDay.value = localMinute
+      }
     }
-  }, 1000)
+  }, 10_000)
   loadMoonTexture()
   requestLocation()
 })
@@ -936,7 +1029,9 @@ onBeforeUnmount(() => {
   if (scoreTimer !== undefined) window.clearTimeout(scoreTimer)
   if (homeExitTimer !== undefined) window.clearTimeout(homeExitTimer)
   window.removeEventListener('popstate', onPopState)
-  if (clock) window.clearInterval(clock)
+  if (minuteClock !== undefined) window.clearInterval(minuteClock)
+  cancelPendingSkyView()
+  cancelPendingTimeScrub()
   stopMinuteAnimation()
 })
 </script>
@@ -960,7 +1055,7 @@ onBeforeUnmount(() => {
       </nav>
 
       <div class="sidebar-source"><span />{{ activeCoordinates ? '本地星历计算 · 实时地点' : '需要地点以计算本地天空' }}</div>
-      <time>{{ new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(wallClock) }} <small>LOCAL</small></time>
+      <ObservatoryClock :timezone="observatoryTimezone" />
     </aside>
 
     <main class="sky-content-scroll">
@@ -977,10 +1072,10 @@ onBeforeUnmount(() => {
         </div>
 
         <section class="condition-verdict" :class="{ loading: conditionsStatus === 'loading' }">
-          <div class="score-now"><strong>{{ scorePanel == null ? '—' : String(scorePanel).padStart(2, '0') }}<small>/100</small></strong><i>当前时刻</i></div>
-          <div><h2>{{ scoreVerdict }}</h2><p v-if="conditions">云量 {{ Math.round(conditions.current.cloudCover) }}%，能见度 {{ (conditions.current.visibilityMeters / 1000).toFixed(1) }} km；{{ conditionDescription(conditions.current.weatherCode) }} 是当前的主导条件。</p><p v-else-if="conditionsStatus === 'error'">天气源暂不可用；本地星历仍可计算天体位置与升落。</p><p v-else>正在读取云层、能见度、湿度与风的未来 24 小时预报。</p></div>
-          <div v-if="scoreFactors" class="score-factors" aria-label="当前评分扣分项">
-            <p>当前扣分项</p>
+          <div class="score-now"><strong>{{ scorePanel == null ? '—' : String(scorePanel).padStart(2, '0') }}<small>/100</small></strong><i>{{ conditionsMomentLabel }}</i></div>
+          <div><h2>{{ scoreVerdict }}</h2><p v-if="displayedConditions">云量 {{ Math.round(displayedConditions.cloudCover) }}%，能见度 {{ (displayedConditions.visibilityMeters / 1000).toFixed(1) }} km；{{ conditionDescription(displayedConditions.weatherCode) }}是这一时段的主导条件。</p><p v-else-if="conditionsStatus === 'error'">天气源暂不可用；本地星历仍可计算天体位置与升落。</p><p v-else>正在读取云层、能见度、湿度与风的未来 24 小时预报。</p></div>
+          <div v-if="scoreFactors" class="score-factors" :aria-label="`${conditionsMomentLabel}评分扣分项`">
+            <p>{{ conditionsMomentLabel }}扣分项</p>
             <span v-for="part in scoreFactors" :key="part.key" :class="part.kind"><i :style="{ width: factorBarWidth(part) }" /><small>{{ part.label }}</small><strong>{{ part.value.toFixed(1) }}</strong></span>
             <em v-if="!scoreFactors.length">当前没有明显扣分项</em>
           </div>
@@ -1005,14 +1100,14 @@ onBeforeUnmount(() => {
           <p v-else-if="recommendation" class="observing-targets-empty">{{ recommendation.weatherAvailable ? '未来 24 小时天气与月光条件有限，建议短时观察亮目标，或改日再安排。' : '天文夜内暂无可观测的亮目标，可切换器材或改日再安排。' }}</p>
 
           <div class="current-observation">
-            <header><div><p>CURRENT CONDITIONS / 当前时刻</p><h3>当前观测环境</h3></div><span v-if="conditions">{{ conditions.current.time.slice(11, 16) }} 更新 · {{ conditions.source }}</span><span v-else>等待环境数据</span></header>
-            <div class="instrument-grid" aria-label="当前观测条件">
-              <article><span>总云量</span><strong>{{ conditions ? `${Math.round(conditions.current.cloudCover)}%` : '—' }}</strong><small>低 / 中 / 高云详见下方预报</small></article>
-              <article><span>能见度</span><strong>{{ conditions ? `${(conditions.current.visibilityMeters / 1000).toFixed(1)} km` : '—' }}</strong><small>影响暗星与银河辨识</small></article>
-              <article><span>温度 / 露点</span><strong>{{ conditions ? `${conditions.current.temperature.toFixed(1)}°` : '—' }}</strong><small>{{ conditions ? `露点 ${conditions.current.dewPoint.toFixed(1)}°` : '等待气温数据' }}</small></article>
-              <article><span>湿度</span><strong>{{ conditions ? `${Math.round(conditions.current.humidity)}%` : '—' }}</strong><small>高湿可能造成镜片结露</small></article>
-              <article><span>风速 / 阵风</span><strong>{{ conditions ? `${Math.round(conditions.current.windSpeed)} / ${Math.round(conditions.current.windGusts)}` : '—' }}<b v-if="conditions"> km/h</b></strong><small>影响脚架稳定与体感</small></article>
-              <article><span>降水</span><strong>{{ conditions ? `${conditions.current.precipitation.toFixed(1)} mm` : '—' }}</strong><small>当前预报时段</small></article>
+            <header><div><p>CONDITION SNAPSHOT / {{ conditionsMomentLabel }}</p><h3>{{ conditionsMomentLabel }}观测环境</h3></div><span v-if="displayedConditions">{{ displayedConditions.time.slice(11, 16) }} · {{ conditions?.source }}</span><span v-else>等待环境数据</span></header>
+            <div class="instrument-grid" :aria-label="`${conditionsMomentLabel}观测条件`">
+              <article><span>总云量</span><strong>{{ displayedConditions ? `${Math.round(displayedConditions.cloudCover)}%` : '—' }}</strong><small>低 / 中 / 高云详见下方预报</small></article>
+              <article><span>能见度</span><strong>{{ displayedConditions ? `${(displayedConditions.visibilityMeters / 1000).toFixed(1)} km` : '—' }}</strong><small>影响暗星与银河辨识</small></article>
+              <article><span>温度 / 露点</span><strong>{{ displayedConditions ? `${displayedConditions.temperature.toFixed(1)}°` : '—' }}</strong><small>{{ displayedConditions ? `露点 ${displayedConditions.dewPoint.toFixed(1)}°` : '等待气温数据' }}</small></article>
+              <article><span>湿度</span><strong>{{ displayedConditions ? `${Math.round(displayedConditions.humidity)}%` : '—' }}</strong><small>高湿可能造成镜片结露</small></article>
+              <article><span>风速 / 阵风</span><strong>{{ displayedConditions ? `${Math.round(displayedConditions.windSpeed)} / ${Math.round(displayedConditions.windGusts)}` : '—' }}<b v-if="displayedConditions"> km/h</b></strong><small>影响脚架稳定与体感</small></article>
+              <article><span>降水</span><strong>{{ displayedConditions ? `${displayedConditions.precipitation.toFixed(1)} mm` : '—' }}</strong><small>{{ conditionsMomentLabel }}预报时段</small></article>
               <article><span>PM₂.₅ / 气溶胶</span><strong>{{ currentAir ? `${Math.round(currentAir.pm25)} μg/m³` : '—' }}</strong><small>{{ currentAir ? `AOD ${currentAir.aerosolOpticalDepth.toFixed(2)} · 透明度参考` : '空气质量源暂不可用' }}</small></article>
               <article class="light-reading" :title="lightPollution ? `${lightPollution.source} · 辐射 ${lightPollution.radiance.toFixed(1)} ${lightPollution.radianceUnit} · SQM/Bortle 为模型估算` : '当前位置暂无年度卫星光污染数据'"><span>光污染</span><strong>{{ lightPollution ? `Bortle ≈ ${lightPollution.bortle}` : '—' }}</strong><small>{{ lightPollution ? `SQM ≈ ${lightPollution.sqm.toFixed(1)} · VIIRS ${lightPollution.dataYear ?? ''}` : '年度卫星数据暂不可用' }}</small></article>
             </div>
@@ -1108,12 +1203,12 @@ onBeforeUnmount(() => {
             </div>
           </div>
         </section>
-        <div class="time-scrubber"><div class="time-scrubber-inner"><div><span>时刻</span><strong>{{ timeLabel }}</strong></div><div class="time-scrubber-track"><output class="time-scrubber-bubble" :style="{ '--scrub-f': scrubFraction }">{{ timeLabel }}</output><input v-model.number="minuteOfDay" type="range" min="0" max="1439" step="1" aria-label="时刻" @pointerdown="pauseFollowing" @keydown="pauseFollowing" /></div><button class="time-scrubber-now" type="button" @click="jumpToNow">现在</button><div><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div></div></div>
+        <div class="time-scrubber"><div class="time-scrubber-inner"><div><span>时刻</span><strong>{{ timeLabel }}</strong></div><div class="time-scrubber-track"><output class="time-scrubber-bubble" :style="{ '--scrub-f': scrubFraction }">{{ timeLabel }}</output><input :value="minuteOfDay" type="range" min="0" max="1439" step="1" aria-label="时刻" @input="scheduleMinuteOfDay" @change="commitMinuteOfDay" @pointerdown="pauseFollowing" @keydown="pauseFollowing" /></div><button class="time-scrubber-now" type="button" @click="jumpToNow">现在</button><div><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div></div></div>
 
         <section class="window-section">
           <div class="section-heading"><h2>行星升落</h2></div>
           <div class="window-summary" v-if="twilight"><article><span>日出</span><strong>{{ formatTime(twilight.sunrise) }}</strong></article><article><span>日落</span><strong>{{ formatTime(twilight.sunset) }}</strong></article><article><span>天文晨光</span><strong>{{ formatTime(twilight.astronomicalDawn) }}</strong></article><article><span>天文昏影</span><strong>{{ formatTime(twilight.astronomicalDusk) }}</strong></article></div>
-          <div class="time-axis"><div class="axis-labels"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div><article v-for="track in tracks" :key="track.id" class="time-track" :class="{ expanded: expandedBodyId === track.id }"><button :id="`track-trigger-${track.id}`" class="time-track-trigger" type="button" :aria-expanded="expandedBodyId === track.id" :aria-controls="`track-detail-${track.id}`" @click="selectBody(track.id)"><span class="time-track-label"><i :style="{ color: track.tint }">{{ track.glyph }}</i><span>{{ track.name }}<small>{{ observingStatus(track) }}</small></span><strong>{{ track.visible ? `${Math.round(track.altitude)}° ${bearing(track.azimuth)}` : '地平线下' }}</strong></span><span v-if="expandedBodyId !== track.id" class="track-rail" aria-hidden="true"><i v-for="segment in visibleSegments(track)" :key="`${segment.left}-${segment.width}`" :style="{ left: `${segment.left}%`, width: `${segment.width}%`, backgroundColor: track.tint }" /><i class="rail-current" :class="{ 'is-below': !(railCurrentMarkers.get(track.id)?.aboveHorizon ?? true) }" :style="{ left: `${railCurrentMarkers.get(track.id)?.left ?? 0}%`, '--chart-tint': track.tint }" /></span><svg v-else class="track-wave" viewBox="0 0 960 88" aria-hidden="true" :style="{ '--chart-tint': track.tint }"><line class="altitude-horizon" x1="0" y1="52" x2="960" y2="52" /><path v-for="(path, index) in expandedWave?.belowPaths ?? []" :key="`below-${index}`" class="altitude-below" :d="path" /><path v-for="(path, index) in expandedWave?.abovePaths ?? []" :key="`above-${index}`" class="altitude-above" :d="path" /><circle v-if="expandedWave" class="altitude-current" :class="{ 'is-below': !expandedWave.current.aboveHorizon }" :cx="expandedWave.current.x" :cy="expandedWave.current.y" r="5" /></svg></button><div v-if="expandedBodyId === track.id" :id="`track-detail-${track.id}`" class="track-detail" role="region" :aria-labelledby="`track-trigger-${track.id}`"><div class="track-detail-state"><span :style="{ backgroundColor: track.tint }" /><div><p>当前位置</p><h3>{{ observingStatus(track) }} · {{ Math.round(track.altitude) }}° 高度角</h3><small>方位角 {{ Math.round(track.azimuth) }}° · {{ bearing(track.azimuth) }}方</small></div></div><dl><div><dt>升起</dt><dd>{{ formatTime(track.rise) }}</dd></div><div><dt>中天</dt><dd>{{ formatTime(track.transit) }}</dd></div><div><dt>落下</dt><dd>{{ formatTime(track.set) }}</dd></div><div><dt>最佳高度</dt><dd>{{ formatTime(track.best) }}</dd></div><div v-if="track.id === 'moon'"><dt>月面亮度</dt><dd>{{ Math.round((track.illumination ?? 0) * 100) }}%</dd></div><div v-else-if="track.id !== 'sun'"><dt>视星等</dt><dd>{{ track.magnitude?.toFixed(1) ?? '—' }}</dd></div><div><dt>{{ track.id === 'moon' ? '地月距离' : '地心距离' }}</dt><dd>{{ formatDistance(track.distanceAu) }}</dd></div></dl><p class="track-caveat" v-if="track.id === 'sun'">太阳观测必须使用合格的全口径太阳滤镜；绝不可用裸眼、墨镜或未加滤镜的器材直视太阳。</p><p class="track-caveat" v-else-if="track.id === 'moon'">月面适合在明暗交界附近观察；满月虽明亮，地形阴影反而较少。</p><p class="track-caveat" v-else>实际可见性还取决于云层、曙暮光、地平线遮挡与本地光污染。</p><div class="track-detail-actions"><button type="button" :disabled="!track.visible" :title="track.visible ? '转动罗盘定位该天体' : '当前在地平线下，无法定位'" @click="locateBody(track.id)">在星图定位</button></div></div></article></div>
+              <div class="time-axis"><div class="axis-labels"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div><article v-for="track in tracks" :key="track.id" class="time-track" :class="{ expanded: expandedBodyId === track.id }"><button :id="`track-trigger-${track.id}`" class="time-track-trigger" type="button" :aria-expanded="expandedBodyId === track.id" :aria-controls="`track-detail-${track.id}`" @click="selectBody(track.id)"><span class="time-track-label"><i :style="{ color: track.tint }">{{ track.glyph }}</i><span>{{ track.name }}<small>{{ observingStatus(track) }}</small></span><strong>{{ track.visible ? `${Math.round(track.altitude)}° ${bearing(track.azimuth)}` : '地平线下' }}</strong></span><span v-if="expandedBodyId !== track.id" class="track-rail" aria-hidden="true"><i v-for="segment in visibleSegmentMap.get(track.id) ?? []" :key="`${segment.left}-${segment.width}`" :style="{ left: `${segment.left}%`, width: `${segment.width}%`, backgroundColor: track.tint }" /><i class="rail-current" :class="{ 'is-below': !(railCurrentMarkers.get(track.id)?.aboveHorizon ?? true) }" :style="{ left: `${railCurrentMarkers.get(track.id)?.left ?? 0}%`, '--chart-tint': track.tint }" /></span><svg v-else class="track-wave" viewBox="0 0 960 88" aria-hidden="true" :style="{ '--chart-tint': track.tint }"><line class="altitude-horizon" x1="0" y1="44" x2="960" y2="44" /><path v-for="(path, index) in expandedWaveGeometry?.belowPaths ?? []" :key="`below-${index}`" class="altitude-below" :d="path" /><path v-for="(path, index) in expandedWaveGeometry?.abovePaths ?? []" :key="`above-${index}`" class="altitude-above" :d="path" /><circle v-if="expandedWaveCurrent" class="altitude-current" :class="{ 'is-below': !expandedWaveCurrent.aboveHorizon }" :cx="expandedWaveCurrent.x" :cy="expandedWaveCurrent.y" r="5" /></svg></button><div v-if="expandedBodyId === track.id" :id="`track-detail-${track.id}`" class="track-detail" role="region" :aria-labelledby="`track-trigger-${track.id}`"><div class="track-detail-state"><span :style="{ backgroundColor: track.tint }" /><div><p>当前位置</p><h3>{{ observingStatus(track) }} · {{ Math.round(track.altitude) }}° 高度角</h3><small>方位角 {{ Math.round(track.azimuth) }}° · {{ bearing(track.azimuth) }}方</small></div></div><dl><div><dt>升起</dt><dd>{{ formatTime(track.rise) }}</dd></div><div><dt>中天</dt><dd>{{ formatTime(track.transit) }}</dd></div><div><dt>落下</dt><dd>{{ formatTime(track.set) }}</dd></div><div><dt>最佳高度</dt><dd>{{ formatTime(track.best) }}</dd></div><div v-if="track.id === 'moon'"><dt>月面亮度</dt><dd>{{ Math.round((track.illumination ?? 0) * 100) }}%</dd></div><div v-else-if="track.id !== 'sun'"><dt>视星等</dt><dd>{{ track.magnitude?.toFixed(1) ?? '—' }}</dd></div><div><dt>{{ track.id === 'moon' ? '地月距离' : '地心距离' }}</dt><dd>{{ formatDistance(track.distanceAu) }}</dd></div></dl><p class="track-caveat" v-if="track.id === 'sun'">太阳观测必须使用合格的全口径太阳滤镜；绝不可用裸眼、墨镜或未加滤镜的器材直视太阳。</p><p class="track-caveat" v-else-if="track.id === 'moon'">月面适合在明暗交界附近观察；满月虽明亮，地形阴影反而较少。</p><p class="track-caveat" v-else>实际可见性还取决于云层、曙暮光、地平线遮挡与本地光污染。</p><div class="track-detail-actions"><button type="button" :disabled="!track.visible" :title="track.visible ? '转动罗盘定位该天体' : '当前在地平线下，无法定位'" @click="locateBody(track.id)">在星图定位</button></div></div></article></div>
         </section>
 
       </section>
@@ -1121,7 +1216,7 @@ onBeforeUnmount(() => {
       <section v-else class="events-page page-stack">
         <section class="events-lead"><p>EPHEMERIS-BASED / 本地星历</p><h2>未来一个月的月相节奏</h2><span>以下时间由浏览器本地星历计算，不依赖外部 Key；地点会在后续版本参与可见性判定。</span></section>
         <div class="event-list">
-          <article v-for="event in moonEvents" :key="event.target"><time><strong>{{ String(event.at.getDate()).padStart(2, '0') }}</strong><span>{{ new Intl.DateTimeFormat('en', { month: 'short' }).format(event.at).toUpperCase() }}</span></time><div><p>月相</p><h3>{{ event.label }}</h3><span>{{ event.description }}</span></div><strong>{{ formatTime(event.at) }}</strong></article>
+          <article v-for="event in moonEvents" :key="event.target"><time><strong>{{ formatEventDay(event.at) }}</strong><span>{{ formatEventMonth(event.at) }}</span></time><div><p>月相</p><h3>{{ event.label }}</h3><span>{{ event.description }}</span></div><strong>{{ formatTime(event.at) }}</strong></article>
         </div>
         <section class="curated-events"><div class="section-heading"><div><p>CURATED EVENTS / 需要编辑来源</p><h2>大型天象将在这里出现</h2></div><span>流星雨 · 合月 · 冲日 · 日月食</span></div><div class="integration-state"><span>03</span><div><h3>等待可信事件源与人工校核</h3><p>流星雨峰值、掩星与“本地是否可见”不应由一段静态文案冒充。这里将接入可追溯的天文机构数据，必要时保存为可校订条目。</p></div></div></section>
         <section class="image-feed"><div class="section-heading"><div><p>IMAGE FEED / 图像卡片</p><h2>每日抬头以外的宇宙</h2></div><span>后续接入开放授权内容</span></div><div class="image-placeholder-grid"><article><i>NASA</i><h3>每日天文图片</h3><p>需要 NASA API Key，接入后显示来源、作者和版权说明。</p></article><article><i>ESO</i><h3>欧洲南方天文台</h3><p>仅挑选可明确展示授权与署名的高质量图像。</p></article><article><i>JWST</i><h3>深空档案联动</h3><p>把图像连接到 AURORA 内部的太阳、行星与任务档案。</p></article></div></section>

@@ -175,6 +175,8 @@ export interface ObservingScore {
   factors: ScoreFactors
   weather: ObservingConditions['hourly'][number] | null
   moon: MoonPhaseSnapshot
+  moonAltitude: number
+  moonAboveHorizon: boolean
   lightPollution?: LightPollution
 }
 

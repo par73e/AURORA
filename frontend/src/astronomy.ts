@@ -95,10 +95,80 @@ export function calculatePosition(config: CelestialBody, at: Date, latitude: num
   }
 }
 
-function localStartOfDay(at: Date) {
-  const day = new Date(at)
-  day.setHours(0, 0, 0, 0)
-  return day
+interface ZonedDateParts {
+  year: number
+  month: number
+  day: number
+  hour: number
+  minute: number
+  second: number
+}
+
+function systemTimezone() {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+}
+
+function zonedDateParts(at: Date, timezone: string): ZonedDateParts {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(at)
+  const value = (type: 'year' | 'month' | 'day' | 'hour' | 'minute' | 'second') => Number(parts.find((part) => part.type === type)?.value ?? 0)
+  return { year: value('year'), month: value('month'), day: value('day'), hour: value('hour'), minute: value('minute'), second: value('second') }
+}
+
+function dateInTimezone(parts: ZonedDateParts, timezone: string) {
+  const desired = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second)
+  let timestamp = desired
+  // Intl 没有直接的“墙上时间 → Date”构造器；迭代校正目标时区在该绝对时刻的偏移。
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const actual = zonedDateParts(new Date(timestamp), timezone)
+    const actualWallTime = Date.UTC(actual.year, actual.month - 1, actual.day, actual.hour, actual.minute, actual.second)
+    const correction = desired - actualWallTime
+    timestamp += correction
+    if (correction === 0) break
+  }
+  return new Date(timestamp)
+}
+
+/** 返回 at 在指定地点时区中的分钟位置（0–1439）。 */
+export function zonedMinuteOfDay(at: Date, timezone: string) {
+  const parts = zonedDateParts(at, timezone)
+  return parts.hour * 60 + parts.minute + parts.second / 60
+}
+
+/** 返回 at 在指定地点时区中的日期键（YYYY-MM-DD）。 */
+export function zonedDateKey(at: Date, timezone: string) {
+  const parts = zonedDateParts(at, timezone)
+  return `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`
+}
+
+/** 保留 at 在指定地点时区中的日期，并替换为该日的目标分钟。 */
+export function zonedDateAtMinute(at: Date, minute: number, timezone: string) {
+  const parts = zonedDateParts(at, timezone)
+  const safeMinute = Math.max(0, Math.min(1439, Math.round(minute)))
+  return dateInTimezone({
+    ...parts,
+    hour: Math.floor(safeMinute / 60),
+    minute: safeMinute % 60,
+    second: 0,
+  }, timezone)
+}
+
+/** 把后端不带偏移量的地点本地时间（YYYY-MM-DDTHH:mm）解释为指定 IANA 时区的绝对时刻。 */
+export function dateFromZonedLocalTime(value: string, timezone: string) {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/)
+  if (!match) return new Date(Number.NaN)
+  return dateInTimezone({
+    year: Number(match[1]), month: Number(match[2]), day: Number(match[3]),
+    hour: Number(match[4]), minute: Number(match[5]), second: Number(match[6] ?? 0),
+  }, timezone)
+}
+
+function localStartOfDay(at: Date, timezone = systemTimezone()) {
+  return zonedDateAtMinute(at, 0, timezone)
 }
 
 function nextRiseOrSet(body: Body, place: Observer, direction: 1 | -1, dayStart: Date) {
@@ -120,9 +190,9 @@ function transitFor(config: CelestialBody, place: Observer, start: Date): Date |
   return best
 }
 
-export function calculateTrack(config: CelestialBody, at: Date, latitude: number, longitude: number, elevation = 0): BodyTrack {
+export function calculateTrack(config: CelestialBody, at: Date, latitude: number, longitude: number, elevation = 0, timezone = systemTimezone()): BodyTrack {
   const place = observer(latitude, longitude, elevation)
-  const dayStart = localStartOfDay(at)
+  const dayStart = localStartOfDay(at, timezone)
   const samples = Array.from({ length: 97 }, (_, index) => {
     const sampleAt = new Date(dayStart.getTime() + index * 15 * 60_000)
     const equator = Equator(config.body, sampleAt, place, true, true)
@@ -143,9 +213,9 @@ export function calculateTrack(config: CelestialBody, at: Date, latitude: number
   }
 }
 
-export function calculateTwilight(at: Date, latitude: number, longitude: number, elevation = 0): TwilightTimes {
+export function calculateTwilight(at: Date, latitude: number, longitude: number, elevation = 0, timezone = systemTimezone()): TwilightTimes {
   const place = observer(latitude, longitude, elevation)
-  const start = localStartOfDay(at)
+  const start = localStartOfDay(at, timezone)
   return {
     sunrise: SearchRiseSet(Body.Sun, place, 1, start, 1.1)?.date ?? null,
     sunset: SearchRiseSet(Body.Sun, place, -1, start, 1.1)?.date ?? null,
@@ -256,7 +326,7 @@ function collectWindows(points: Array<{ at: Date; active: boolean }>): NightWind
  *
  * "今夜"窗口 = 自当前时刻起下一个天文昏影（太阳降至 −18°）→ 其后的天文晨光（次日）。
  */
-export function analyzeNight(at: Date, latitude: number, longitude: number, elevation = 0): NightAnalysis {
+export function analyzeNight(at: Date, latitude: number, longitude: number, elevation = 0, timezone = systemTimezone()): NightAnalysis {
   const empty: NightAnalysis = { astronomicalNight: null, moonlessWindows: [], galacticCore: { maxAltitude: 0, maxTime: null, windows: [] } }
   const place = observer(latitude, longitude, elevation)
   // 太阳低于 −18° 的下降交点 = 今晚天文昏影；从该时刻起的下一个上升交点 = 次日天文晨光。
@@ -266,7 +336,7 @@ export function analyzeNight(at: Date, latitude: number, longitude: number, elev
   if (!dawn) return empty
   const nightStart = dusk.getTime()
   const nightEnd = dawn.getTime()
-  const dayStart = localStartOfDay(at).getTime()
+  const dayStart = localStartOfDay(at, timezone).getTime()
 
   const points: Array<{ at: Date; moonless: boolean; coreVisible: boolean; coreAltitude: number }> = []
   let maxCore = { altitude: -Infinity, time: null as Date | null }
