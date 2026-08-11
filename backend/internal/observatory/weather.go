@@ -48,6 +48,9 @@ type Current struct {
 	Temperature      float64 `json:"temperature"`
 	DewPoint         float64 `json:"dewPoint"`
 	CloudCover       float64 `json:"cloudCover"`
+	CloudCoverLow    float64 `json:"cloudCoverLow"`
+	CloudCoverMid    float64 `json:"cloudCoverMid"`
+	CloudCoverHigh   float64 `json:"cloudCoverHigh"`
 	VisibilityMeters float64 `json:"visibilityMeters"`
 	Humidity         float64 `json:"humidity"`
 	Precipitation    float64 `json:"precipitation"`
@@ -156,7 +159,7 @@ func (client *Client) weather(ctx context.Context, latitude, longitude float64) 
 	query.Set("longitude", strconv.FormatFloat(longitude, 'f', 6, 64))
 	query.Set("timezone", "auto")
 	query.Set("forecast_hours", "24")
-	query.Set("current", "temperature_2m,dew_point_2m,cloud_cover,visibility,relative_humidity_2m,precipitation,wind_speed_10m,wind_gusts_10m,weather_code")
+	query.Set("current", "temperature_2m,dew_point_2m,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,precipitation,wind_speed_10m,wind_gusts_10m,weather_code")
 	query.Set("hourly", "temperature_2m,dew_point_2m,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,precipitation,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl,weather_code")
 	endpoint.RawQuery = query.Encode()
 
@@ -164,40 +167,44 @@ func (client *Client) weather(ctx context.Context, latitude, longitude float64) 
 		Timezone  string  `json:"timezone"`
 		Elevation float64 `json:"elevation"`
 		Current   struct {
-			Time               string  `json:"time"`
-			Temperature        float64 `json:"temperature_2m"`
-			DewPoint           float64 `json:"dew_point_2m"`
-			CloudCover         float64 `json:"cloud_cover"`
-			Visibility         float64 `json:"visibility"`
-			Humidity           float64 `json:"relative_humidity_2m"`
-			Precipitation      float64 `json:"precipitation"`
-			WindSpeed          float64 `json:"wind_speed_10m"`
-			WindGusts          float64 `json:"wind_gusts_10m"`
-			WeatherCode        int     `json:"weather_code"`
+			Time           string  `json:"time"`
+			Temperature    float64 `json:"temperature_2m"`
+			DewPoint       float64 `json:"dew_point_2m"`
+			CloudCover     float64 `json:"cloud_cover"`
+			CloudCoverLow  float64 `json:"cloud_cover_low"`
+			CloudCoverMid  float64 `json:"cloud_cover_mid"`
+			CloudCoverHigh float64 `json:"cloud_cover_high"`
+			Visibility     float64 `json:"visibility"`
+			Humidity       float64 `json:"relative_humidity_2m"`
+			Precipitation  float64 `json:"precipitation"`
+			WindSpeed      float64 `json:"wind_speed_10m"`
+			WindGusts      float64 `json:"wind_gusts_10m"`
+			WeatherCode    int     `json:"weather_code"`
 		} `json:"current"`
 		Hourly struct {
-			Time               []string  `json:"time"`
-			Temperature        []float64 `json:"temperature_2m"`
-			DewPoint           []float64 `json:"dew_point_2m"`
-			CloudCover         []float64 `json:"cloud_cover"`
-			CloudCoverLow      []float64 `json:"cloud_cover_low"`
-			CloudCoverMid      []float64 `json:"cloud_cover_mid"`
-			CloudCoverHigh     []float64 `json:"cloud_cover_high"`
-			Visibility         []float64 `json:"visibility"`
-			Humidity           []float64 `json:"relative_humidity_2m"`
-			Precipitation      []float64 `json:"precipitation"`
-			WindSpeed          []float64 `json:"wind_speed_10m"`
-			WindDirection      []float64 `json:"wind_direction_10m"`
-			WindGusts          []float64 `json:"wind_gusts_10m"`
-			Pressure           []float64 `json:"pressure_msl"`
-			WeatherCode        []int     `json:"weather_code"`
+			Time           []string  `json:"time"`
+			Temperature    []float64 `json:"temperature_2m"`
+			DewPoint       []float64 `json:"dew_point_2m"`
+			CloudCover     []float64 `json:"cloud_cover"`
+			CloudCoverLow  []float64 `json:"cloud_cover_low"`
+			CloudCoverMid  []float64 `json:"cloud_cover_mid"`
+			CloudCoverHigh []float64 `json:"cloud_cover_high"`
+			Visibility     []float64 `json:"visibility"`
+			Humidity       []float64 `json:"relative_humidity_2m"`
+			Precipitation  []float64 `json:"precipitation"`
+			WindSpeed      []float64 `json:"wind_speed_10m"`
+			WindDirection  []float64 `json:"wind_direction_10m"`
+			WindGusts      []float64 `json:"wind_gusts_10m"`
+			Pressure       []float64 `json:"pressure_msl"`
+			WeatherCode    []int     `json:"weather_code"`
 		} `json:"hourly"`
 	}
 	if err := client.getJSON(ctx, endpoint.String(), &payload); err != nil {
 		return Conditions{}, err
 	}
 	result := Conditions{Timezone: payload.Timezone, Elevation: payload.Elevation, Current: Current{
-		Time: payload.Current.Time, Temperature: payload.Current.Temperature, DewPoint: payload.Current.DewPoint, CloudCover: payload.Current.CloudCover, VisibilityMeters: payload.Current.Visibility,
+		Time: payload.Current.Time, Temperature: payload.Current.Temperature, DewPoint: payload.Current.DewPoint, CloudCover: payload.Current.CloudCover,
+		CloudCoverLow: payload.Current.CloudCoverLow, CloudCoverMid: payload.Current.CloudCoverMid, CloudCoverHigh: payload.Current.CloudCoverHigh, VisibilityMeters: payload.Current.Visibility,
 		Humidity: payload.Current.Humidity, Precipitation: payload.Current.Precipitation, WindSpeed: payload.Current.WindSpeed,
 		WindGusts: payload.Current.WindGusts, WeatherCode: payload.Current.WeatherCode,
 	}}
@@ -229,7 +236,7 @@ func (client *Client) airQuality(ctx context.Context, latitude, longitude float6
 	endpoint.RawQuery = query.Encode()
 	var payload struct {
 		Hourly struct {
-			Time []string `json:"time"`
+			Time []string  `json:"time"`
 			PM25 []float64 `json:"pm2_5"`
 			PM10 []float64 `json:"pm10"`
 			AOD  []float64 `json:"aerosol_optical_depth"`

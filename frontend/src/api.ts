@@ -81,6 +81,9 @@ export interface ObservingConditions {
     temperature: number
     dewPoint: number
     cloudCover: number
+    cloudCoverLow: number
+    cloudCoverMid: number
+    cloudCoverHigh: number
     visibilityMeters: number
     humidity: number
     precipitation: number
@@ -116,8 +119,14 @@ export interface ObservingConditions {
     hour: ObservingConditions['hourly'][number]
     withinForecastWindow: boolean
   }
-  /** 携带 scores=1 时返回：逐小时观测评分（动态推荐的输入）。 */
-  scores?: Array<{ time: string; score: number; verdict: string }>
+  /** 携带 scores=1 时返回：逐小时观测评分（动态推荐和今夜评分的输入）。 */
+  scores?: Array<{
+    time: string
+    score: number
+    verdict: string
+    factors: ScoreFactors
+    weather: ObservingConditions['hourly'][number]
+  }>
 }
 
 export function fetchObservingConditions(latitude: number, longitude: number, signal?: AbortSignal, scores = false) {
@@ -159,10 +168,11 @@ export function fetchMoonDay(latitude: number, longitude: number, elevation: num
 }
 
 export interface ScoreFactors {
-  visibilityBonus: number
+  visibilityPenalty: number
   cloudPenalty: number
   moonPenalty: number
   precipitationPenalty: number
+  aerosolPenalty: number
 }
 
 export interface ObservingScore {

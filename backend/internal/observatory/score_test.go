@@ -63,18 +63,18 @@ func TestScoreObservingWithinWindow(t *testing.T) {
 	if score.Score == nil {
 		t.Fatal("窗口内应给出分数")
 	}
-	// 月球高度 30°，月光扣分 = 0.25×22×sin(30°) = 2.75。
-	// 期望：50 + min(24, 20×2.4=48) − 10×0.52 − 2.75 = 66.05 → 66
-	if *score.Score != 66 {
-		t.Errorf("score = %d，期望 66", *score.Score)
+	// 月球高度 30°，月光扣分 = 0.25×12×sqrt(sin(30°)) ≈ 2.12；
+	// 未提供分层云量时，云量回退为 10×0.7=7。期望：100 − 7 − 2.12 = 90.88 → 91。
+	if *score.Score != 91 {
+		t.Errorf("score = %d，期望 91", *score.Score)
 	}
-	if score.Verdict != "条件一般，优先安排亮目标" {
+	if score.Verdict != "条件出色，适合安排观测" {
 		t.Errorf("verdict = %q", score.Verdict)
 	}
 	if score.Weather == nil || score.Weather.Time != "2026-08-09T10:00" {
 		t.Errorf("weather 应命中 10:00，得到 %+v", score.Weather)
 	}
-	if score.Factors.VisibilityBonus != 24 || score.Factors.CloudPenalty != 5.2 || math.Abs(score.Factors.MoonPenalty-2.75) > 1e-9 {
+	if score.Factors.VisibilityPenalty != 0 || score.Factors.CloudPenalty != 7 || math.Abs(score.Factors.MoonPenalty-2.1213203435596424) > 1e-9 {
 		t.Errorf("因子分解不符：%+v", score.Factors)
 	}
 	if score.Moon.Label != "上弦月" {
@@ -121,12 +121,12 @@ func TestScoreObservingPrecipitationPenalty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScoreObserving error: %v", err)
 	}
-	// 期望：50 + 24 − 5.2 − 2.75 − 18 = 48.05 → 48
-	if *score.Score != 48 {
-		t.Errorf("score = %d，期望 48（含降水惩罚 18）", *score.Score)
+	// 期望：100 − 7 − 2.12 − (10 + 10×sqrt(3.2)) = 62.99 → 63。
+	if *score.Score != 63 {
+		t.Errorf("score = %d，期望 63（含连续降水惩罚）", *score.Score)
 	}
-	if score.Factors.PrecipitationPenalty != 18 {
-		t.Errorf("降水惩罚 = %v，期望 18", score.Factors.PrecipitationPenalty)
+	if math.Abs(score.Factors.PrecipitationPenalty-(10+10*math.Sqrt(3.2))) > 1e-9 {
+		t.Errorf("降水惩罚 = %v，期望连续量级惩罚", score.Factors.PrecipitationPenalty)
 	}
 	if score.Weather == nil || score.Weather.Time != "2026-08-09T08:00" {
 		t.Errorf("weather 应命中 08:00，得到 %+v", score.Weather)
@@ -144,9 +144,9 @@ func TestScoreObservingLightPollutionIsSeparateFromDynamicScore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScoreObserving error: %v", err)
 	}
-	// 与相同天气和月光但没有光污染数据时一致：66 分。
-	if *score.Score != 66 {
-		t.Errorf("score = %d，期望 66（光污染不参与动态评分）", *score.Score)
+	// 与相同天气和月光但没有光污染数据时一致：91 分。
+	if *score.Score != 91 {
+		t.Errorf("score = %d，期望 91（光污染不参与动态评分）", *score.Score)
 	}
 	if score.LightPollution == nil || score.LightPollution.Bortle != 5 {
 		t.Errorf("评分应携带光污染数据：%+v", score.LightPollution)
@@ -162,10 +162,10 @@ func TestScoreSeries(t *testing.T) {
 	if len(scores) != len(hourly) {
 		t.Fatalf("scores 长度 = %d，期望 %d", len(scores), len(hourly))
 	}
-	// 每小时同天气同月光 → 每小时同分 66
+	// 每小时同天气同月光 → 每小时同分 91
 	for index, score := range scores {
-		if score.Score != 66 {
-			t.Errorf("scores[%d] = %d，期望 66", index, score.Score)
+		if score.Score != 91 {
+			t.Errorf("scores[%d] = %d，期望 91", index, score.Score)
 		}
 		if score.Time != hourly[index].Time {
 			t.Errorf("scores[%d].time = %q，期望 %q", index, score.Time, hourly[index].Time)
@@ -206,8 +206,8 @@ func TestScoreObservingMoonBelowHorizonHasNoMoonPenalty(t *testing.T) {
 	if score.MoonAboveHorizon || score.Factors.MoonPenalty != 0 {
 		t.Fatalf("月亮在地平线下不应扣月光分，得到 altitude=%v factors=%+v", score.MoonAltitude, score.Factors)
 	}
-	if score.Score == nil || *score.Score != 69 {
-		t.Fatalf("无月光扣分时 score=%v，期望 69", score.Score)
+	if score.Score == nil || *score.Score != 93 {
+		t.Fatalf("无月光扣分时 score=%v，期望 93", score.Score)
 	}
 }
 
@@ -215,14 +215,44 @@ func TestMoonPenaltyScalesWithAltitude(t *testing.T) {
 	if got := moonPenaltyFrom(1, 0); got != 0 {
 		t.Errorf("地平线上的满月扣分 = %v，期望 0", got)
 	}
-	if got := moonPenaltyFrom(1, 30); math.Abs(got-11) > 1e-9 {
-		t.Errorf("30° 高满月扣分 = %v，期望 11", got)
+	if got := moonPenaltyFrom(1, 30); math.Abs(got-8.48528137423857) > 1e-9 {
+		t.Errorf("30° 高满月扣分 = %v，期望约 8.49", got)
 	}
-	if got := moonPenaltyFrom(1, 90); math.Abs(got-22) > 1e-9 {
-		t.Errorf("天顶满月扣分 = %v，期望 22", got)
+	if got := moonPenaltyFrom(1, 90); math.Abs(got-12) > 1e-9 {
+		t.Errorf("天顶满月扣分 = %v，期望 12", got)
 	}
-	if got := moonPenaltyFrom(0.5, 90); math.Abs(got-11) > 1e-9 {
-		t.Errorf("天顶半月扣分 = %v，期望 11", got)
+	if got := moonPenaltyFrom(0.5, 90); math.Abs(got-6) > 1e-9 {
+		t.Errorf("天顶半月扣分 = %v，期望 6", got)
+	}
+}
+
+func TestScoreDistributionMatchesObservingConditions(t *testing.T) {
+	tests := []struct {
+		name    string
+		weather Hourly
+		want    int
+	}{
+		{name: "clear moonless sky stays near the top of the scale", weather: Hourly{Time: "2026-08-09T10:00", VisibilityMeters: 20000}, want: 100},
+		{name: "thin high cloud still permits bright-target observing", weather: Hourly{Time: "2026-08-09T10:00", VisibilityMeters: 20000, CloudCover: 100, CloudCoverHigh: 100}, want: 75},
+		{name: "mixed cloud cover falls into the middle of the scale", weather: Hourly{Time: "2026-08-09T10:00", VisibilityMeters: 10000, CloudCover: 60, CloudCoverLow: 20, CloudCoverMid: 35, CloudCoverHigh: 50}, want: 52},
+		{name: "overcast drizzle is effectively not an observing night", weather: Hourly{Time: "2026-08-09T10:00", VisibilityMeters: 8000, CloudCover: 96, CloudCoverLow: 22, CloudCoverMid: 83, CloudCoverHigh: 91, Precipitation: 0.1}, want: 1},
+	}
+	moon := stubMoon{result: MoonPhaseResult{Illumination: 0}, altitude: -10}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			report := Conditions{Timezone: "Asia/Shanghai", Hourly: []Hourly{test.weather}}
+			score := scoreFromReport(report, moon, nil, 31.23, 121.47, unixTime("2026-08-09T02:00:00Z"))
+			if score.Score == nil || *score.Score != test.want {
+				t.Fatalf("score = %v，期望 %d，factors=%+v", score.Score, test.want, score.Factors)
+			}
+		})
+	}
+}
+
+func TestAerosolPenaltyIsSmallTransparencyCorrection(t *testing.T) {
+	readings := []AirQuality{{Time: "2026-08-09T10:00", AerosolOpticalDepth: 0.55}}
+	if got := aerosolPenaltyAt(readings, "Asia/Shanghai", "2026-08-09T10:00"); math.Abs(got-6) > 1e-9 {
+		t.Errorf("AOD 0.55 penalty = %v，期望 6", got)
 	}
 }
 
