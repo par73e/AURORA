@@ -49,10 +49,11 @@ func main() {
 	marsRepository := mars.NewRepository(pool)
 	voyageRepository := voyage.NewRepository(pool)
 	eventRepository := astronomyevent.NewRepository(pool)
+	dailyImageRepository := dailyimage.NewRepository(pool)
 	geocoder := observerlocation.NewAMapClient(cfg.AMapWebKey)
 	conditions := observatory.NewClient()
 	dailyImage := dailyimage.NewAPODClient(cfg.NASAAPIKey)
-	imageWall := dailyimage.NewWallService(dailyImage, dailyimage.NewNASAImageLibraryClient())
+	imageWall := dailyimage.NewCachedWallService(dailyimage.NewWallService(dailyImage, dailyimage.NewNASAImageLibraryClient()), dailyImageRepository)
 	moons := observatory.NewMoonService()
 	var lights observatory.LightPollutionProvider = observatory.NewLightPollutionClient(cfg.LightPollutionKey)
 	if cfg.LightPollutionURL != "" {
@@ -84,13 +85,15 @@ func main() {
 	go runStartupSync(ctx, dataSyncer)
 	go runAstronomySourceStartupSync(ctx, eventSourceSyncer)
 	go runPlanetaryEphemerisSync(ctx, ephemerisSyncer)
+	go runDailyImageWallStartupSync(ctx, imageWall)
 	go schedule(ctx, 2*time.Hour, 45*time.Second, "celestrak", dataSyncer.SyncCelesTrak)
 	go schedule(ctx, 30*time.Minute, 45*time.Second, "launch_library_2", dataSyncer.SyncLaunches)
-	go schedule(ctx, 24*time.Hour, 45*time.Second, "moon", dataSyncer.SyncMoonSpacecraft)                         // 月球轨道：每日 JPL Horizons 同步
-	go schedule(ctx, 24*time.Hour, 45*time.Second, "mars", dataSyncer.SyncMarsSpacecraft)                         // 火星轨道：每日 JPL Horizons 同步
-	go schedule(ctx, 24*time.Hour, 120*time.Second, "probes", dataSyncer.SyncDeepSpaceProbes)                     // 深空探测器：每日同步（9 个顺序查询，预算放宽）
-	go schedule(ctx, 24*time.Hour, 45*time.Second, "astronomy_sources", eventSourceSyncer.SyncOfficialSources)    // 天象权威资料：每日校验并缓存
-	go schedule(ctx, 24*time.Hour, 90*time.Second, "planetary_ephemeris", ephemerisSyncer.SyncPlanetaryPositions) // JPL 行星星历：每日缓存未来 18 个月
+	go schedule(ctx, 24*time.Hour, 45*time.Second, "moon", dataSyncer.SyncMoonSpacecraft)                                                             // 月球轨道：每日 JPL Horizons 同步
+	go schedule(ctx, 24*time.Hour, 45*time.Second, "mars", dataSyncer.SyncMarsSpacecraft)                                                             // 火星轨道：每日 JPL Horizons 同步
+	go schedule(ctx, 24*time.Hour, 120*time.Second, "probes", dataSyncer.SyncDeepSpaceProbes)                                                         // 深空探测器：每日同步（9 个顺序查询，预算放宽）
+	go schedule(ctx, 24*time.Hour, 45*time.Second, "astronomy_sources", eventSourceSyncer.SyncOfficialSources)                                        // 天象权威资料：每日校验并缓存
+	go schedule(ctx, 24*time.Hour, 90*time.Second, "planetary_ephemeris", ephemerisSyncer.SyncPlanetaryPositions)                                     // JPL 行星星历：每日缓存未来 18 个月
+	go schedule(ctx, 24*time.Hour, 45*time.Second, "daily_image_wall", func(ctx context.Context) error { return imageWall.Refresh(ctx, time.Now()) }) // 每日一图：每日刷新并入库；页面请求优先读库
 
 	<-ctx.Done()
 	shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
@@ -145,6 +148,14 @@ func runPlanetaryEphemerisSync(parent context.Context, syncer *astronomyevent.Ep
 	defer cancel()
 	if err := syncer.SyncPlanetaryPositions(ctx); err != nil {
 		slog.Warn("planetary ephemeris startup sync failed; cached event data remains available", "error", err)
+	}
+}
+
+func runDailyImageWallStartupSync(parent context.Context, imageWall *dailyimage.CachedWallService) {
+	ctx, cancel := context.WithTimeout(parent, 45*time.Second)
+	defer cancel()
+	if _, err := imageWall.Wall(ctx, time.Now()); err != nil {
+		slog.Warn("daily image wall startup sync failed; cached image wall remains available", "error", err)
 	}
 }
 
