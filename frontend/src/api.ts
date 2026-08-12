@@ -280,22 +280,32 @@ export async function fetchAstronomyEvents(params: {
   return requestJSON<AstronomyEventsResponse>(`/api/v1/astronomy/events?${search}`, signal)
 }
 
-/** NASA APOD 由 AURORA 后端代理，避免将 API Key 暴露给浏览器。 */
-export interface DailyImage {
-  date: string
-  title: string
-  explanation: string
-  mediaType: 'image' | 'video'
-  url: string
-  thumbnailUrl?: string
-  hdUrl?: string
-  copyright?: string
+/** 图像墙由 AURORA 后端聚合；NASA APOD 的 Key 从不进入浏览器。 */
+export interface ImageWindow {
+  id: string
+  sourceId: string
   sourceName: string
+  title: string
+  publishedAt?: string
+  imageUrl?: string
+  thumbnailUrl?: string
+  mediaType: 'image' | 'video'
+  credit: string
+  licenseNote?: string
   sourceUrl: string
+  hdUrl?: string
+  selectionMode: 'daily' | 'rotating' | 'curated'
+  summary?: string
+  status: 'ready' | 'error'
+  error?: string
+  isFallback?: boolean
 }
 
-export function fetchDailyImage(date?: string, signal?: AbortSignal) {
-  const search = new URLSearchParams()
-  if (date) search.set('date', date)
-  return requestJSON<DailyImage>(`/api/v1/astronomy/daily-image?${search}`, signal)
+export interface ImageWall {
+  windows: ImageWindow[]
+  generatedAt: string
+}
+
+export function fetchImageWall(signal?: AbortSignal) {
+  return requestJSON<ImageWall>('/api/v1/astronomy/image-wall', signal)
 }

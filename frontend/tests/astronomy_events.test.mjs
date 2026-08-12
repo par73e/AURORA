@@ -47,16 +47,16 @@ test('fetchAstronomyEvents 构造正确的 AURORA API URL，不请求 JPL/USNO/N
   }
 })
 
-test('fetchDailyImage 只请求 AURORA API，并保留所选日期', async () => {
+test('fetchImageWall 只请求 AURORA 聚合接口，浏览器不直连 NASA', async () => {
   const api = await import('../src/api.ts')
   const calls = mockFetch([
-    { match: e => e.startsWith('/api/v1/astronomy/daily-image'), body: { date: '2026-08-12', title: 'Perseids', explanation: 'Verified APOD copy.', mediaType: 'image', url: 'https://example.test/image.jpg', sourceName: 'NASA Astronomy Picture of the Day', sourceUrl: 'https://apod.nasa.gov/apod/astropix.html' } },
+    { match: e => e === '/api/v1/astronomy/image-wall', body: { windows: [{ id: 'apod', sourceId: 'apod', sourceName: 'NASA Astronomy Picture of the Day', title: 'Perseids', mediaType: 'image', credit: 'NASA', sourceUrl: 'https://apod.nasa.gov/apod/astropix.html', selectionMode: 'daily', status: 'ready' }], generatedAt: '2026-08-12T00:00:00Z' } },
   ])
   try {
-    const image = await api.fetchDailyImage('2026-08-12')
-    assert.equal(image.title, 'Perseids')
+    const wall = await api.fetchImageWall()
+    assert.equal(wall.windows[0].title, 'Perseids')
     assert.equal(calls.length, 1)
-    assert.ok(calls[0].endpoint.startsWith('/api/v1/astronomy/daily-image?date=2026-08-12'), `应请求 AURORA 每日一图 API，实际 ${calls[0].endpoint}`)
+    assert.equal(calls[0].endpoint, '/api/v1/astronomy/image-wall')
     assert.ok(!calls[0].endpoint.includes('api.nasa.gov'), `浏览器不应直接请求 NASA API: ${calls[0].endpoint}`)
   } finally {
     restoreFetch()

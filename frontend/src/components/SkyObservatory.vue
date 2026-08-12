@@ -7,7 +7,7 @@ FORM: desktop field observatory; four focused workspaces share one clock, one lo
 -->
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { fetchObserverPlace, fetchObservingConditions, fetchMoonDay, fetchLightPollution, fetchAstronomyEvents, fetchDailyImage, type ObservingConditions, type MoonDay, type LightPollution, type AstronomyEvent, type DailyImage } from '../api'
+import { fetchObserverPlace, fetchObservingConditions, fetchMoonDay, fetchLightPollution, fetchAstronomyEvents, fetchImageWall, type ObservingConditions, type MoonDay, type LightPollution, type AstronomyEvent, type ImageWall } from '../api'
 import { analyzeNight, bearing, bodies, calculatePosition, calculateTrack, calculateTwilight, dateFromZonedLocalTime, daylightFactor, moonPhase, observeTips, observingStatus, upcomingMoonPhases, zonedDateAtMinute, zonedDateKey, zonedMinuteOfDay, type BodyId, type BodyTrack, type NightAnalysis } from '../astronomy'
 import { conditionDescription, weatherGlyph } from '../observatoryWeather'
 import { projectAltitudeGuide, projectHorizontalDirection, type SkyCamera } from '../skyProjection'
@@ -56,9 +56,8 @@ const lightPollution = ref<LightPollution | null>(null)
 const expandedBodyId = ref<BodyId | null>(null)
 const expandedEventId = ref<string | null>(null)
 const showAllCuratedEvents = ref(false)
-const dailyImage = ref<DailyImage | null>(null)
-const dailyImageStatus = ref<'idle' | 'loading' | 'ready' | 'error'>('idle')
-const dailyImageDate = ref(new Date().toISOString().slice(0, 10))
+const imageWall = ref<ImageWall | null>(null)
+const imageWallStatus = ref<'idle' | 'loading' | 'ready' | 'error'>('idle')
 const skyLeaving = ref(false)
 const moonCanvas = ref<HTMLCanvasElement | null>(null)
 let minuteClock: number | undefined
@@ -77,7 +76,7 @@ let skyViewStartAzimuth = 180
 let skyViewAnimationFrame: number | undefined
 let pendingSkyViewAzimuth: number | undefined
 let skyViewTurnAnimationFrame: number | undefined
-let dailyImageController: AbortController | undefined
+let imageWallController: AbortController | undefined
 const skyViewFieldOfView = 120
 const fallbackTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
 
@@ -436,24 +435,11 @@ function formatEventMoment(value?: string) {
   }).format(at)
 }
 
-function formatDailyImageDate(value: string) {
+function formatImageWindowDate(value?: string) {
+  if (!value) return '发布日期未提供'
   const date = new Date(`${value}T12:00:00Z`)
   if (Number.isNaN(date.getTime())) return value
   return new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(date)
-}
-
-function shiftDailyImage(days: number) {
-  const date = new Date(`${dailyImageDate.value}T00:00:00Z`)
-  date.setUTCDate(date.getUTCDate() + days)
-  const next = date.toISOString().slice(0, 10)
-  if (next > new Date().toISOString().slice(0, 10)) return
-  dailyImageDate.value = next
-  void loadDailyImage()
-}
-
-function updateDailyImageDate(event: Event) {
-  dailyImageDate.value = (event.currentTarget as HTMLInputElement).value
-  void loadDailyImage()
 }
 
 function eventPrecision(event: AstronomyEvent) {
@@ -1086,22 +1072,21 @@ async function loadAstronomyEvents() {
   }
 }
 
-async function loadDailyImage() {
-  dailyImageController?.abort()
+async function loadImageWall() {
+  imageWallController?.abort()
   const controller = new AbortController()
-  dailyImageController = controller
-  dailyImageStatus.value = 'loading'
+  imageWallController = controller
+  imageWallStatus.value = 'loading'
   try {
-    const image = await fetchDailyImage(dailyImageDate.value, controller.signal)
+    const wall = await fetchImageWall(controller.signal)
     if (!controller.signal.aborted) {
-      dailyImage.value = image
-      dailyImageDate.value = image.date
-      dailyImageStatus.value = 'ready'
+      imageWall.value = wall
+      imageWallStatus.value = 'ready'
     }
   } catch {
-    if (!controller.signal.aborted) dailyImageStatus.value = 'error'
+    if (!controller.signal.aborted) imageWallStatus.value = 'error'
   } finally {
-    if (dailyImageController === controller) dailyImageController = undefined
+    if (imageWallController === controller) imageWallController = undefined
   }
 }
 
@@ -1140,7 +1125,7 @@ watch(observatoryTimezone, () => {
   if (activeCoordinates.value) void loadAstronomyEvents()
 })
 watch(activePage, (page) => {
-  if (page === 'daily-image' && dailyImageStatus.value === 'idle') void loadDailyImage()
+  if (page === 'daily-image' && imageWallStatus.value === 'idle') void loadImageWall()
 })
 watch(moon, renderMoon)
 watch(moonDay, renderMoon)
@@ -1169,7 +1154,7 @@ onBeforeUnmount(() => {
   locationRevision += 1
   locationLookupController?.abort()
   conditionsController?.abort()
-  dailyImageController?.abort()
+  imageWallController?.abort()
   if (homeExitTimer !== undefined) window.clearTimeout(homeExitTimer)
   window.removeEventListener('popstate', onPopState)
   if (minuteClock !== undefined) window.clearInterval(minuteClock)
@@ -1406,37 +1391,31 @@ onBeforeUnmount(() => {
       <section v-else class="daily-image-page page-stack" aria-label="每日一图">
         <header class="daily-image-heading">
           <div>
-            <h1>今天的宇宙</h1>
-            <p>NASA 每日一天文图与专业解读。图像内容、作者署名与原始说明均保留其出处。</p>
-          </div>
-          <div class="daily-image-controls" aria-label="切换每日一图日期">
-            <button type="button" aria-label="查看前一天" @click="shiftDailyImage(-1)">前一天</button>
-            <label><span>日期</span><input :value="dailyImageDate" type="date" min="1995-06-16" :max="new Date().toISOString().slice(0, 10)" @change="updateDailyImageDate" /></label>
-            <button type="button" aria-label="查看后一天" :disabled="dailyImageDate >= new Date().toISOString().slice(0, 10)" @click="shiftDailyImage(1)">后一天</button>
+            <h1>宇宙图像窗</h1>
+            <p>五个官方来源，一次看见今天值得停留的宇宙。NASA APOD 每日更新；其余图像按公开档案轮换或由 AURORA 精选。</p>
           </div>
         </header>
 
-        <div v-if="dailyImageStatus === 'loading' && !dailyImage" class="daily-image-state" aria-live="polite"><strong>正在接收今日图像</strong><span>NASA APOD 的图像、说明与署名将通过 AURORA 服务读取。</span></div>
-        <article v-else-if="dailyImage" class="daily-image-feature" :class="{ 'is-refreshing': dailyImageStatus === 'loading' }">
-          <a class="daily-image-media" :href="dailyImage.url" target="_blank" rel="noreferrer" :aria-label="`在来源网站打开：${dailyImage.title}`">
-            <img v-if="dailyImage.mediaType === 'image'" :src="dailyImage.url" :alt="dailyImage.title" />
-            <img v-else-if="dailyImage.thumbnailUrl" :src="dailyImage.thumbnailUrl" :alt="`${dailyImage.title}的视频缩略图`" />
-            <span v-else class="daily-image-video">此期为视频内容<br />在 NASA APOD 查看</span>
-            <span v-if="dailyImage.mediaType === 'video'" class="daily-image-play" aria-hidden="true">观看视频</span>
-          </a>
-          <div class="daily-image-copy">
-            <time>{{ formatDailyImageDate(dailyImage.date) }}</time>
-            <h2>{{ dailyImage.title }}</h2>
-            <p>{{ dailyImage.explanation }}</p>
-            <dl>
-              <div><dt>来源</dt><dd>{{ dailyImage.sourceName }}</dd></div>
-              <div v-if="dailyImage.copyright"><dt>图像版权</dt><dd>{{ dailyImage.copyright }}</dd></div>
-              <div><dt>媒介</dt><dd>{{ dailyImage.mediaType === 'video' ? '视频' : '图像' }}</dd></div>
-            </dl>
-            <div class="daily-image-links"><a :href="dailyImage.url" target="_blank" rel="noreferrer">打开原始内容</a><a :href="dailyImage.sourceUrl" target="_blank" rel="noreferrer">查看 APOD</a><a v-if="dailyImage.hdUrl" :href="dailyImage.hdUrl" target="_blank" rel="noreferrer">高清原图</a></div>
-          </div>
-        </article>
-        <div v-else class="daily-image-state is-error" aria-live="polite"><strong>每日一图暂不可用</strong><span>请确认后端已设置 <code>NASA_API_KEY</code>，或稍后重新连接 NASA APOD。</span><button type="button" @click="loadDailyImage">重新加载</button></div>
+        <div v-if="imageWallStatus === 'loading' && !imageWall" class="daily-image-state" aria-live="polite"><strong>正在开启图像窗</strong><span>各来源独立读取；某一扇窗延迟不会阻塞其他图像。</span></div>
+        <div v-else-if="imageWall" class="image-wall" :class="{ 'is-refreshing': imageWallStatus === 'loading' }" aria-live="polite">
+          <article v-for="window in imageWall.windows" :key="window.id" class="image-window" :class="[`image-window--${window.sourceId}`, { 'is-unavailable': window.status === 'error' }]">
+            <div class="image-window-meta"><span>{{ window.sourceName }}</span><time>{{ window.status === 'error' ? '连接状态' : window.isFallback ? '最近可用' : window.selectionMode === 'daily' ? '每日更新' : window.selectionMode === 'rotating' ? '主题轮换' : '编辑精选' }}</time></div>
+            <a v-if="window.status === 'ready'" class="image-window-media" :href="window.sourceUrl" target="_blank" rel="noreferrer" :aria-label="`在来源网站打开：${window.title}`">
+              <img v-if="window.thumbnailUrl || window.imageUrl" :src="window.thumbnailUrl || window.imageUrl" :alt="window.title" loading="lazy" />
+              <span v-else class="image-window-video">该来源提供视频内容<br />前往官方页面观看</span>
+              <span v-if="window.mediaType === 'video'" class="image-window-play" aria-hidden="true">观看视频</span>
+            </a>
+            <div v-else class="image-window-missing"><span>×</span><strong>{{ window.title }}</strong><p>{{ window.error }}</p><button type="button" @click="loadImageWall">重新连接</button></div>
+            <div class="image-window-copy">
+              <time v-if="window.status === 'ready'">{{ formatImageWindowDate(window.publishedAt) }}</time>
+              <h2>{{ window.title }}</h2>
+              <p v-if="window.summary">{{ window.summary }}</p>
+              <dl v-if="window.status === 'ready'"><div><dt>完整署名</dt><dd>{{ window.credit }}</dd></div><div v-if="window.licenseNote"><dt>使用说明</dt><dd>{{ window.licenseNote }}</dd></div></dl>
+              <div class="daily-image-links"><a :href="window.sourceUrl" target="_blank" rel="noreferrer">打开原始内容</a><a v-if="window.hdUrl" :href="window.hdUrl" target="_blank" rel="noreferrer">高清原图</a></div>
+            </div>
+          </article>
+        </div>
+        <div v-else class="daily-image-state is-error" aria-live="polite"><strong>宇宙图像窗暂不可用</strong><span>请检查 AURORA 后端连接后重新加载；不会要求浏览器持有 NASA API Key。</span><button type="button" @click="loadImageWall">重新加载</button></div>
       </section>
     </main>
   </section>
@@ -1772,34 +1751,39 @@ onBeforeUnmount(() => {
 .events-empty button:hover,.events-empty button:focus-visible { color:var(--sky-ink); outline:0; }
 .show-all-events { display:block; width:100%; padding:16px 0; color:var(--sky-cyan); font-size:11px; text-align:left; background:transparent; border:0; border-bottom:1px solid var(--sky-line); cursor:pointer; }
 .show-all-events:hover,.show-all-events:focus-visible { color:var(--sky-ink); outline:0; }
-/* ---------- 每日一图：让真实图像占据阅读焦点，界面只承担出处与时间导航 ---------- */
+/* ---------- 宇宙图像窗：一面来源可追溯的连续观测墙 ---------- */
 .daily-image-page { padding-top:52px; }
-.daily-image-heading { display:flex; align-items:end; justify-content:space-between; gap:32px; padding-bottom:30px; border-bottom:1px solid var(--sky-line); }
+.daily-image-heading { padding-bottom:30px; border-bottom:1px solid var(--sky-line); }
 .daily-image-heading h1 { max-width:560px; margin:0; font-size:clamp(2.2rem,4vw,4.25rem); font-weight:500; letter-spacing:-.04em; line-height:.98; }
 .daily-image-heading p { max-width:57ch; margin:15px 0 0; color:var(--sky-muted); font-size:12px; line-height:1.7; }
-.daily-image-controls { display:flex; align-items:end; gap:8px; flex:none; }
-.daily-image-controls button,.daily-image-controls label { min-height:35px; color:var(--sky-cyan); font:9px var(--font-mono,monospace); letter-spacing:.05em; background:transparent; border:1px solid var(--sky-line); border-radius:5px; }
-.daily-image-controls button { padding:0 11px; cursor:pointer; }
-.daily-image-controls button:hover:not(:disabled),.daily-image-controls button:focus-visible { color:var(--sky-ink); border-color:rgba(157,184,232,.65); outline:0; }
-.daily-image-controls button:disabled { color:var(--sky-muted); cursor:not-allowed; opacity:.45; }
-.daily-image-controls label { display:grid; gap:3px; padding:5px 9px 4px; }
-.daily-image-controls label span { color:var(--sky-muted); font-size:7px; }
-.daily-image-controls input { color:var(--sky-ink); font:10px var(--font-mono,monospace); color-scheme:dark; background:transparent; border:0; outline:0; }
-.daily-image-feature { display:grid; grid-template-columns:minmax(0,1.35fr) minmax(270px,.65fr); gap:clamp(28px,5vw,72px); align-items:start; padding:36px 0 0; }
-.daily-image-feature.is-refreshing { opacity:.68; }
-.daily-image-media { position:relative; display:block; min-height:440px; overflow:hidden; color:var(--sky-ink); background:#05080d; text-decoration:none; }
-.daily-image-media::after { position:absolute; inset:0; background:linear-gradient(180deg,transparent 75%,rgba(3,7,12,.72)); content:""; pointer-events:none; }
-.daily-image-media img { display:block; width:100%; height:clamp(440px,62vh,680px); object-fit:cover; transition:transform .7s cubic-bezier(.16,1,.3,1); }
-.daily-image-media:hover img { transform:scale(1.018); }
-.daily-image-video { display:grid; place-items:center; height:440px; color:var(--sky-muted); font-size:13px; line-height:1.7; text-align:center; }
-.daily-image-play { position:absolute; z-index:1; right:16px; bottom:15px; padding:8px 10px; color:var(--sky-ink); font:9px var(--font-mono,monospace); letter-spacing:.08em; background:rgba(5,8,13,.76); border:1px solid rgba(226,233,241,.28); }
-.daily-image-copy { padding-top:4px; }
-.daily-image-copy > time { display:block; margin-bottom:17px; color:var(--sky-amber); font:10px var(--font-mono,monospace); letter-spacing:.08em; }
-.daily-image-copy h2 { margin:0; font-size:clamp(1.55rem,2.2vw,2.35rem); font-weight:500; letter-spacing:-.035em; line-height:1.1; }
-.daily-image-copy > p { max-width:58ch; margin:21px 0 28px; color:var(--sky-muted); font-size:12px; line-height:1.8; }
-.daily-image-copy dl { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:15px 18px; margin:0; padding:18px 0; border-top:1px solid var(--sky-line); border-bottom:1px solid var(--sky-line); }
-.daily-image-copy dt { color:var(--sky-muted); font-size:9px; }
-.daily-image-copy dd { margin:5px 0 0; font-size:11px; line-height:1.5; }
+.image-wall { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); border-bottom:1px solid var(--sky-line); }
+.image-wall.is-refreshing { opacity:.66; }
+.image-window { grid-column:span 3; min-width:0; padding:25px 24px 31px; border-right:1px solid var(--sky-line); border-bottom:1px solid var(--sky-line); }
+.image-window:nth-child(2) { border-right:0; }
+.image-window:nth-last-child(-n+3) { grid-column:span 2; }
+.image-window:nth-child(5) { border-right:0; }
+.image-window-meta { display:flex; justify-content:space-between; gap:14px; min-height:18px; margin-bottom:14px; color:var(--sky-cyan); font:9px var(--font-mono,monospace); letter-spacing:.045em; line-height:1.4; }
+.image-window-meta time { color:var(--sky-muted); text-align:right; }
+.image-window-media { position:relative; display:block; overflow:hidden; aspect-ratio:1.36; color:var(--sky-ink); background:#05080d; text-decoration:none; }
+.image-window-media::after { position:absolute; inset:0; background:linear-gradient(180deg,transparent 58%,rgba(3,7,12,.62)); content:""; pointer-events:none; }
+.image-window-media img { display:block; width:100%; height:100%; object-fit:cover; transition:transform .7s cubic-bezier(.16,1,.3,1); }
+.image-window-media:hover img { transform:scale(1.025); }
+.image-window-media:focus-visible { outline:1px solid var(--sky-ink); outline-offset:3px; }
+.image-window-video { display:grid; place-items:center; width:100%; height:100%; color:var(--sky-muted); font-size:12px; line-height:1.7; text-align:center; }
+.image-window-play { position:absolute; z-index:1; right:13px; bottom:12px; padding:7px 9px; color:var(--sky-ink); font:9px var(--font-mono,monospace); letter-spacing:.05em; background:rgba(5,8,13,.78); border:1px solid rgba(226,233,241,.28); }
+.image-window-copy { padding-top:17px; }
+.image-window-copy > time { display:block; margin-bottom:10px; color:var(--sky-amber); font:9px var(--font-mono,monospace); letter-spacing:.05em; }
+.image-window-copy h2 { margin:0; font-size:clamp(1.2rem,1.85vw,1.7rem); font-weight:500; letter-spacing:-.025em; line-height:1.08; }
+.image-window-copy > p { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; overflow:hidden; margin:12px 0 18px; color:var(--sky-muted); font-size:11px; line-height:1.7; }
+.image-window-copy dl { display:grid; gap:12px; margin:0; padding:14px 0; border-top:1px solid var(--sky-line); }
+.image-window-copy dt { color:var(--sky-muted); font-size:9px; }
+.image-window-copy dd { margin:4px 0 0; font-size:10px; line-height:1.55; }
+.image-window-missing { display:grid; min-height:220px; align-content:center; gap:10px; padding:24px; color:var(--sky-muted); background:rgba(7,12,19,.68); border:1px solid var(--sky-line); }
+.image-window-missing > span { color:var(--sky-amber); font-size:24px; line-height:1; }
+.image-window-missing strong { color:var(--sky-ink); font-size:15px; font-weight:500; }
+.image-window-missing p { margin:0; font-size:11px; line-height:1.65; }
+.image-window-missing button { justify-self:start; padding:0; color:var(--sky-cyan); font:11px inherit; background:transparent; border:0; cursor:pointer; }
+.image-window-missing button:hover,.image-window-missing button:focus-visible { color:var(--sky-ink); outline:0; }
 .daily-image-links { display:flex; flex-wrap:wrap; gap:14px 18px; margin-top:21px; }
 .daily-image-links a { color:var(--sky-cyan); font-size:10px; text-decoration:none; }
 .daily-image-links a:hover,.daily-image-links a:focus-visible { color:var(--sky-ink); outline:0; }
@@ -1840,12 +1824,7 @@ onBeforeUnmount(() => {
   .curated-event-list > article > button > strong { grid-column:3; }
   .curated-event-detail { padding-left:178px; }
   .curated-event-detail dl { grid-template-columns:repeat(2,minmax(0,1fr)); }
-  .daily-image-heading { display:block; }
-  .daily-image-controls { margin-top:26px; }
-  .daily-image-feature { grid-template-columns:minmax(0,1fr); gap:28px; }
-  .daily-image-copy { display:grid; grid-template-columns:150px minmax(0,1fr); column-gap:24px; }
-  .daily-image-copy > time { grid-column:1; grid-row:1; margin-top:5px; }
-  .daily-image-copy h2,.daily-image-copy > p,.daily-image-copy dl,.daily-image-links { grid-column:2; }
+  .image-window { padding:23px 20px 29px; }
 }
 @media (max-width:620px) {
   .page-stack { padding:20px 20px 55px; }
@@ -1888,13 +1867,10 @@ onBeforeUnmount(() => {
   .event-list article { grid-template-columns:62px 1fr; gap:12px; }
   .event-list > article > strong { grid-column:2; padding-bottom:12px; }
   .daily-image-page { padding-top:28px; }
-  .daily-image-controls { align-items:stretch; flex-wrap:wrap; }
-  .daily-image-controls button { flex:1; }
-  .daily-image-controls label { flex:0 0 142px; }
-  .daily-image-media { min-height:300px; }
-  .daily-image-media img { height:clamp(300px,62vh,460px); }
-  .daily-image-copy { display:block; }
-  .daily-image-copy > time { margin-top:0; }
+  .image-wall { grid-template-columns:1fr; }
+  .image-window,.image-window:nth-last-child(-n+3) { grid-column:1; padding:23px 0 29px; border-right:0; }
+  .image-window:last-child { border-bottom:0; }
+  .image-window-media { aspect-ratio:1.45; }
   .horizon-field { min-height:380px; }
   .time-scrubber-inner { grid-template-columns:1fr; row-gap:12px; }
   .time-scrubber-now { margin-left:0; }
