@@ -1392,17 +1392,16 @@ onBeforeUnmount(() => {
         <header class="daily-image-heading">
           <div>
             <h1>宇宙图像窗</h1>
-            <p>先看最近五天的真实宇宙，再沿着多来源图像流继续下潜。每一张都保留发布机构、日期与完整署名。</p>
           </div>
         </header>
 
         <div v-if="imageWallStatus === 'loading' && !imageWall" class="daily-image-state" aria-live="polite"><strong>正在开启图像窗</strong><span>各来源独立读取；某一扇窗延迟不会阻塞其他图像。</span></div>
         <div v-else-if="imageWall" class="image-stream" :class="{ 'is-refreshing': imageWallStatus === 'loading' }" aria-live="polite">
           <section class="image-stream-section" aria-labelledby="recent-images-title">
-            <header class="image-stream-heading"><h2 id="recent-images-title">最近五天</h2><p>NASA APOD 的逐日记录 · 由 NASA 每日更新</p></header>
+            <header class="image-stream-heading"><h2 id="recent-images-title">NASA每日一图</h2><p>NASA APOD每日更新</p></header>
             <div class="image-wall">
               <article v-for="window in imageWall.recent" :key="window.id" class="image-window" :class="[`image-window--${window.sourceId}`, { 'is-unavailable': window.status === 'error' }]">
-                <div class="image-window-meta"><span>{{ window.sourceName }}</span><time>{{ window.status === 'error' ? '连接状态' : window.isFallback ? '最近可用' : window.selectionMode === 'daily' ? '每日更新' : window.selectionMode === 'rotating' ? '主题轮换' : '编辑精选' }}</time></div>
+                <div class="image-window-meta"><span>{{ window.sourceName }}</span></div>
                 <a v-if="window.status === 'ready'" class="image-window-media" :href="window.sourceUrl" target="_blank" rel="noreferrer" :aria-label="`在来源网站打开：${window.title}`">
                   <img v-if="window.thumbnailUrl || window.imageUrl" :src="window.thumbnailUrl || window.imageUrl" :alt="window.title" loading="eager" />
                   <span v-else class="image-window-video">该来源提供视频内容<br />前往官方页面观看</span>
@@ -1420,10 +1419,10 @@ onBeforeUnmount(() => {
             </div>
           </section>
           <section class="image-stream-section" aria-labelledby="collection-images-title">
-            <header class="image-stream-heading"><h2 id="collection-images-title">继续下潜</h2><p>NASA 图库主题轮换 · ESO、Webb 与 Hubble 的可追溯精选</p></header>
+            <header class="image-stream-heading"><h2 id="collection-images-title">继续下潜</h2><p>NASA 图库 · ESO、Webb 与 Hubble</p></header>
             <div class="image-wall">
               <article v-for="window in imageWall.collection" :key="window.id" class="image-window" :class="[`image-window--${window.sourceId}`, { 'is-unavailable': window.status === 'error' }]">
-            <div class="image-window-meta"><span>{{ window.sourceName }}</span><time>{{ window.status === 'error' ? '连接状态' : window.isFallback ? '最近可用' : window.selectionMode === 'daily' ? '每日更新' : window.selectionMode === 'rotating' ? '主题轮换' : '编辑精选' }}</time></div>
+            <div class="image-window-meta"><span>{{ window.sourceName }}</span></div>
             <a v-if="window.status === 'ready'" class="image-window-media" :href="window.sourceUrl" target="_blank" rel="noreferrer" :aria-label="`在来源网站打开：${window.title}`">
               <img v-if="window.thumbnailUrl || window.imageUrl" :src="window.thumbnailUrl || window.imageUrl" :alt="window.title" loading="lazy" />
               <span v-else class="image-window-video">该来源提供视频内容<br />前往官方页面观看</span>
@@ -1784,7 +1783,7 @@ onBeforeUnmount(() => {
 .daily-image-heading p { max-width:57ch; margin:15px 0 0; color:var(--sky-muted); font-size:12px; line-height:1.7; }
 .image-stream.is-refreshing { opacity:.66; }
 .image-stream-section + .image-stream-section { margin-top:68px; }
-.image-stream-heading { display:flex; align-items:baseline; justify-content:space-between; gap:24px; margin-bottom:18px; }
+.image-stream-heading { display:flex; align-items:center; justify-content:space-between; gap:24px; margin-bottom:0; padding:18px 0; }
 .image-stream-heading h2 { margin:0; font-size:clamp(1.45rem,2.2vw,2rem); font-weight:500; letter-spacing:-.03em; }
 .image-stream-heading p { max-width:54ch; margin:0; color:var(--sky-muted); font-size:11px; line-height:1.65; text-align:right; }
 .image-wall { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); border-top:1px solid var(--sky-line); border-bottom:1px solid var(--sky-line); }
