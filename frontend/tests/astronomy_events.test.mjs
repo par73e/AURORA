@@ -47,6 +47,22 @@ test('fetchAstronomyEvents 构造正确的 AURORA API URL，不请求 JPL/USNO/N
   }
 })
 
+test('fetchDailyImage 只请求 AURORA API，并保留所选日期', async () => {
+  const api = await import('../src/api.ts')
+  const calls = mockFetch([
+    { match: e => e.startsWith('/api/v1/astronomy/daily-image'), body: { date: '2026-08-12', title: 'Perseids', explanation: 'Verified APOD copy.', mediaType: 'image', url: 'https://example.test/image.jpg', sourceName: 'NASA Astronomy Picture of the Day', sourceUrl: 'https://apod.nasa.gov/apod/astropix.html' } },
+  ])
+  try {
+    const image = await api.fetchDailyImage('2026-08-12')
+    assert.equal(image.title, 'Perseids')
+    assert.equal(calls.length, 1)
+    assert.ok(calls[0].endpoint.startsWith('/api/v1/astronomy/daily-image?date=2026-08-12'), `应请求 AURORA 每日一图 API，实际 ${calls[0].endpoint}`)
+    assert.ok(!calls[0].endpoint.includes('api.nasa.gov'), `浏览器不应直接请求 NASA API: ${calls[0].endpoint}`)
+  } finally {
+    restoreFetch()
+  }
+})
+
 // 场景 1: 上海（31.2304, 121.4737）——返回带 local 字段的事件，locationVisibility=partial
 test('场景上海：返回带 local 字段的事件，locationVisibility=partial', async () => {
   const api = await import('../src/api.ts')

@@ -14,6 +14,7 @@ type Config struct {
 	LightPollutionKey      string
 	LightPollutionURL      string
 	LightPollutionDataPath string
+	NASAAPIKey             string
 }
 
 func Load() Config {
@@ -38,5 +39,6 @@ func Load() Config {
 		LightPollutionKey:      os.Getenv("LIGHT_POLLUTION_KEY"),
 		LightPollutionURL:      os.Getenv("LIGHT_POLLUTION_URL"),
 		LightPollutionDataPath: os.Getenv("LIGHT_POLLUTION_DATA_PATH"),
+		NASAAPIKey:             os.Getenv("NASA_API_KEY"),
 	}
 }

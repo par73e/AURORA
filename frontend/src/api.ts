@@ -279,3 +279,23 @@ export async function fetchAstronomyEvents(params: {
   if (params.timezone) search.set('timezone', params.timezone)
   return requestJSON<AstronomyEventsResponse>(`/api/v1/astronomy/events?${search}`, signal)
 }
+
+/** NASA APOD 由 AURORA 后端代理，避免将 API Key 暴露给浏览器。 */
+export interface DailyImage {
+  date: string
+  title: string
+  explanation: string
+  mediaType: 'image' | 'video'
+  url: string
+  thumbnailUrl?: string
+  hdUrl?: string
+  copyright?: string
+  sourceName: string
+  sourceUrl: string
+}
+
+export function fetchDailyImage(date?: string, signal?: AbortSignal) {
+  const search = new URLSearchParams()
+  if (date) search.set('date', date)
+  return requestJSON<DailyImage>(`/api/v1/astronomy/daily-image?${search}`, signal)
+}

@@ -14,6 +14,7 @@ import (
 
 	"aurora/backend/internal/astronomyevent"
 	"aurora/backend/internal/config"
+	"aurora/backend/internal/dailyimage"
 	"aurora/backend/internal/database"
 	"aurora/backend/internal/httpapi"
 	observerlocation "aurora/backend/internal/location"
@@ -50,6 +51,7 @@ func main() {
 	eventRepository := astronomyevent.NewRepository(pool)
 	geocoder := observerlocation.NewAMapClient(cfg.AMapWebKey)
 	conditions := observatory.NewClient()
+	dailyImage := dailyimage.NewAPODClient(cfg.NASAAPIKey)
 	moons := observatory.NewMoonService()
 	var lights observatory.LightPollutionProvider = observatory.NewLightPollutionClient(cfg.LightPollutionKey)
 	if cfg.LightPollutionURL != "" {
@@ -69,7 +71,7 @@ func main() {
 	eventSourceSyncer := astronomyevent.NewSourceSyncer(eventRepository)
 	ephemerisSyncer := astronomyevent.NewEphemerisSyncer(eventRepository)
 
-	server := &http.Server{Addr: ":" + cfg.Port, Handler: httpapi.Router(repository, moonRepository, marsRepository, voyageRepository, eventRepository, geocoder, conditions, moons, lights), ReadHeaderTimeout: 5 * time.Second}
+	server := &http.Server{Addr: ":" + cfg.Port, Handler: httpapi.Router(repository, moonRepository, marsRepository, voyageRepository, eventRepository, geocoder, conditions, moons, lights, dailyImage), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		slog.Info("AURORA API started", "address", "http://localhost:"+cfg.Port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
