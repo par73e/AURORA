@@ -450,6 +450,40 @@ function eventPrecision(event: AstronomyEvent) {
   return event.origin === 'computed' ? 'AURORA 计算' : '来源资料'
 }
 
+function eventVisibilityTone(event: AstronomyEvent) {
+  switch (event.local?.status) {
+    case 'observable':
+      return 'observable'
+    case 'limited':
+      return 'limited'
+    case 'not_visible':
+      return 'not-visible'
+    case 'non_visual':
+      return 'non-visual'
+    case 'not_calculated':
+      return 'unknown'
+    default:
+      return 'pending'
+  }
+}
+
+function eventVisibilityLabel(event: AstronomyEvent) {
+  switch (event.local?.status) {
+    case 'observable':
+      return '适合观看'
+    case 'limited':
+      return '条件有限'
+    case 'not_visible':
+      return '本地不可见'
+    case 'non_visual':
+      return '非视觉事件'
+    case 'not_calculated':
+      return '待计算'
+    default:
+      return '需要定位'
+  }
+}
+
 function toggleEvent(event: AstronomyEvent) {
   expandedEventId.value = expandedEventId.value === event.id ? null : event.id
 }
@@ -1359,23 +1393,22 @@ onBeforeUnmount(() => {
       <section v-else-if="activePage === 'events'" class="events-page page-stack">
         <section class="events-lead">
           <div>
-            <h2>这个月，先从月亮开始</h2>
-            <span>月相决定夜空的底色。再用少量已核验的事件，安排真正值得抬头的夜晚。</span>
+            <h2>未来 30 天的夜空</h2>
           </div>
-          <article v-if="nextMoonEvent" class="next-moon-event"><span>下一关键月相</span><strong>{{ nextMoonEvent.label }}</strong><small>{{ formatEventDate(nextMoonEvent.at) }} · {{ formatTime(nextMoonEvent.at) }}</small></article>
+          <article v-if="nextMoonEvent" class="next-moon-event"><span>下一月相</span><strong>{{ nextMoonEvent.label }}</strong><small>{{ formatEventDate(nextMoonEvent.at) }} · {{ formatTime(nextMoonEvent.at) }}</small></article>
         </section>
         <section class="moon-rhythm" aria-labelledby="moon-rhythm-title">
-          <div class="section-heading"><h2 id="moon-rhythm-title">未来 30 天月相节奏</h2><span>本地星历计算 · 不需要 API Key</span></div>
+          <div class="section-heading"><h2 id="moon-rhythm-title">未来月相</h2></div>
           <div class="event-list">
             <article v-for="event in moonEvents" :key="event.target"><time><strong>{{ formatEventDay(event.at) }}</strong><span>{{ formatEventMonth(event.at) }}</span></time><div><p>月相</p><h3>{{ event.label }}</h3><span>{{ event.description }}</span></div><strong>{{ formatTime(event.at) }}</strong></article>
           </div>
         </section>
         <section class="curated-events" aria-labelledby="curated-events-title">
-          <div class="section-heading"><h2 id="curated-events-title">未来 30 天值得留意</h2><span>默认前五条 · 来源可追溯</span></div>
+          <div class="section-heading"><h2 id="curated-events-title">未来天象事件</h2></div>
           <div v-if="curatedEvents.length" class="curated-event-list" aria-live="polite">
             <article v-for="event in visibleCuratedEvents" :key="event.id" :class="{ expanded: expandedEventId === event.id }">
               <button type="button" :aria-expanded="expandedEventId === event.id" :aria-controls="`event-detail-${event.id}`" @click="toggleEvent(event)">
-                <time>{{ event.dateLabel }}</time><span class="event-kind">{{ event.kind === 'meteor_shower' ? '流星雨' : event.kind.endsWith('eclipse') ? '食' : event.kind.includes('conjunction') || event.kind.startsWith('planetary') ? '行星' : '天象' }}</span><div><h3>{{ event.title }}</h3><p>{{ event.summary }}</p></div><strong :class="`status-${event.local?.status ?? 'pending'}`">{{ event.local?.reason ?? '允许定位后判断本地可见性' }}</strong><i aria-hidden="true">⌄</i>
+                <time>{{ event.dateLabel }}</time><span class="event-kind">{{ event.kind === 'meteor_shower' ? '流星雨' : event.kind.endsWith('eclipse') ? '食' : event.kind.includes('conjunction') || event.kind.startsWith('planetary') ? '行星' : '天象' }}</span><div><h3>{{ event.title }}</h3><p>{{ event.summary }}</p></div><div class="event-visibility" :class="`visibility-${eventVisibilityTone(event)}`"><strong>{{ eventVisibilityLabel(event) }}</strong></div><i aria-hidden="true">⌄</i>
               </button>
               <div v-if="expandedEventId === event.id" :id="`event-detail-${event.id}`" class="curated-event-detail" role="region">
                 <dl><div><dt>最佳时段</dt><dd>{{ formatEventMoment(event.local?.bestAt) }}</dd></div><div><dt>可见窗口</dt><dd>{{ event.local?.windowStart ? `${formatEventMoment(event.local.windowStart)} – ${formatEventMoment(event.local.windowEnd)}` : '—' }}</dd></div><div><dt>方位</dt><dd>{{ event.local?.azimuthDegrees != null ? `${Math.round(event.local.azimuthDegrees)}°` : '—' }}</dd></div><div><dt>高度</dt><dd>{{ event.local?.altitudeDegrees != null ? `${Math.round(event.local.altitudeDegrees)}°` : '—' }}</dd></div><div><dt>精度</dt><dd>{{ eventPrecision(event) }}</dd></div><div><dt>核验</dt><dd>{{ event.verifiedAt }}</dd></div><div><dt>来源</dt><dd>{{ event.sourceName }}</dd></div></dl>
@@ -1748,15 +1781,18 @@ onBeforeUnmount(() => {
 .curated-events { margin-top:64px; }
 .curated-event-list { margin-top:18px; border-top:1px solid var(--sky-line); }
 .curated-event-list > article { border-bottom:1px solid var(--sky-line); }
-.curated-event-list > article > button { display:grid; grid-template-columns:115px 76px minmax(0,1fr) minmax(150px,230px) 20px; gap:16px; width:100%; min-height:104px; padding:18px 8px 18px 0; color:inherit; text-align:left; background:transparent; border:0; cursor:pointer; }
+.curated-event-list > article > button { display:grid; grid-template-columns:115px 76px minmax(0,1fr) minmax(168px,226px) 20px; gap:16px; width:100%; min-height:106px; padding:16px 8px 16px 0; color:inherit; text-align:left; background:transparent; border:0; cursor:pointer; }
 .curated-event-list time { align-self:start; color:var(--sky-ink); font:13px var(--font-mono,monospace); line-height:1.45; }
 .event-kind { align-self:start; color:var(--sky-amber); font:9px var(--font-mono,monospace); letter-spacing:.1em; }
 .curated-event-list h3 { margin:0 0 5px; font-size:18px; font-weight:500; }
 .curated-event-list p { margin:0; color:var(--sky-muted); font-size:11px; line-height:1.6; }
-.curated-event-list strong { align-self:start; color:var(--sky-muted); font-size:10px; font-weight:500; line-height:1.5; }
-.curated-event-list strong.status-ready { color:#63d9a4; }
-.curated-event-list strong.status-caution { color:#ecc257; }
-.curated-event-list strong.status-pending { color:var(--sky-muted); }
+.event-visibility { --visibility-color:var(--sky-muted); align-self:center; display:inline-grid; justify-self:start; min-height:0; padding:6px 10px 7px; border:1px solid color-mix(in srgb,var(--visibility-color) 34%,var(--sky-line)); border-radius:999px; background:color-mix(in srgb,var(--visibility-color) 8%,transparent); }
+.event-visibility strong { color:var(--visibility-color); font-size:12px; font-weight:600; line-height:1.2; }
+.event-visibility.visibility-observable { --visibility-color:#63d9a4; }
+.event-visibility.visibility-limited { --visibility-color:#ecc257; }
+.event-visibility.visibility-not-visible { --visibility-color:#f28f84; }
+.event-visibility.visibility-non-visual { --visibility-color:#9db8e8; }
+.event-visibility.visibility-unknown,.event-visibility.visibility-pending { --visibility-color:#91a0a9; }
 .curated-event-list > article > button > i { align-self:start; color:var(--sky-muted); font-style:normal; transition:transform .2s ease; }
 .curated-event-list > article.expanded > button > i { transform:rotate(180deg); }
 .curated-event-list > article > button:hover h3,.curated-event-list > article > button:focus-visible h3 { color:var(--sky-cyan); }
