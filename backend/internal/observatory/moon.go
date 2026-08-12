@@ -53,6 +53,11 @@ type MoonProvider interface {
 	Altitude(latitude, longitude, elevation float64, at time.Time) float64
 }
 
+// MoonAzimuthProvider 是在不扩大既有 MoonProvider 依赖面的前提下，为天象页提供方位角的可选能力。
+type MoonAzimuthProvider interface {
+	Azimuth(latitude, longitude, elevation float64, at time.Time) float64
+}
+
 // MoonService 提供每日缓存的月相数据与任意时刻的相位快照。
 type MoonService struct {
 	now   func() time.Time
@@ -112,7 +117,14 @@ func (s *MoonService) Phase(at time.Time) MoonPhaseResult {
 // Altitude 返回指定地点与时刻的月球地平高度角（度），包含地心视差修正。
 // 评分使用与月出月落计算相同的 moonRiseSetAltitude 阈值，避免月亮落下后仍扣月光分。
 func (s *MoonService) Altitude(latitude, longitude, elevation float64, at time.Time) float64 {
-	return moonAltitude(latitude, longitude, elevation, at)
+	altitude, _ := moonHorizontalCoordinates(latitude, longitude, elevation, at)
+	return altitude
+}
+
+// Azimuth 返回指定地点与时刻月球的方位角（真北为 0°，顺时针增加）。
+func (s *MoonService) Azimuth(latitude, longitude, elevation float64, at time.Time) float64 {
+	_, azimuth := moonHorizontalCoordinates(latitude, longitude, elevation, at)
+	return azimuth
 }
 
 // computeMoonDay 计算 at 所在本地日期（location）内的月相与升落中天。
@@ -226,6 +238,11 @@ func moonTransit(latitude, longitude, elevation float64, start, end time.Time) *
 // moonAltitude 返回月球在 (latitude, longitude, elevation) 处 at 时刻的地平高度（度）。
 // 使用地心视位置 + 周日视差修正（Meeus 第 40 章 topocentric 公式，含海拔 ρ 因子），不含大气折射。
 func moonAltitude(latitude, longitude, elevation float64, at time.Time) float64 {
+	altitude, _ := moonHorizontalCoordinates(latitude, longitude, elevation, at)
+	return altitude
+}
+
+func moonHorizontalCoordinates(latitude, longitude, elevation float64, at time.Time) (altitude, azimuth float64) {
 	T := julianCenturies(at)
 	moonLongitude, moonLatitude, distanceKm := moonPosition(T)
 	ra, dec := eclipticToEquatorial(moonLongitude, moonLatitude, obliquity(T))
@@ -245,8 +262,15 @@ func moonAltitude(latitude, longitude, elevation float64, at time.Time) float64 
 	decTopo := math.Atan2((math.Sin(dec)-rhoSinPhiPrime*sinPi)*math.Cos(deltaRA),
 		math.Cos(dec)-rhoSinPhiPrime*sinPi*math.Cos(hourAngle))
 
-	sinAltitude := math.Sin(phi)*math.Sin(decTopo) + math.Cos(phi)*math.Cos(decTopo)*math.Cos(hourAngle-deltaRA)
-	return rad2deg(math.Asin(clampUnit(sinAltitude)))
+	topocentricHourAngle := hourAngle - deltaRA
+	sinAltitude := math.Sin(phi)*math.Sin(decTopo) + math.Cos(phi)*math.Cos(decTopo)*math.Cos(topocentricHourAngle)
+	altitude = rad2deg(math.Asin(clampUnit(sinAltitude)))
+	// 以北为零、向东为正的方位角。使用 atan2 可以避免接近天顶时 acos 的数值不稳定。
+	azimuth = norm360(rad2deg(math.Atan2(
+		math.Sin(topocentricHourAngle),
+		math.Cos(topocentricHourAngle)*math.Sin(phi)-math.Tan(decTopo)*math.Cos(phi),
+	)) + 180)
+	return altitude, azimuth
 }
 
 // ---------- 基础天算 ----------

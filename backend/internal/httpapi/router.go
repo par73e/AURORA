@@ -5,7 +5,9 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
+	"aurora/backend/internal/astronomyevent"
 	observerlocation "aurora/backend/internal/location"
 	"aurora/backend/internal/mars"
 	"aurora/backend/internal/moon"
@@ -16,7 +18,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-func Router(repository *orbit.Repository, moonRepository *moon.Repository, marsRepository *mars.Repository, voyageRepository *voyage.Repository, geocoder observerlocation.ReverseGeocoder, conditions observatory.ConditionsProvider, moons *observatory.MoonService, lights observatory.LightPollutionProvider) http.Handler {
+func Router(repository *orbit.Repository, moonRepository *moon.Repository, marsRepository *mars.Repository, voyageRepository *voyage.Repository, eventStore astronomyevent.Store, geocoder observerlocation.ReverseGeocoder, conditions observatory.ConditionsProvider, moons *observatory.MoonService, lights observatory.LightPollutionProvider) http.Handler {
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer)
 	router.Get("/api/health", func(w http.ResponseWriter, _ *http.Request) {
@@ -27,6 +29,7 @@ func Router(repository *orbit.Repository, moonRepository *moon.Repository, marsR
 	router.Get("/api/v1/astronomy/moon", moonHandler(moons))
 	router.Get("/api/v1/astronomy/score", observingScoreHandler(conditions, moons, lights))
 	router.Get("/api/v1/astronomy/light-pollution", lightPollutionHandler(lights))
+	router.Get("/api/v1/astronomy/events", astronomyEventsHandler(eventStore, observatory.NewVisibilitySolver(moons), time.Now))
 	router.Get("/api/v1/orbit/overview", func(w http.ResponseWriter, r *http.Request) {
 		overview, err := repository.Overview(r.Context())
 		if err != nil {

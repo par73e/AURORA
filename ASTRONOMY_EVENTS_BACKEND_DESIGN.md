@@ -1,6 +1,6 @@
 # AURORA 天象事件预告后端设计
 
-- 状态：待实施
+- 状态：第一阶段完成（事件库与读取 API 已上线；月合/食/流星雨专用求解器与 NASA/GSFC 路径解析待后续接入）
 - 范围：仅覆盖「天文观测 → 天象」页面的未来事件预告
 - 不在本次范围：观星条件、天气、评分、光污染、星图、ORBIT、太阳系和任务档案
 
@@ -139,7 +139,7 @@ GET /api/v1/astronomy/events?latitude=31.2304&longitude=121.4737&timezone=Asia/S
 | 表 | 内容 |
 | --- | --- |
 | `astronomy_events` | 全球事件事实、事件类型、开始/结束时刻、对象、几何数值、来源与核验状态。 |
-| `astronomy_event_sources` | 外部资料快照：URL、原文/文件哈希、获取时间、适用年份、解析状态。 |
+| `astronomy_event_source_snapshots` | 外部资料快照：URL、原文/文件哈希、获取时间、适用年份、解析状态。 |
 | `astronomy_event_reviews` | 人工校验记录；主要用于流星雨、食与罕见小天体。 |
 
 现有 `data_sources` 与 `sync_runs` 继续复用，用于记录每次外部资料同步是否成功。

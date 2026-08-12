@@ -7,9 +7,8 @@ FORM: desktop field observatory; four focused workspaces share one clock, one lo
 -->
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { fetchObserverPlace, fetchObservingConditions, fetchMoonDay, fetchLightPollution, type ObservingConditions, type MoonDay, type LightPollution } from '../api'
+import { fetchObserverPlace, fetchObservingConditions, fetchMoonDay, fetchLightPollution, fetchAstronomyEvents, type ObservingConditions, type MoonDay, type LightPollution, type AstronomyEvent } from '../api'
 import { analyzeNight, bearing, bodies, calculatePosition, calculateTrack, calculateTwilight, dateFromZonedLocalTime, daylightFactor, moonPhase, observeTips, observingStatus, upcomingMoonPhases, zonedDateAtMinute, zonedDateKey, zonedMinuteOfDay, type BodyId, type BodyTrack, type NightAnalysis } from '../astronomy'
-import { CURATED_SKY_EVENTS_2026, type CuratedSkyEvent } from '../astronomyEvents'
 import { conditionDescription, weatherGlyph } from '../observatoryWeather'
 import { projectAltitudeGuide, projectHorizontalDirection, type SkyCamera } from '../skyProjection'
 import { easeOutExpo, normalizeAzimuth, shortestAzimuthDelta, skyTurnDuration } from '../skyMotion'
@@ -397,7 +396,7 @@ const forecastDateGroups = computed(() => {
 const airQualityByTime = computed(() => new Map((conditions.value?.airQuality ?? []).map((item) => [item.time, item])))
 const moonEvents = computed(() => upcomingMoonPhases(now.value).slice(0, 4))
 const nextMoonEvent = computed(() => moonEvents.value[0] ?? null)
-const curatedEvents = computed(() => CURATED_SKY_EVENTS_2026
+const curatedEvents = computed(() => astronomyEvents.value
   .filter((event) => {
     const start = new Date(event.startsAt).getTime()
     return start >= now.value.getTime() - 36 * 60 * 60_000 && start <= now.value.getTime() + 31 * 24 * 60 * 60_000
@@ -423,7 +422,7 @@ function formatEventDate(value: string | Date) {
   return new Intl.DateTimeFormat('zh-CN', { timeZone: observatoryTimezone.value, month: 'long', day: 'numeric' }).format(at)
 }
 
-function toggleEvent(event: CuratedSkyEvent) {
+function toggleEvent(event: AstronomyEvent) {
   expandedEventId.value = expandedEventId.value === event.id ? null : event.id
 }
 
@@ -431,11 +430,13 @@ function toggleAllCuratedEvents() {
   showAllCuratedEvents.value = !showAllCuratedEvents.value
 }
 
-function openEventInSky(event: CuratedSkyEvent) {
-  if (event.focusMinute == null || event.focusAzimuth == null) return
+function openEventInSky(event: AstronomyEvent) {
+  const focusMinute = event.local?.bestAt ? Math.floor(new Date(event.local.bestAt).getMinutes() + new Date(event.local.bestAt).getHours() * 60) : null
+  const focusAzimuth = event.local?.azimuthDegrees ?? null
+  if (focusMinute == null || focusAzimuth == null) return
   followingRealTime.value = false
-  minuteOfDay.value = event.focusMinute
-  scheduleSkyView(event.focusAzimuth)
+  minuteOfDay.value = focusMinute
+  scheduleSkyView(focusAzimuth)
   activePage.value = 'sky'
   window.history.pushState({}, '', '#astronomy-sky')
 }
@@ -1014,6 +1015,29 @@ async function loadMoonDay(currentLatitude: number, currentLongitude: number) {
   }
 }
 
+// 天象事件：后端每日生成/校验，前端只请求 AURORA API。
+// 未定位时返回全球日历（locationVisibility=location_required）。
+const astronomyEvents = ref<AstronomyEvent[]>([])
+let astronomyEventsController: AbortController | undefined
+
+async function loadAstronomyEvents() {
+  astronomyEventsController?.abort()
+  const controller = new AbortController()
+  astronomyEventsController = controller
+  try {
+    const response = await fetchAstronomyEvents({
+      latitude: activeCoordinates.value?.latitude,
+      longitude: activeCoordinates.value?.longitude,
+      timezone: observatoryTimezone.value,
+    }, controller.signal)
+    if (!controller.signal.aborted) astronomyEvents.value = response.events
+  } catch {
+    // 后端不可用时不清空已加载事件
+  } finally {
+    if (astronomyEventsController === controller) astronomyEventsController = undefined
+  }
+}
+
 async function loadLightPollution(currentLatitude: number, currentLongitude: number) {
   lightPollution.value = await fetchLightPollution(currentLatitude, currentLongitude)
 }
@@ -1034,6 +1058,7 @@ watch(activeCoordinates, (coordinates) => {
     void loadConditions(coordinates.latitude, coordinates.longitude)
     void loadMoonDay(coordinates.latitude, coordinates.longitude)
     void loadLightPollution(coordinates.latitude, coordinates.longitude)
+    void loadAstronomyEvents()
   }
 }, { immediate: true })
 // 天气接口返回真实海拔后，用该海拔重取每日月相。
@@ -1292,12 +1317,11 @@ onBeforeUnmount(() => {
           <div v-if="curatedEvents.length" class="curated-event-list">
             <article v-for="event in visibleCuratedEvents" :key="event.id" :class="{ expanded: expandedEventId === event.id }">
               <button type="button" :aria-expanded="expandedEventId === event.id" :aria-controls="`event-detail-${event.id}`" @click="toggleEvent(event)">
-                <time>{{ event.dateLabel }}</time><span class="event-kind">{{ event.kind === 'meteor' ? '流星雨' : event.kind === 'eclipse' ? '食' : '行星' }}</span><div><h3>{{ event.title }}</h3><p>{{ event.summary }}</p></div><strong :class="`status-${event.localStatusKind}`">{{ event.localStatus }}</strong><i aria-hidden="true">⌄</i>
+                <time>{{ event.dateLabel }}</time><span class="event-kind">{{ event.kind === 'meteor_shower' ? '流星雨' : event.kind.endsWith('eclipse') ? '食' : event.kind.startsWith('planetary') ? '行星' : '天象' }}</span><div><h3>{{ event.title }}</h3><p>{{ event.summary }}</p></div><strong :class="`status-${event.local?.status ?? 'pending'}`">{{ event.local?.reason ?? '允许定位后判断本地可见性' }}</strong><i aria-hidden="true">⌄</i>
               </button>
               <div v-if="expandedEventId === event.id" :id="`event-detail-${event.id}`" class="curated-event-detail" role="region">
-                <dl><div><dt>最佳时段</dt><dd>{{ event.observingWindow }}</dd></div><div><dt>方向</dt><dd>{{ event.direction }}</dd></div><div><dt>月光</dt><dd>{{ event.moonlight }}</dd></div><div><dt>核验</dt><dd>{{ event.verifiedAt }}</dd></div></dl>
-                <p>{{ event.advice }}</p>
-                <div class="event-detail-actions"><button v-if="event.focusMinute != null" type="button" @click="openEventInSky(event)">在星图预览</button><a :href="event.sourceUrl" target="_blank" rel="noreferrer">查看 {{ event.sourceName }}</a></div>
+                <dl><div><dt>最佳时段</dt><dd>{{ event.local?.bestAt ?? '—' }}</dd></div><div><dt>方位</dt><dd>{{ event.local?.azimuthDegrees != null ? `${Math.round(event.local.azimuthDegrees)}°` : '—' }}</dd></div><div><dt>高度</dt><dd>{{ event.local?.altitudeDegrees != null ? `${Math.round(event.local.altitudeDegrees)}°` : '—' }}</dd></div><div><dt>核验</dt><dd>{{ event.verifiedAt }}</dd></div><div><dt>来源</dt><dd>{{ event.sourceName }}</dd></div></dl>
+                <div class="event-detail-actions"><button v-if="event.local?.bestAt && event.local?.azimuthDegrees != null" type="button" @click="openEventInSky(event)">在星图预览</button><a :href="event.sourceUrl" target="_blank" rel="noreferrer">查看 {{ event.sourceName }}</a></div>
               </div>
             </article>
           </div>

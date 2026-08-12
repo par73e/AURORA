@@ -12,6 +12,7 @@ import (
 	"time"
 	_ "time/tzdata" // 内嵌 IANA 时区数据：月相/评分按 timezone 参数解析本地日期，不依赖系统 zoneinfo
 
+	"aurora/backend/internal/astronomyevent"
 	"aurora/backend/internal/config"
 	"aurora/backend/internal/database"
 	"aurora/backend/internal/httpapi"
@@ -46,6 +47,7 @@ func main() {
 	moonRepository := moon.NewRepository(pool)
 	marsRepository := mars.NewRepository(pool)
 	voyageRepository := voyage.NewRepository(pool)
+	eventRepository := astronomyevent.NewRepository(pool)
 	geocoder := observerlocation.NewAMapClient(cfg.AMapWebKey)
 	conditions := observatory.NewClient()
 	moons := observatory.NewMoonService()
@@ -64,8 +66,10 @@ func main() {
 		}
 	}
 	dataSyncer := syncer.NewWithMoonVoyageMars(repository, moonRepository, marsRepository, voyageRepository)
+	eventSourceSyncer := astronomyevent.NewSourceSyncer(eventRepository)
+	ephemerisSyncer := astronomyevent.NewEphemerisSyncer(eventRepository)
 
-	server := &http.Server{Addr: ":" + cfg.Port, Handler: httpapi.Router(repository, moonRepository, marsRepository, voyageRepository, geocoder, conditions, moons, lights), ReadHeaderTimeout: 5 * time.Second}
+	server := &http.Server{Addr: ":" + cfg.Port, Handler: httpapi.Router(repository, moonRepository, marsRepository, voyageRepository, eventRepository, geocoder, conditions, moons, lights), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		slog.Info("AURORA API started", "address", "http://localhost:"+cfg.Port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -75,11 +79,15 @@ func main() {
 	}()
 	// 先提供缓存数据和健康接口；远端源变慢时不再把整个网站卡在启动阶段。
 	go runStartupSync(ctx, dataSyncer)
+	go runAstronomySourceStartupSync(ctx, eventSourceSyncer)
+	go runPlanetaryEphemerisSync(ctx, ephemerisSyncer)
 	go schedule(ctx, 2*time.Hour, 45*time.Second, "celestrak", dataSyncer.SyncCelesTrak)
 	go schedule(ctx, 30*time.Minute, 45*time.Second, "launch_library_2", dataSyncer.SyncLaunches)
-	go schedule(ctx, 24*time.Hour, 45*time.Second, "moon", dataSyncer.SyncMoonSpacecraft)     // 月球轨道：每日 JPL Horizons 同步
-	go schedule(ctx, 24*time.Hour, 45*time.Second, "mars", dataSyncer.SyncMarsSpacecraft)     // 火星轨道：每日 JPL Horizons 同步
-	go schedule(ctx, 24*time.Hour, 120*time.Second, "probes", dataSyncer.SyncDeepSpaceProbes) // 深空探测器：每日同步（9 个顺序查询，预算放宽）
+	go schedule(ctx, 24*time.Hour, 45*time.Second, "moon", dataSyncer.SyncMoonSpacecraft)                         // 月球轨道：每日 JPL Horizons 同步
+	go schedule(ctx, 24*time.Hour, 45*time.Second, "mars", dataSyncer.SyncMarsSpacecraft)                         // 火星轨道：每日 JPL Horizons 同步
+	go schedule(ctx, 24*time.Hour, 120*time.Second, "probes", dataSyncer.SyncDeepSpaceProbes)                     // 深空探测器：每日同步（9 个顺序查询，预算放宽）
+	go schedule(ctx, 24*time.Hour, 45*time.Second, "astronomy_sources", eventSourceSyncer.SyncOfficialSources)    // 天象权威资料：每日校验并缓存
+	go schedule(ctx, 24*time.Hour, 90*time.Second, "planetary_ephemeris", ephemerisSyncer.SyncPlanetaryPositions) // JPL 行星星历：每日缓存未来 18 个月
 
 	<-ctx.Done()
 	shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
@@ -117,6 +125,23 @@ func runStartupSync(parent context.Context, dataSyncer *syncer.Syncer) {
 	}
 	if err := dataSyncer.SyncDeepSpaceProbes(ctx); err != nil {
 		slog.Warn("JPL Horizons probe startup sync failed; cached data remains available", "error", err)
+	}
+}
+
+// runAstronomySourceStartupSync 在服务可用后缓存公开权威资料；资料源失败不会影响已存事件查询。
+func runAstronomySourceStartupSync(parent context.Context, sourceSyncer *astronomyevent.SourceSyncer) {
+	ctx, cancel := context.WithTimeout(parent, 45*time.Second)
+	defer cancel()
+	if err := sourceSyncer.SyncOfficialSources(ctx); err != nil {
+		slog.Warn("astronomy source startup sync failed; cached events remain available", "error", err)
+	}
+}
+
+func runPlanetaryEphemerisSync(parent context.Context, syncer *astronomyevent.EphemerisSyncer) {
+	ctx, cancel := context.WithTimeout(parent, 90*time.Second)
+	defer cancel()
+	if err := syncer.SyncPlanetaryPositions(ctx); err != nil {
+		slog.Warn("planetary ephemeris startup sync failed; cached event data remains available", "error", err)
 	}
 }
 

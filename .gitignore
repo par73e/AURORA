@@ -11,3 +11,7 @@ backend/data/light-pollution/*.zip
 .impeccable/
 .DS_Store
 .reasonix/
+
+# AtomCode local-scope configs (machine-specific)
+.atomcode/local/
+.atomcode/

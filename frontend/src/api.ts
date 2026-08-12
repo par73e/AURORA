@@ -218,3 +218,57 @@ export async function fetchLightPollution(latitude: number, longitude: number, s
     return null // 未配置或失败：保持诚实占位
   }
 }
+
+/** 天象事件：后端每日生成/校验，前端只请求 AURORA API。 */
+export interface AstronomyEvent {
+  id: string
+  kind: string
+  title: string
+  titleEn: string
+  startsAt: string
+  endsAt?: string | null
+  dateLabel: string
+  summary: string
+  origin: 'computed' | 'external_forecast' | 'curated'
+  sourceName: string
+  sourceUrl: string
+  verifiedAt: string
+  geometry: Record<string, unknown>
+  local?: EventLocalVisibility
+}
+
+export interface EventLocalVisibility {
+  status: 'observable' | 'limited' | 'not_visible' | 'non_visual' | 'not_calculated'
+  bestAt?: string
+  windowStart?: string
+  windowEnd?: string
+  azimuthDegrees?: number
+  altitudeDegrees?: number
+  reason: string
+}
+
+export interface AstronomyEventsResponse {
+  events: AstronomyEvent[]
+  range: { from: string; to: string }
+  locationVisibility: 'partial' | 'location_required'
+}
+
+/**
+ * 拉取天象事件。未提供坐标时返回全球日历（locationVisibility=location_required）；
+ * 提供坐标时返回带 local 字段的事件（locationVisibility=partial）。
+ */
+export async function fetchAstronomyEvents(params: {
+  from?: string
+  to?: string
+  latitude?: number
+  longitude?: number
+  timezone?: string
+}, signal?: AbortSignal): Promise<AstronomyEventsResponse> {
+  const search = new URLSearchParams()
+  if (params.from) search.set('from', params.from)
+  if (params.to) search.set('to', params.to)
+  if (params.latitude !== undefined) search.set('latitude', String(params.latitude))
+  if (params.longitude !== undefined) search.set('longitude', String(params.longitude))
+  if (params.timezone) search.set('timezone', params.timezone)
+  return requestJSON<AstronomyEventsResponse>(`/api/v1/astronomy/events?${search}`, signal)
+}
