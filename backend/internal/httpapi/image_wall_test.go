@@ -22,7 +22,7 @@ func (stub imageWallStub) Wall(context.Context, time.Time) (dailyimage.ImageWall
 func TestImageWallHandlerReturnsAllWindows(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/astronomy/image-wall", nil)
-	imageWallHandler(imageWallStub{wall: dailyimage.ImageWall{Windows: []dailyimage.ImageWindow{{ID: "apod"}}}}, time.Now).ServeHTTP(recorder, request)
+	imageWallHandler(imageWallStub{wall: dailyimage.ImageWall{Recent: []dailyimage.ImageWindow{{ID: "apod"}}}}, time.Now).ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status=%d", recorder.Code)
 	}

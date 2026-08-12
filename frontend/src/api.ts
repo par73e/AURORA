@@ -302,7 +302,8 @@ export interface ImageWindow {
 }
 
 export interface ImageWall {
-  windows: ImageWindow[]
+  recent: ImageWindow[]
+  collection: ImageWindow[]
   generatedAt: string
 }
 

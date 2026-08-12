@@ -30,7 +30,8 @@ type ImageWindow struct {
 }
 
 type ImageWall struct {
-	Windows     []ImageWindow `json:"windows"`
+	Recent      []ImageWindow `json:"recent"`
+	Collection  []ImageWindow `json:"collection"`
 	GeneratedAt string        `json:"generatedAt"`
 }
 
@@ -55,17 +56,70 @@ func (service *WallService) Wall(ctx context.Context, at time.Time) (ImageWall, 
 	if service == nil {
 		return ImageWall{}, errors.New("image wall service is not configured")
 	}
-	// The two remote sources are deliberately concurrent. A slow APOD response
-	// must not serially delay the public NASA archive search (or vice versa).
-	apodResult := make(chan ImageWindow, 1)
-	libraryResult := make(chan ImageWindow, 1)
-	go func() { apodResult <- service.apodWindow(ctx, at) }()
-	go func() { libraryResult <- service.libraryWindow(ctx, at) }()
-	windows := make([]ImageWindow, 0, 5)
-	windows = append(windows, <-apodResult)
-	windows = append(windows, <-libraryResult)
-	windows = append(windows, CuratedWindows(at)...)
-	return ImageWall{Windows: windows, GeneratedAt: at.UTC().Format(time.RFC3339)}, nil
+	// Five APOD issues form a real recent timeline. The gallery entries are a
+	// separate continuing collection: their original release dates remain
+	// visible and are never misrepresented as a daily feed.
+	recent := service.apodWindows(ctx, at, 5)
+	collection := service.libraryWindows(ctx, at, 5)
+	collection = append(collection, CuratedWindows()...)
+	return ImageWall{Recent: recent, Collection: collection, GeneratedAt: at.UTC().Format(time.RFC3339)}, nil
+}
+
+func (service *WallService) apodWindows(ctx context.Context, at time.Time, count int) []ImageWindow {
+	if provider, ok := service.apod.(RecentProvider); ok {
+		images, err := provider.Recent(ctx, at, count)
+		if err == nil {
+			windows := make([]ImageWindow, 0, len(images))
+			for _, image := range images {
+				windows = append(windows, imageWindow(image))
+			}
+			return windows
+		}
+	}
+	// APOD can lag the local calendar by a day or two. Request a small lookback
+	// buffer, then keep the newest actual publications instead of rendering
+	// empty future slots as if they were daily content.
+	candidates := service.parallelWindows(ctx, at, count+3, service.apodWindow)
+	windows := make([]ImageWindow, 0, count)
+	for _, candidate := range candidates {
+		if candidate.Status == "ready" {
+			windows = append(windows, candidate)
+			if len(windows) == count {
+				return windows
+			}
+		}
+	}
+	if len(windows) > 0 {
+		return windows
+	}
+	return candidates[:1]
+}
+
+func (service *WallService) libraryWindows(ctx context.Context, at time.Time, count int) []ImageWindow {
+	return service.parallelWindows(ctx, at, count, service.libraryWindow)
+}
+
+func (service *WallService) parallelWindows(ctx context.Context, at time.Time, count int, load func(context.Context, time.Time) ImageWindow) []ImageWindow {
+	windows := make([]ImageWindow, count)
+	type result struct {
+		index  int
+		window ImageWindow
+	}
+	results := make(chan result, count)
+	for index := range windows {
+		index := index
+		date := at.UTC().AddDate(0, 0, -index)
+		go func() { results <- result{index: index, window: load(ctx, date)} }()
+	}
+	for range windows {
+		result := <-results
+		result.window.ID = result.window.SourceID + "-" + result.window.PublishedAt
+		if result.window.PublishedAt == "" {
+			result.window.ID = result.window.SourceID + "-" + at.UTC().AddDate(0, 0, -result.index).Format(time.DateOnly)
+		}
+		windows[result.index] = result.window
+	}
+	return windows
 }
 
 func (service *WallService) apodWindow(ctx context.Context, at time.Time) ImageWindow {
@@ -76,6 +130,10 @@ func (service *WallService) apodWindow(ctx context.Context, at time.Time) ImageW
 	if err != nil {
 		return unavailableWindow("apod", "apod", "NASA Astronomy Picture of the Day", "https://apod.nasa.gov/apod/astropix.html", "今日图像暂不可用，请稍后重试")
 	}
+	return imageWindow(image)
+}
+
+func imageWindow(image Image) ImageWindow {
 	credit := "NASA"
 	if image.Copyright != "" {
 		credit = image.Copyright
@@ -85,7 +143,7 @@ func (service *WallService) apodWindow(ctx context.Context, at time.Time) ImageW
 		thumbnail = image.ThumbnailURL
 	}
 	return ImageWindow{
-		ID: "apod", SourceID: "apod", SourceName: image.SourceName, Title: image.Title,
+		ID: "apod-" + image.Date, SourceID: "apod", SourceName: image.SourceName, Title: image.Title,
 		PublishedAt: image.Date, ImageURL: image.URL, ThumbnailURL: thumbnail, MediaType: image.MediaType,
 		Credit: credit, LicenseNote: "版权以 NASA APOD 当期字段为准", SourceURL: image.SourceURL,
 		HDURL: image.HDURL, SelectionMode: "daily", Summary: image.Explanation, Status: "ready",

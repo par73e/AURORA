@@ -36,19 +36,19 @@ func TestWallServiceKeepsSourceFailuresInsideTheirWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(wall.Windows) != 5 {
-		t.Fatalf("windows = %d, want 5", len(wall.Windows))
+	if len(wall.Recent) != 5 || len(wall.Collection) != 13 {
+		t.Fatalf("recent=%d collection=%d, want 5 and 13", len(wall.Recent), len(wall.Collection))
 	}
-	if wall.Windows[0].ID != "apod" || wall.Windows[0].Status != "ready" {
-		t.Fatalf("APOD window = %#v", wall.Windows[0])
+	if wall.Recent[0].SourceID != "apod" || wall.Recent[0].Status != "ready" {
+		t.Fatalf("APOD window = %#v", wall.Recent[0])
 	}
 	if got := NewWallService(wallAPODStub{err: errors.New("APOD offline")}, wallLibraryStub{}).apodWindow(context.Background(), time.Now()).SourceURL; got != "https://apod.nasa.gov/apod/astropix.html" {
 		t.Fatalf("APOD fallback source URL = %q", got)
 	}
-	if wall.Windows[1].ID != "nasa-library" || wall.Windows[1].Status != "error" {
-		t.Fatalf("library window = %#v", wall.Windows[1])
+	if wall.Collection[0].SourceID != "nasa-library" || wall.Collection[0].Status != "error" {
+		t.Fatalf("library window = %#v", wall.Collection[0])
 	}
-	for _, window := range wall.Windows[2:] {
+	for _, window := range wall.Collection[5:] {
 		if window.Status != "ready" || window.Credit == "" || window.SourceURL == "" {
 			t.Fatalf("curated window is incomplete: %#v", window)
 		}

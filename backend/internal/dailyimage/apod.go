@@ -35,6 +35,13 @@ type Provider interface {
 	Daily(context.Context, time.Time) (Image, error)
 }
 
+// RecentProvider is implemented by sources that can return a short release
+// history in one request. It keeps the image-wall timeline stable without
+// multiplying upstream requests.
+type RecentProvider interface {
+	Recent(context.Context, time.Time, int) ([]Image, error)
+}
+
 type APODClient struct {
 	key        string
 	baseURL    string
@@ -70,19 +77,71 @@ func (client *APODClient) Daily(ctx context.Context, date time.Time) (Image, err
 	if response.StatusCode != http.StatusOK {
 		return Image{}, fmt.Errorf("daily image service returned %d", response.StatusCode)
 	}
-	var payload struct {
-		Date         string `json:"date"`
-		Title        string `json:"title"`
-		Explanation  string `json:"explanation"`
-		MediaType    string `json:"media_type"`
-		URL          string `json:"url"`
-		ThumbnailURL string `json:"thumbnail_url"`
-		HDURL        string `json:"hdurl"`
-		Copyright    string `json:"copyright"`
-	}
+	var payload apodPayload
 	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
 		return Image{}, errors.New("decode daily image response")
 	}
+	return payload.image()
+}
+
+func (client *APODClient) Recent(ctx context.Context, end time.Time, count int) ([]Image, error) {
+	if client.key == "" {
+		return nil, ErrNotConfigured
+	}
+	if count < 1 {
+		return []Image{}, nil
+	}
+	endpoint, err := url.Parse(client.baseURL)
+	if err != nil {
+		return nil, errors.New("prepare recent APOD request")
+	}
+	query := endpoint.Query()
+	query.Set("api_key", client.key)
+	query.Set("start_date", end.UTC().AddDate(0, 0, -9).Format(time.DateOnly))
+	query.Set("end_date", end.UTC().Format(time.DateOnly))
+	query.Set("thumbs", "true")
+	endpoint.RawQuery = query.Encode()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return nil, errors.New("create recent APOD request")
+	}
+	response, err := client.httpClient.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("request recent APOD: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("recent APOD service returned %d", response.StatusCode)
+	}
+	var payloads []apodPayload
+	if err := json.NewDecoder(response.Body).Decode(&payloads); err != nil {
+		return nil, errors.New("decode recent APOD response")
+	}
+	images := make([]Image, 0, count)
+	for index := len(payloads) - 1; index >= 0 && len(images) < count; index-- {
+		image, err := payloads[index].image()
+		if err == nil {
+			images = append(images, image)
+		}
+	}
+	if len(images) == 0 {
+		return nil, errors.New("recent APOD response is incomplete")
+	}
+	return images, nil
+}
+
+type apodPayload struct {
+	Date         string `json:"date"`
+	Title        string `json:"title"`
+	Explanation  string `json:"explanation"`
+	MediaType    string `json:"media_type"`
+	URL          string `json:"url"`
+	ThumbnailURL string `json:"thumbnail_url"`
+	HDURL        string `json:"hdurl"`
+	Copyright    string `json:"copyright"`
+}
+
+func (payload apodPayload) image() (Image, error) {
 	if payload.Date == "" || payload.Title == "" || payload.URL == "" || (payload.MediaType != "image" && payload.MediaType != "video") {
 		return Image{}, errors.New("daily image response is incomplete")
 	}

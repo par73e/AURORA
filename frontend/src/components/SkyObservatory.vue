@@ -1392,13 +1392,37 @@ onBeforeUnmount(() => {
         <header class="daily-image-heading">
           <div>
             <h1>宇宙图像窗</h1>
-            <p>五个官方来源，一次看见今天值得停留的宇宙。NASA APOD 每日更新；其余图像按公开档案轮换或由 AURORA 精选。</p>
+            <p>先看最近五天的真实宇宙，再沿着多来源图像流继续下潜。每一张都保留发布机构、日期与完整署名。</p>
           </div>
         </header>
 
         <div v-if="imageWallStatus === 'loading' && !imageWall" class="daily-image-state" aria-live="polite"><strong>正在开启图像窗</strong><span>各来源独立读取；某一扇窗延迟不会阻塞其他图像。</span></div>
-        <div v-else-if="imageWall" class="image-wall" :class="{ 'is-refreshing': imageWallStatus === 'loading' }" aria-live="polite">
-          <article v-for="window in imageWall.windows" :key="window.id" class="image-window" :class="[`image-window--${window.sourceId}`, { 'is-unavailable': window.status === 'error' }]">
+        <div v-else-if="imageWall" class="image-stream" :class="{ 'is-refreshing': imageWallStatus === 'loading' }" aria-live="polite">
+          <section class="image-stream-section" aria-labelledby="recent-images-title">
+            <header class="image-stream-heading"><h2 id="recent-images-title">最近五天</h2><p>NASA APOD 的逐日记录 · 由 NASA 每日更新</p></header>
+            <div class="image-wall">
+              <article v-for="window in imageWall.recent" :key="window.id" class="image-window" :class="[`image-window--${window.sourceId}`, { 'is-unavailable': window.status === 'error' }]">
+                <div class="image-window-meta"><span>{{ window.sourceName }}</span><time>{{ window.status === 'error' ? '连接状态' : window.isFallback ? '最近可用' : window.selectionMode === 'daily' ? '每日更新' : window.selectionMode === 'rotating' ? '主题轮换' : '编辑精选' }}</time></div>
+                <a v-if="window.status === 'ready'" class="image-window-media" :href="window.sourceUrl" target="_blank" rel="noreferrer" :aria-label="`在来源网站打开：${window.title}`">
+                  <img v-if="window.thumbnailUrl || window.imageUrl" :src="window.thumbnailUrl || window.imageUrl" :alt="window.title" loading="eager" />
+                  <span v-else class="image-window-video">该来源提供视频内容<br />前往官方页面观看</span>
+                  <span v-if="window.mediaType === 'video'" class="image-window-play" aria-hidden="true">观看视频</span>
+                </a>
+                <div v-else class="image-window-missing"><span>×</span><strong>{{ window.title }}</strong><p>{{ window.error }}</p><button type="button" @click="loadImageWall">重新连接</button></div>
+                <div class="image-window-copy">
+                  <time v-if="window.status === 'ready'">{{ formatImageWindowDate(window.publishedAt) }}</time>
+                  <h3>{{ window.title }}</h3>
+                  <p v-if="window.summary">{{ window.summary }}</p>
+                  <dl v-if="window.status === 'ready'"><div><dt>完整署名</dt><dd>{{ window.credit }}</dd></div><div v-if="window.licenseNote"><dt>使用说明</dt><dd>{{ window.licenseNote }}</dd></div></dl>
+                  <div class="daily-image-links"><a :href="window.sourceUrl" target="_blank" rel="noreferrer">打开原始内容</a><a v-if="window.hdUrl" :href="window.hdUrl" target="_blank" rel="noreferrer">高清原图</a></div>
+                </div>
+              </article>
+            </div>
+          </section>
+          <section class="image-stream-section" aria-labelledby="collection-images-title">
+            <header class="image-stream-heading"><h2 id="collection-images-title">继续下潜</h2><p>NASA 图库主题轮换 · ESO、Webb 与 Hubble 的可追溯精选</p></header>
+            <div class="image-wall">
+              <article v-for="window in imageWall.collection" :key="window.id" class="image-window" :class="[`image-window--${window.sourceId}`, { 'is-unavailable': window.status === 'error' }]">
             <div class="image-window-meta"><span>{{ window.sourceName }}</span><time>{{ window.status === 'error' ? '连接状态' : window.isFallback ? '最近可用' : window.selectionMode === 'daily' ? '每日更新' : window.selectionMode === 'rotating' ? '主题轮换' : '编辑精选' }}</time></div>
             <a v-if="window.status === 'ready'" class="image-window-media" :href="window.sourceUrl" target="_blank" rel="noreferrer" :aria-label="`在来源网站打开：${window.title}`">
               <img v-if="window.thumbnailUrl || window.imageUrl" :src="window.thumbnailUrl || window.imageUrl" :alt="window.title" loading="lazy" />
@@ -1408,12 +1432,14 @@ onBeforeUnmount(() => {
             <div v-else class="image-window-missing"><span>×</span><strong>{{ window.title }}</strong><p>{{ window.error }}</p><button type="button" @click="loadImageWall">重新连接</button></div>
             <div class="image-window-copy">
               <time v-if="window.status === 'ready'">{{ formatImageWindowDate(window.publishedAt) }}</time>
-              <h2>{{ window.title }}</h2>
+              <h3>{{ window.title }}</h3>
               <p v-if="window.summary">{{ window.summary }}</p>
               <dl v-if="window.status === 'ready'"><div><dt>完整署名</dt><dd>{{ window.credit }}</dd></div><div v-if="window.licenseNote"><dt>使用说明</dt><dd>{{ window.licenseNote }}</dd></div></dl>
               <div class="daily-image-links"><a :href="window.sourceUrl" target="_blank" rel="noreferrer">打开原始内容</a><a v-if="window.hdUrl" :href="window.hdUrl" target="_blank" rel="noreferrer">高清原图</a></div>
             </div>
-          </article>
+              </article>
+            </div>
+          </section>
         </div>
         <div v-else class="daily-image-state is-error" aria-live="polite"><strong>宇宙图像窗暂不可用</strong><span>请检查 AURORA 后端连接后重新加载；不会要求浏览器持有 NASA API Key。</span><button type="button" @click="loadImageWall">重新加载</button></div>
       </section>
@@ -1756,12 +1782,15 @@ onBeforeUnmount(() => {
 .daily-image-heading { padding-bottom:30px; border-bottom:1px solid var(--sky-line); }
 .daily-image-heading h1 { max-width:560px; margin:0; font-size:clamp(2.2rem,4vw,4.25rem); font-weight:500; letter-spacing:-.04em; line-height:.98; }
 .daily-image-heading p { max-width:57ch; margin:15px 0 0; color:var(--sky-muted); font-size:12px; line-height:1.7; }
-.image-wall { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); border-bottom:1px solid var(--sky-line); }
-.image-wall.is-refreshing { opacity:.66; }
-.image-window { grid-column:span 3; min-width:0; padding:25px 24px 31px; border-right:1px solid var(--sky-line); border-bottom:1px solid var(--sky-line); }
-.image-window:nth-child(2) { border-right:0; }
-.image-window:nth-last-child(-n+3) { grid-column:span 2; }
-.image-window:nth-child(5) { border-right:0; }
+.image-stream.is-refreshing { opacity:.66; }
+.image-stream-section + .image-stream-section { margin-top:68px; }
+.image-stream-heading { display:flex; align-items:baseline; justify-content:space-between; gap:24px; margin-bottom:18px; }
+.image-stream-heading h2 { margin:0; font-size:clamp(1.45rem,2.2vw,2rem); font-weight:500; letter-spacing:-.03em; }
+.image-stream-heading p { max-width:54ch; margin:0; color:var(--sky-muted); font-size:11px; line-height:1.65; text-align:right; }
+.image-wall { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); border-top:1px solid var(--sky-line); border-bottom:1px solid var(--sky-line); }
+.image-window { grid-column:span 2; min-width:0; padding:25px 24px 31px; border-right:1px solid var(--sky-line); border-bottom:1px solid var(--sky-line); }
+.image-window:nth-child(5n + 3),.image-window:nth-child(5n + 5) { border-right:0; }
+.image-window:nth-child(5n + 4),.image-window:nth-child(5n + 5) { grid-column:span 3; }
 .image-window-meta { display:flex; justify-content:space-between; gap:14px; min-height:18px; margin-bottom:14px; color:var(--sky-cyan); font:9px var(--font-mono,monospace); letter-spacing:.045em; line-height:1.4; }
 .image-window-meta time { color:var(--sky-muted); text-align:right; }
 .image-window-media { position:relative; display:block; overflow:hidden; aspect-ratio:1.36; color:var(--sky-ink); background:#05080d; text-decoration:none; }
@@ -1773,7 +1802,7 @@ onBeforeUnmount(() => {
 .image-window-play { position:absolute; z-index:1; right:13px; bottom:12px; padding:7px 9px; color:var(--sky-ink); font:9px var(--font-mono,monospace); letter-spacing:.05em; background:rgba(5,8,13,.78); border:1px solid rgba(226,233,241,.28); }
 .image-window-copy { padding-top:17px; }
 .image-window-copy > time { display:block; margin-bottom:10px; color:var(--sky-amber); font:9px var(--font-mono,monospace); letter-spacing:.05em; }
-.image-window-copy h2 { margin:0; font-size:clamp(1.2rem,1.85vw,1.7rem); font-weight:500; letter-spacing:-.025em; line-height:1.08; }
+.image-window-copy h3 { margin:0; font-size:clamp(1.2rem,1.85vw,1.7rem); font-weight:500; letter-spacing:-.025em; line-height:1.08; }
 .image-window-copy > p { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; overflow:hidden; margin:12px 0 18px; color:var(--sky-muted); font-size:11px; line-height:1.7; }
 .image-window-copy dl { display:grid; gap:12px; margin:0; padding:14px 0; border-top:1px solid var(--sky-line); }
 .image-window-copy dt { color:var(--sky-muted); font-size:9px; }
@@ -1867,8 +1896,11 @@ onBeforeUnmount(() => {
   .event-list article { grid-template-columns:62px 1fr; gap:12px; }
   .event-list > article > strong { grid-column:2; padding-bottom:12px; }
   .daily-image-page { padding-top:28px; }
+  .image-stream-section + .image-stream-section { margin-top:48px; }
+  .image-stream-heading { display:block; }
+  .image-stream-heading p { margin-top:8px; text-align:left; }
   .image-wall { grid-template-columns:1fr; }
-  .image-window,.image-window:nth-last-child(-n+3) { grid-column:1; padding:23px 0 29px; border-right:0; }
+  .image-window,.image-window:nth-child(5n + 4),.image-window:nth-child(5n + 5) { grid-column:1; padding:23px 0 29px; border-right:0; }
   .image-window:last-child { border-bottom:0; }
   .image-window-media { aspect-ratio:1.45; }
   .horizon-field { min-height:380px; }

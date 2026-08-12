@@ -40,6 +40,23 @@ func TestAPODClientDailyRequiresKey(t *testing.T) {
 	}
 }
 
+func TestAPODClientRecentMapsNewestPublishedImages(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("start_date"); got != "2026-08-03" {
+			t.Fatalf("start_date = %q", got)
+		}
+		_, _ = w.Write([]byte(`[{"date":"2026-08-10","title":"Older","explanation":"x","media_type":"image","url":"https://example.test/older.jpg"},{"date":"2026-08-12","title":"Newest","explanation":"x","media_type":"image","url":"https://example.test/newest.jpg"}]`))
+	}))
+	defer server.Close()
+	client := NewAPODClient("private-key")
+	client.baseURL = server.URL
+	client.httpClient = server.Client()
+	images, err := client.Recent(context.Background(), time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC), 2)
+	if err != nil || len(images) != 2 || images[0].Title != "Newest" {
+		t.Fatalf("images=%#v err=%v", images, err)
+	}
+}
+
 func TestAPODClientLive(t *testing.T) {
 	if os.Getenv("NASA_LIVE_TEST") != "1" {
 		t.Skip("set NASA_LIVE_TEST=1 with NASA_API_KEY to call NASA APOD")
