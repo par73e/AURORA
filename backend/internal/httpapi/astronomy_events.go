@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"sort"
 	"time"
 
 	"aurora/backend/internal/astronomyevent"
@@ -15,7 +16,17 @@ const astronomyEventsMaximumRange = 548 * 24 * time.Hour
 
 type astronomyEventResponse struct {
 	astronomyevent.Event
-	Local *eventLocalVisibility `json:"local,omitempty"`
+	Global map[string]any        `json:"global"`
+	Local  *eventLocalVisibility `json:"local,omitempty"`
+	Source astronomyEventSource  `json:"source"`
+}
+
+// astronomyEventSource 保留文档中的稳定 source 对象；扁平字段继续保留以兼容当前前端。
+type astronomyEventSource struct {
+	Kind       string `json:"kind"`
+	Name       string `json:"name"`
+	URL        string `json:"url"`
+	VerifiedAt string `json:"verifiedAt"`
 }
 
 type eventLocalVisibility struct {
@@ -52,11 +63,22 @@ func astronomyEventsHandler(store astronomyevent.Store, solver *observatory.Visi
 		}
 		response := make([]astronomyEventResponse, 0, len(events))
 		for _, event := range events {
-			item := astronomyEventResponse{Event: event}
+			global := decodeEventGeometry(event.Geometry)
+			global["description"] = event.Summary
+			item := astronomyEventResponse{
+				Event:  event,
+				Global: global,
+				Source: astronomyEventSource{Kind: event.Origin, Name: event.SourceName, URL: event.SourceURL, VerifiedAt: event.VerifiedAt},
+			}
 			if hasLocation && solver != nil {
 				item.Local = resolveEventLocalVisibility(event, latitude, longitude, timezone, solver)
 			}
 			response = append(response, item)
+		}
+		if hasLocation {
+			sort.SliceStable(response, func(i, j int) bool {
+				return astronomyVisibilityRank(response[i].Local) < astronomyVisibilityRank(response[j].Local)
+			})
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"events": response,
@@ -66,6 +88,26 @@ func astronomyEventsHandler(store astronomyevent.Store, solver *observatory.Visi
 			},
 			"locationVisibility": map[bool]string{true: "partial", false: "location_required"}[hasLocation],
 		})
+	}
+}
+
+func astronomyVisibilityRank(local *eventLocalVisibility) int {
+	if local == nil {
+		return 5
+	}
+	switch local.Status {
+	case "observable":
+		return 0
+	case "limited":
+		return 1
+	case "not_calculated":
+		return 2
+	case "non_visual":
+		return 3
+	case "not_visible":
+		return 4
+	default:
+		return 5
 	}
 }
 
@@ -101,6 +143,7 @@ func astronomyEventLocation(request *http.Request) (latitude, longitude float64,
 func resolveEventLocalVisibility(event astronomyevent.Event, latitude, longitude float64, timezone string, solver *observatory.VisibilitySolver) *eventLocalVisibility {
 	geometry := decodeEventGeometry(event.Geometry)
 	input := observatory.EventInput{
+		ID:       event.ID,
 		Kind:     event.Kind,
 		StartsAt: event.StartsAt,
 		Geometry: geometry,
@@ -130,12 +173,12 @@ func decodeEventGeometry(raw json.RawMessage) map[string]any {
 }
 
 func astronomyEventRange(rawFrom, rawTo string, current time.Time) (time.Time, time.Time, error) {
-	defaultFrom := time.Date(current.UTC().Year(), current.UTC().Month(), current.UTC().Day(), 0, 0, 0, 0, time.UTC)
+	defaultFrom := current.UTC()
 	from, err := parseEventDate(rawFrom, defaultFrom)
 	if err != nil {
 		return time.Time{}, time.Time{}, err
 	}
-	to, err := parseEventDate(rawTo, from.AddDate(0, 1, 0))
+	to, err := parseEventDate(rawTo, from.Add(30*24*time.Hour))
 	if err != nil || !to.After(from) || to.Sub(from) > astronomyEventsMaximumRange {
 		return time.Time{}, time.Time{}, errors.New("invalid astronomy event range")
 	}

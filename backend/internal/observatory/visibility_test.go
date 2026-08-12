@@ -30,7 +30,7 @@ func TestVisibilitySolverPlanetaryConjunction(t *testing.T) {
 	vis := solver.Solve(EventInput{
 		Kind:     "planetary_conjunction",
 		StartsAt: at,
-		Geometry: map[string]any{"objects": []any{"venus", "moon"}, "separationDegrees": 0.5},
+		Geometry: map[string]any{"objects": []any{"venus", "moon"}, "separationDegrees": 0.5, "positions": map[string]any{"venus": map[string]any{"longitudeDegrees": 180.0, "latitudeDegrees": 0.0}}},
 	}, 31.2304, 121.4737, "Asia/Shanghai")
 
 	valid := map[string]bool{"observable": true, "limited": true, "not_visible": true}
@@ -51,12 +51,20 @@ func TestVisibilitySolverPlanetaryOpposition(t *testing.T) {
 	vis := solver.Solve(EventInput{
 		Kind:     "planetary_opposition",
 		StartsAt: at,
-		Geometry: map[string]any{"object": "neptune"},
+		Geometry: map[string]any{"object": "neptune", "positions": map[string]any{"neptune": map[string]any{"longitudeDegrees": 180.0, "latitudeDegrees": 0.0}}},
 	}, 31.2304, 121.4737, "Asia/Shanghai")
 
 	valid := map[string]bool{"observable": true, "limited": true, "not_visible": true}
 	if !valid[vis.Status] {
 		t.Errorf("planetary opposition status=%s, want observable/limited/not_visible", vis.Status)
+	}
+}
+
+func TestVisibilitySolverRejectsPlanetaryEventWithoutCoordinates(t *testing.T) {
+	solver := NewVisibilitySolver(NewMoonService())
+	vis := solver.Solve(EventInput{Kind: "planetary_opposition", StartsAt: time.Date(2026, 9, 26, 8, 0, 0, 0, time.UTC), Geometry: map[string]any{"object": "neptune"}}, 31.2304, 121.4737, "Asia/Shanghai")
+	if vis.Status != "not_calculated" {
+		t.Fatalf("status=%s, want not_calculated when JPL coordinates are absent", vis.Status)
 	}
 }
 
@@ -67,6 +75,32 @@ func TestVisibilitySolverUnknownKindReturnsNotCalculated(t *testing.T) {
 	vis := solver.Solve(EventInput{Kind: "unknown_event_kind", StartsAt: time.Now()}, 31.23, 121.47, "Asia/Shanghai")
 	if vis.Status != "not_calculated" {
 		t.Errorf("unknown kind status=%s, want not_calculated", vis.Status)
+	}
+}
+
+func TestVisibilitySolverDoesNotGuessSolarEclipseOrMeteorRadiant(t *testing.T) {
+	solver := NewVisibilitySolver(NewMoonService())
+	for _, event := range []EventInput{
+		{Kind: "solar_eclipse", StartsAt: time.Now()},
+		{Kind: "meteor_shower", StartsAt: time.Now(), Geometry: map[string]any{}},
+	} {
+		if got := solver.Solve(event, 31.23, 121.47, "Asia/Shanghai").Status; got != "not_calculated" {
+			t.Errorf("kind=%s status=%s, want not_calculated", event.Kind, got)
+		}
+	}
+}
+
+func TestVisibilitySolverUsesStaticEquatorialTargetCoordinates(t *testing.T) {
+	solver := NewVisibilitySolver(NewMoonService())
+	vis := solver.Solve(EventInput{
+		Kind:     "moon_conjunction",
+		StartsAt: time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC),
+		Geometry: map[string]any{"objects": []any{"moon", "vega"}, "positions": map[string]any{
+			"vega": map[string]any{"rightAscensionDegrees": 279.235, "declinationDegrees": 38.784},
+		}},
+	}, 31.23, 121.47, "Asia/Shanghai")
+	if vis.Status == "not_calculated" {
+		t.Fatalf("status=%s, static RA/Dec must be usable for local visibility", vis.Status)
 	}
 }
 

@@ -171,30 +171,18 @@ var _ ComputedEventStore = (*Repository)(nil)
 var _ EphemerisStore = (*Repository)(nil)
 var _ ExternalSourceStore = (*Repository)(nil)
 
-// ReplaceExternalForecast 原子替换某一来源的全部 external_forecast 事件。
+// ReplaceExternalForecast 原子替换某个权威资料页的 external_forecast 事件。
+// 同一 source_code 下可有多个独立资料页（例如 NASA 日食与月食目录），
+// 因而替换范围必须包含 source_url，不能相互清空。
 // 失败时事务回滚，旧事件保留。
-func (r *Repository) ReplaceExternalForecast(ctx context.Context, events []Event) (int, error) {
-	if len(events) == 0 {
-		return 0, nil
-	}
+func (r *Repository) ReplaceExternalForecast(ctx context.Context, sourceCode, sourceURL string, events []Event) (int, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("begin replace external forecast: %w", err)
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	// 收集这批事件的来源 code，只清空同来源的 external_forecast
-	sourceCodes := make([]string, 0, len(events))
-	seen := make(map[string]bool, len(events))
-	for _, event := range events {
-		if event.SourceCode != "" && !seen[event.SourceCode] {
-			seen[event.SourceCode] = true
-			sourceCodes = append(sourceCodes, event.SourceCode)
-		}
-	}
-	if len(sourceCodes) > 0 {
-		if _, err := tx.Exec(ctx, `DELETE FROM astronomy_events WHERE origin = 'external_forecast' AND source_code = ANY($1)`, sourceCodes); err != nil {
-			return 0, fmt.Errorf("clear external forecast events: %w", err)
-		}
+	if _, err := tx.Exec(ctx, `DELETE FROM astronomy_events WHERE origin = 'external_forecast' AND source_code = $1 AND source_url = $2`, sourceCode, sourceURL); err != nil {
+		return 0, fmt.Errorf("clear external forecast events: %w", err)
 	}
 	written := 0
 	for _, event := range events {
@@ -209,7 +197,7 @@ func (r *Repository) ReplaceExternalForecast(ctx context.Context, events []Event
 				source_url = EXCLUDED.source_url, verified_at = EXCLUDED.verified_at,
 				geometry = EXCLUDED.geometry, presentation = EXCLUDED.presentation, updated_at = now()`,
 			event.ID, event.Kind, event.Title, event.TitleEN, event.StartsAt, event.EndsAt, event.DateLabel,
-			event.Summary, event.SourceCode, event.SourceURL, event.VerifiedAt, event.Geometry, event.Presentation,
+			event.Summary, sourceCode, sourceURL, event.VerifiedAt, event.Geometry, event.Presentation,
 		); err != nil {
 			return written, fmt.Errorf("upsert external forecast event %s: %w", event.ID, err)
 		}

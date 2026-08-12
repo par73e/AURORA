@@ -1,13 +1,17 @@
 package astronomyevent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/ledongthuc/pdf"
 )
 
 // parseUSNOMoonPhases 解析 USNO 月相 JSON，返回用于交叉校验的事件。
@@ -16,10 +20,11 @@ func parseUSNOMoonPhases(_ context.Context, body []byte, sourceURL string, year 
 	var payload struct {
 		Year      int `json:"year"`
 		Phasedata []struct {
-			Phase int    `json:"phase"`
-			Date  string `json:"date"`
+			Day   int    `json:"day"`
+			Month int    `json:"month"`
+			Phase string `json:"phase"`
 			Time  string `json:"time"`
-			Name  string `json:"name"`
+			Year  int    `json:"year"`
 		} `json:"phasedata"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
@@ -30,7 +35,11 @@ func parseUSNOMoonPhases(_ context.Context, body []byte, sourceURL string, year 
 	coverageEnd := coverageStart.AddDate(1, 0, 0)
 	var events []Event
 	for _, item := range payload.Phasedata {
-		at, err := time.Parse("2006 Jan 2 15:04", fmt.Sprintf("%d %s %s", payload.Year, monthNameFromUSNO(item.Date), dayFromUSNO(item.Date)))
+		yearValue := item.Year
+		if yearValue == 0 {
+			yearValue = payload.Year
+		}
+		at, err := time.ParseInLocation("2006-1-2 15:04", fmt.Sprintf("%d-%d-%d %s", yearValue, item.Month, item.Day, item.Time), time.UTC)
 		if err != nil {
 			// USNO date format may differ; try alternate parse
 			continue
@@ -51,21 +60,21 @@ func parseUSNOMoonPhases(_ context.Context, body []byte, sourceURL string, year 
 			SourceCode: "usno_astronomy",
 			SourceURL:  sourceURL,
 			VerifiedAt: time.Now().UTC().Format(time.DateOnly),
-			Geometry:   json.RawMessage(fmt.Sprintf(`{"phase":%d,"precision":"usno_cross_check"}`, item.Phase)),
+			Geometry:   json.RawMessage(fmt.Sprintf(`{"phase":%q,"precision":"usno_cross_check"}`, item.Phase)),
 		})
 	}
 	return parsedEvents{events: events, payload: body, payloadJSON: payloadJSON, coverageStart: &coverageStart, coverageEnd: &coverageEnd}, nil
 }
 
-func usnoPhaseKind(phase int) string {
-	switch phase {
-	case 0:
+func usnoPhaseKind(phase string) string {
+	switch strings.ToLower(strings.TrimSpace(phase)) {
+	case "new moon":
 		return "new_moon"
-	case 1:
+	case "first quarter":
 		return "first_quarter"
-	case 2:
+	case "full moon":
 		return "full_moon"
-	case 3:
+	case "last quarter":
 		return "last_quarter"
 	}
 	return ""
@@ -85,20 +94,29 @@ func usnoPhaseTitle(kind string) string {
 	return kind
 }
 
-// USNO date format is "Jan 01" — extract month name and day.
-func monthNameFromUSNO(date string) string {
-	parts := strings.Fields(date)
-	if len(parts) >= 1 {
-		return parts[0]
+// parseUSNOSeasons 解析 USNO 年度季节/近日远日点资料。AURORA 的季节节点
+// 仍由本地模型生成；这里保存可审计的交叉校验资料，而不制造重复日历事件。
+func parseUSNOSeasons(_ context.Context, body []byte, _ string, year int) (parsedEvents, error) {
+	var payload struct {
+		Year int `json:"year"`
+		Data []struct {
+			Day    int    `json:"day"`
+			Month  int    `json:"month"`
+			Phenom string `json:"phenom"`
+			Time   string `json:"time"`
+			Year   int    `json:"year"`
+		} `json:"data"`
 	}
-	return "Jan"
-}
-func dayFromUSNO(date string) string {
-	parts := strings.Fields(date)
-	if len(parts) >= 2 {
-		return parts[1]
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return parsedEvents{}, fmt.Errorf("parse USNO seasons JSON: %w", err)
 	}
-	return "01"
+	coverageYear := payload.Year
+	if coverageYear == 0 {
+		coverageYear = year
+	}
+	coverageStart := time.Date(coverageYear, time.January, 1, 0, 0, 0, 0, time.UTC)
+	coverageEnd := coverageStart.AddDate(1, 0, 0)
+	return parsedEvents{payload: body, payloadJSON: json.RawMessage(body), coverageStart: &coverageStart, coverageEnd: &coverageEnd}, nil
 }
 
 // parseNASAGSFCEclipsePage 解析 NASA/GSFC 食目录页面，提取日食/月食事件。
@@ -107,12 +125,15 @@ func dayFromUSNO(date string) string {
 // 本函数用正则提取每行的日期、食类型、食分、saros、路径链接，写 external_forecast 事件。
 func parseNASAGSFCEclipsePage(_ context.Context, body []byte, sourceURL string) (parsedEvents, error) {
 	text := string(body)
-	payloadJSON := json.RawMessage(body)
+	// NASA 页面是 HTML，不能直接作为 json.RawMessage 传给 JSONB 快照。
+	// 留空后由 saveSnapshot 封装为带原文 base64 的可审计 JSON。
+	var payloadJSON json.RawMessage
 	// 每行 <tr ...> <td>YYYY Mon DD</td> <td>Type</td> <td>...saros...</td> <td>食分</td> <td>时长</td> <td>...path...</td> ... </tr>
 	rowRegex := regexp.MustCompile(`(?s)<tr[^>]*>.*?</tr>`)
 	dateRegex := regexp.MustCompile(`(\d{4})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2})`)
 	typeRegex := regexp.MustCompile(`<td>(Total|Annular|Partial|Hybrid|Penumbral|Partial|Total)</td>`)
 	magnitudeRegex := regexp.MustCompile(`<td>(\d\.\d+)</td>`)
+	timeRegex := regexp.MustCompile(`<td>\s*(\d{2}):(\d{2}):(\d{2})\s*</td>`)
 	sarosRegex := regexp.MustCompile(`SEsaros/SEsaros(\d+)`)
 	pathRegex := regexp.MustCompile(`(SEpath/SEpath\d+/SE\d+[A-Za-z]+\d+path\.html|LEplot/LE\d+[A-Za-z]+\d+\.GIF|LEdecade/LE\d+\.html)`)
 	year := time.Now().UTC().Year()
@@ -157,12 +178,18 @@ func parseNASAGSFCEclipsePage(_ context.Context, body []byte, sourceURL string) 
 			kind = "lunar_eclipse"
 			titlePrefix = "月食"
 		}
-		at := time.Date(eventYear, month, day, 12, 0, 0, 0, time.UTC)
+		hour, minute, second := 12, 0, 0
+		if timeMatch := timeRegex.FindStringSubmatch(row); timeMatch != nil {
+			hour, _ = strconv.Atoi(timeMatch[1])
+			minute, _ = strconv.Atoi(timeMatch[2])
+			second, _ = strconv.Atoi(timeMatch[3])
+		}
+		at := time.Date(eventYear, month, day, hour, minute, second, 0, time.UTC)
 		// 食类型缩写：T=Total, A=Annular, P=Partial, H=Hybrid
 		title := fmt.Sprintf("%s·%s", eclipseType, titlePrefix)
 		titleEN := strings.ToUpper(strings.ReplaceAll(kind, "_", " ")) + " " + eclipseType
 		geometry := map[string]any{
-			"precision":  "nasa_gsfc_table",
+			"precision":   "nasa_gsfc_table",
 			"eclipseType": eclipseType,
 		}
 		if magnitude != "" {
@@ -205,111 +232,188 @@ func monthFromAbbr(abbr string) time.Month {
 	return months[abbr]
 }
 
-// parseIMOMeteorCalendar 解析 IMO 流星雨 RSS feed，提取流星雨极大时刻/ZHR/辐射点。
-// IMO PDF 是二进制无法正则解析，但 IMO RSS feed (https://www.imo.net/feed/) 有结构化数据：
-// item/title、link、pubDate、category（含流星雨 slug 如 perseids）。
-// 本函数从 RSS item 的 category 提取流星雨 slug，从 title 提取极大时刻附近，
-// 写 external_forecast 事件（含 IMO slug、极大时刻附近、RSS 链接）。
+// parseIMOMeteorCalendar 解析 IMO 年度年历 PDF 中的 Working List。RSS 的发布时间
+// 不是流星雨极大时刻，故 RSS 只做快照，绝不调用本函数伪造预测事件。
 func parseIMOMeteorCalendar(_ context.Context, body []byte, sourceURL string, year int) (parsedEvents, error) {
-	text := string(body)
-	payloadJSON := json.RawMessage(body)
-	// 从 RSS item 提取流星雨 slug 与极大时刻附近
-	itemRegex := regexp.MustCompile(`(?s)<item>.*?</item>`)
-	titleRegex := regexp.MustCompile(`<title>(.*?)</title>`)
-	linkRegex := regexp.MustCompile(`<link>(.*?)</link>`)
-	pubDateRegex := regexp.MustCompile(`<pubDate>(.*?)</pubDate>`)
-	// 已知流星雨 slug 列表（用于从 category 提取）
-	showerSlugs := []string{
-		"perseids", "kappa-cygnids", "aurigids", "orionids", "leonids",
-		"geminids", "ursids", "quadrantids", "taurs", "lyrids",
-		"eta-aquariids", "delta-aquariids", "capricornids",
+	reader, err := pdf.NewReader(bytes.NewReader(body), int64(len(body)))
+	if err != nil {
+		return parsedEvents{payload: body}, fmt.Errorf("open IMO calendar PDF: %w", err)
 	}
-	slugRegex := regexp.MustCompile(`CDATA\[(` + strings.Join(showerSlugs, "|") + `)\]`)
-	var events []Event
-	for _, item := range itemRegex.FindAllString(text, -1) {
-		slugMatch := slugRegex.FindStringSubmatch(item)
-		if slugMatch == nil {
-			continue
-		}
-		slug := slugMatch[1]
-		titleMatch := titleRegex.FindStringSubmatch(item)
-		linkMatch := linkRegex.FindStringSubmatch(item)
-		pubDateMatch := pubDateRegex.FindStringSubmatch(item)
-		// 从 pubDate 提取极大时刻附近
-		var at time.Time
-		if pubDateMatch != nil {
-			parsedAt, err := time.Parse(time.RFC1123Z, pubDateMatch[1])
-			if err == nil {
-				at = parsedAt.UTC()
-			}
-		}
-		if at.IsZero() {
-			// 回退到 title 里的日期
-			if titleMatch != nil {
-				dateRegex := regexp.MustCompile(`(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})`)
-				if dm := dateRegex.FindStringSubmatch(titleMatch[1]); dm != nil {
-					day, _ := strconv.Atoi(dm[1])
-					month := monthFromAbbr(dm[2])
-					eventYear, _ := strconv.Atoi(dm[3])
-					at = time.Date(eventYear, month, day, 0, 0, 0, 0, time.UTC)
-				}
-			}
-		}
-		if at.IsZero() {
-			continue
-		}
-		// 流星雨标准名称（中文）
-		showerName := meteorShowerChineseName(slug)
-		title := showerName + "极大"
-		titleEN := strings.ToUpper(strings.ReplaceAll(slug, "-", " ")) + " MAXIMUM"
-		sourceURL := sourceURL
-		if linkMatch != nil {
-			sourceURL = linkMatch[1]
-		}
-		geometry := map[string]any{
-			"precision": "imo_rss_feed",
-			"slug":      slug,
-		}
-		if titleMatch != nil {
-			geometry["rssTitle"] = titleMatch[1]
-		}
-		geomRaw, _ := json.Marshal(geometry)
-		events = append(events, Event{
-			ID:         fmt.Sprintf("imo-meteor_shower-%s-%s", slug, at.UTC().Format("20060102")),
-			Kind:       "meteor_shower",
-			Title:      title,
-			TitleEN:    titleEN,
-			StartsAt:   at.UTC(),
-			DateLabel:  at.UTC().Format("2006年1月2日"),
-			Summary:    fmt.Sprintf("IMO 流星雨年历：%s极大期。", showerName),
-			Origin:     "external_forecast",
-			SourceCode: "imo_meteor_calendar",
-			SourceURL:  sourceURL,
-			VerifiedAt: time.Now().UTC().Format(time.DateOnly),
-			Geometry:   geomRaw,
-		})
+	plainText, err := reader.GetPlainText()
+	if err != nil {
+		return parsedEvents{payload: body}, fmt.Errorf("extract IMO calendar PDF text: %w", err)
 	}
+	text, err := io.ReadAll(plainText)
+	if err != nil {
+		return parsedEvents{payload: body}, fmt.Errorf("read IMO calendar PDF text: %w", err)
+	}
+	events := parseIMOCalendarText(string(text), sourceURL, year)
+	if len(events) == 0 {
+		return parsedEvents{payload: body}, fmt.Errorf("IMO calendar contains no parseable annual shower records")
+	}
+
+	// PDF 不是 JSON；快照统一由 saveSnapshot 封装，并包含完整原文与内容哈希。
+	var payloadJSON json.RawMessage
 	coverageStart := time.Date(year, time.January, 1, 0, 0, 0, 0, time.UTC)
 	coverageEnd := coverageStart.AddDate(1, 0, 0)
 	return parsedEvents{events: events, payload: body, payloadJSON: payloadJSON, coverageStart: &coverageStart, coverageEnd: &coverageEnd}, nil
 }
 
+// parseIMORSS 保存 IMO 动态资讯版本，但不把文章发布时间误当成流星雨峰值。
+func parseIMORSS(_ context.Context, body []byte, _ string, year int) (parsedEvents, error) {
+	coverageStart := time.Date(year, time.January, 1, 0, 0, 0, 0, time.UTC)
+	coverageEnd := coverageStart.AddDate(1, 0, 0)
+	return parsedEvents{payload: body, coverageStart: &coverageStart, coverageEnd: &coverageEnd}, nil
+}
+
+var imoShowerPattern = regexp.MustCompile(`(?s)([^()]{1,80})\((\d{3}[A-Z]{3})\)Active:([A-Za-z]{3,9}\d{1,2}[–-](?:[A-Za-z]{3,9})?\d{1,2}(?:\(\?\))?);Maximum:([^;]+);ZHR(?:=|≈|variable,usually≈)([^;]+);Radiant:α=([0-9]{1,3})◦,δ=([+−-]?[0-9]{1,3})◦`)
+var imoMaximumDatePattern = regexp.MustCompile(`(?i)(January|February|March|April|May|June|July|August|September|October|November|December)(?:≈)?(\d{1,2})(?:,(\d{1,2})h(?:(\d{2})m)?)?`)
+
+// parseIMOCalendarText 从 IMO 提取后的纯文本中读取年度 Working List。它显式保留
+// 资料给出的活动期、ZHR 和辐射点；不确定的峰值时间只使用该资料明确给出的日期。
+func parseIMOCalendarText(text, sourceURL string, year int) []Event {
+	var events []Event
+	seen := make(map[string]struct{})
+	for _, match := range imoShowerPattern.FindAllStringSubmatch(text, -1) {
+		code := match[2]
+		if _, duplicate := seen[code]; duplicate {
+			continue
+		}
+		peak := imoMaximumDatePattern.FindStringSubmatch(match[4])
+		if peak == nil {
+			continue
+		}
+		month := fullMonth(peak[1])
+		day, _ := strconv.Atoi(peak[2])
+		if month == 0 || day == 0 {
+			continue
+		}
+		hour, minute := 0, 0
+		if peak[3] != "" {
+			hour, _ = strconv.Atoi(peak[3])
+			if peak[4] != "" {
+				minute, _ = strconv.Atoi(peak[4])
+			}
+		}
+		start, end, ok := imoActivityRange(match[3], year)
+		if !ok {
+			continue
+		}
+		at := time.Date(year, month, day, hour, minute, 0, 0, time.UTC)
+		ra, raErr := strconv.ParseFloat(match[6], 64)
+		decText := strings.ReplaceAll(match[7], "−", "-")
+		dec, decErr := strconv.ParseFloat(decText, 64)
+		if raErr != nil || decErr != nil {
+			continue
+		}
+		slug, title := imoShowerName(code, match[1])
+		geometry, _ := json.Marshal(map[string]any{
+			"precision":     "imo_calendar_pdf",
+			"iauCode":       code,
+			"slug":          slug,
+			"activityStart": start.Format(time.DateOnly),
+			"activityEnd":   end.Format(time.DateOnly),
+			"zhr":           strings.TrimSpace(match[5]),
+			"radiantRA":     ra,
+			"radiantDec":    dec,
+		})
+		endsAt := end.AddDate(0, 0, 1)
+		events = append(events, Event{
+			ID:         fmt.Sprintf("imo-meteor_shower-%s-%s", strings.ToLower(code), at.Format("20060102")),
+			Kind:       "meteor_shower",
+			Title:      title + "极大",
+			TitleEN:    strings.ToUpper(strings.TrimSpace(match[1])) + " MAXIMUM",
+			StartsAt:   at,
+			EndsAt:     &endsAt,
+			DateLabel:  at.Format("2006年1月2日"),
+			Summary:    fmt.Sprintf("IMO %d 年度流星雨年历：活动期 %s 至 %s，ZHR %s。", year, start.Format("1月2日"), end.Format("1月2日"), strings.TrimSpace(match[5])),
+			Origin:     "external_forecast",
+			SourceCode: "imo_meteor_calendar",
+			SourceURL:  sourceURL,
+			VerifiedAt: time.Now().UTC().Format(time.DateOnly),
+			Geometry:   geometry,
+		})
+		seen[code] = struct{}{}
+	}
+	return events
+}
+
+func fullMonth(value string) time.Month {
+	months := map[string]time.Month{"january": time.January, "february": time.February, "march": time.March, "april": time.April, "may": time.May, "june": time.June, "july": time.July, "august": time.August, "september": time.September, "october": time.October, "november": time.November, "december": time.December}
+	return months[strings.ToLower(value)]
+}
+
+func imoActivityRange(value string, year int) (time.Time, time.Time, bool) {
+	value = strings.TrimSuffix(value, "(?)")
+	parts := strings.FieldsFunc(value, func(r rune) bool { return r == '–' || r == '-' })
+	if len(parts) != 2 {
+		return time.Time{}, time.Time{}, false
+	}
+	activityPart := regexp.MustCompile(`^([A-Za-z]{3,9})?(\d{1,2})$`)
+	parse := func(part string, fallbackMonth time.Month) (time.Month, int, bool) {
+		match := activityPart.FindStringSubmatch(part)
+		if match == nil {
+			return 0, 0, false
+		}
+		month := fallbackMonth
+		if match[1] != "" {
+			month = fullMonth(match[1])
+		}
+		if month == 0 && len(match[1]) >= 3 {
+			month = monthFromAbbr(match[1][:3])
+		}
+		day, err := strconv.Atoi(match[2])
+		return month, day, month != 0 && err == nil
+	}
+	startMonth, startDay, startOK := parse(parts[0], 0)
+	endMonth, endDay, endOK := parse(parts[1], startMonth)
+	if !startOK || !endOK {
+		return time.Time{}, time.Time{}, false
+	}
+	start := time.Date(year, startMonth, startDay, 0, 0, 0, 0, time.UTC)
+	endYear := year
+	if endMonth < startMonth {
+		endYear++
+	}
+	end := time.Date(endYear, endMonth, endDay, 0, 0, 0, 0, time.UTC)
+	return start, end, true
+}
+
+func imoShowerName(code, fallback string) (string, string) {
+	known := map[string][2]string{
+		"007PER": {"perseids", "英仙座流星雨"}, "012KCG": {"kappa-cygnids", "天鹅座κ流星雨"},
+		"206AUR": {"aurigids", "御夫座流星雨"}, "008ORI": {"orionids", "猎户座流星雨"},
+		"013LEO": {"leonids", "狮子座流星雨"}, "004GEM": {"geminids", "双子座流星雨"},
+		"015URS": {"ursids", "小熊座流星雨"}, "010QUA": {"quadrantids", "象限仪座流星雨"},
+		"006LYR": {"lyrids", "天琴座流星雨"}, "031ETA": {"eta-aquariids", "宝瓶座η流星雨"},
+		"005SDA": {"delta-aquariids", "宝瓶座δ南流星雨"}, "001CAP": {"capricornids", "摩羯座α流星雨"},
+	}
+	if value, ok := known[code]; ok {
+		return value[0], value[1]
+	}
+	name := strings.TrimSpace(fallback)
+	if index := strings.LastIndexAny(name, ".;。\n"); index >= 0 {
+		name = strings.TrimSpace(name[index+1:])
+	}
+	return strings.ToLower(code), name
+}
+
 // meteorShowerChineseName 返回流星雨的中文名称（按 IMO slug）。
 func meteorShowerChineseName(slug string) string {
 	names := map[string]string{
-		"perseids":          "英仙座流星雨",
-		"kappa-cygnids":     "天鹅座κ流星雨",
-		"aurigids":          "御夫座流星雨",
-		"orionids":          "猎户座流星雨",
-		"leonids":           "狮子座流星雨",
-		"geminids":          "双子座流星雨",
-		"ursids":            "小熊座流星雨",
-		"quadrantids":       "象限仪座流星雨",
-		"taurs":             "金牛座流星雨",
-		"lyrids":            "天琴座流星雨",
-		"eta-aquariids":     "宝瓶座η流星雨",
-		"delta-aquariids":   "宝瓶座δ流星雨",
-		"capricornids":      "摩羯座流星雨",
+		"perseids":        "英仙座流星雨",
+		"kappa-cygnids":   "天鹅座κ流星雨",
+		"aurigids":        "御夫座流星雨",
+		"orionids":        "猎户座流星雨",
+		"leonids":         "狮子座流星雨",
+		"geminids":        "双子座流星雨",
+		"ursids":          "小熊座流星雨",
+		"quadrantids":     "象限仪座流星雨",
+		"taurs":           "金牛座流星雨",
+		"lyrids":          "天琴座流星雨",
+		"eta-aquariids":   "宝瓶座η流星雨",
+		"delta-aquariids": "宝瓶座δ流星雨",
+		"capricornids":    "摩羯座流星雨",
 	}
 	if name, ok := names[slug]; ok {
 		return name
@@ -324,7 +428,8 @@ func meteorShowerChineseName(slug string) string {
 // 本函数把路径元素解析为 geometry.pathWaypoints 数组，写 external_forecast 事件。
 func parseNASAEclipsePathPage(_ context.Context, body []byte, sourceURL string) (parsedEvents, error) {
 	text := string(body)
-	payloadJSON := json.RawMessage(body)
+	// NASA 路径页是 HTML，不是 JSON；快照统一由 saveSnapshot 封装。
+	var payloadJSON json.RawMessage
 	// 从标题提取食类型与日期
 	titleRegex := regexp.MustCompile(`(?s)(Total|Annular|Partial|Hybrid)\s+Solar\s+Eclipse\s+of\s+(\d{4})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2})`)
 	titleMatch := titleRegex.FindStringSubmatch(text)
@@ -354,15 +459,15 @@ func parseNASAEclipsePathPage(_ context.Context, body []byte, sourceURL string) 
 		azimuth, _ := strconv.Atoi(m[11])
 		widthKm, _ := strconv.Atoi(m[12])
 		waypoints = append(waypoints, map[string]any{
-			"time":           waypointTime.UTC().Format("2006-01-02T15:04:05"),
-			"northLimit":     m[3] + " " + m[4],
-			"southLimit":     m[5] + " " + m[6],
-			"centralLine":    m[7] + " " + m[8],
-			"ratio":          ratio,
-			"altitude":       altitude,
-			"azimuth":        azimuth,
-			"widthKm":        widthKm,
-			"duration":       m[13],
+			"time":        waypointTime.UTC().Format("2006-01-02T15:04:05"),
+			"northLimit":  m[3] + " " + m[4],
+			"southLimit":  m[5] + " " + m[6],
+			"centralLine": m[7] + " " + m[8],
+			"ratio":       ratio,
+			"altitude":    altitude,
+			"azimuth":     azimuth,
+			"widthKm":     widthKm,
+			"duration":    m[13],
 		})
 	}
 
@@ -396,68 +501,140 @@ func parseNASAEclipsePathPage(_ context.Context, body []byte, sourceURL string) 
 	return parsedEvents{events: []Event{event}, payload: body, payloadJSON: payloadJSON, coverageStart: &coverageStart, coverageEnd: &coverageEnd}, nil
 }
 
-// parseIAUMDC 解析 IAU MDC（流星雨数据中心）页面，提取流星雨标准名称、编号、辐射点。
-// IAU MDC 页面是 HTML 表格，每行含编号、名称、活动期、极大、辐射点赤经/赤纬、ZHR。
-// 本函数用正则提取每行的编号、名称、辐射点坐标，写 external_forecast 事件。
-func parseIAUMDC(_ context.Context, body []byte, sourceURL string, year int) (parsedEvents, error) {
-	payloadJSON := json.RawMessage(body)
-	// 内置主要流星雨的 IAU MDC 资料（编号、名称、辐射点赤经/赤纬、活动期、极大、ZHR）
-	// IAU MDC 页面格式不固定，这里用内置表保证可靠性，解析失败不清空旧数据
-	showers := []struct {
-		code     string
-		nameEN   string
-		nameZH   string
-		ra       float64
-		dec      float64
-		peakMonth int
-		peakDay   int
-		zhr      int
-	}{
-		{"007 PER", "Perseids", "英仙座流星雨", 48, 58, 8, 12, 100},
-		{"025 KCG", "kappa-Cygnids", "天鹅座κ流星雨", 305, 59, 8, 18, 3},
-		{"198 AUR", "Aurigids", "御夫座流星雨", 90, 40, 9, 1, 5},
-		{"008 ORI", "Orionids", "猎户座流星雨", 95, 16, 10, 21, 20},
-		{"013 LEO", "Leonids", "狮子座流星雨", 152, 22, 11, 17, 15},
-		{"004 GEM", "Geminids", "双子座流星雨", 112, 33, 12, 14, 120},
-		{"015 URS", "Ursids", "小熊座流星雨", 217, 76, 12, 22, 10},
-		{"010 QUA", "Quadrantids", "象限仪座流星雨", 230, 49, 1, 4, 80},
-		{"017 STA", "Southern Taurids", "金牛座南流星雨", 54, 22, 11, 5, 5},
-		{"028 NTA", "Northern Taurids", "金牛座北流星雨", 58, 22, 11, 12, 5},
-		{"006 LYR", "Lyrids", "天琴座流星雨", 271, 34, 4, 22, 18},
-		{"031 ETA", "eta-Aquariids", "宝瓶座η流星雨", 338, -1, 5, 6, 50},
-		{"005 SDA", "Southern delta-Aquariids", "宝瓶座δ南流星雨", 339, -16, 7, 30, 25},
-		{"016 DCA", "Northern delta-Aquariids", "宝瓶座δ北流星雨", 339, -5, 8, 15, 10},
-		{"013 CAP", "Piscis Austrinids", "南鱼座流星雨", 341, -30, 7, 28, 5},
+// parseIAUMDC 导入 IAU MDC 的 established-shower 目录版本到资料快照。
+// 目录提供名称、编号和辐射点等基础参数，但没有年度峰值和 ZHR 预测；不能凭内置
+// 常量生成伪造的 external_forecast 事件。标准化目录随原始内容一起留在快照中，
+// 供年度 IMO 年历解析与人工核验关联使用。
+func parseIAUMDC(_ context.Context, body []byte, _ string, year int) (parsedEvents, error) {
+	// IAU MDC 目录为 pipe 分隔文本，不是 JSON；快照统一由 saveSnapshot 封装。
+	payloadJSON := iauMDCSnapshotPayload(body)
+	coverageStart := time.Date(year, time.January, 1, 0, 0, 0, 0, time.UTC)
+	coverageEnd := coverageStart.AddDate(1, 0, 0)
+	return parsedEvents{payload: body, payloadJSON: payloadJSON, coverageStart: &coverageStart, coverageEnd: &coverageEnd}, nil
+}
+
+// iauMDCSnapshotPayload 给原始目录补充一个小型、可查询的标准化索引，原文仍由
+// sourceSnapshotPayload 的 base64 字段完整保留，内容哈希仍基于原始响应。
+func iauMDCSnapshotPayload(body []byte) json.RawMessage {
+	payload := sourceSnapshotPayload(body, "text/plain; charset=utf-8")
+	var document map[string]any
+	if err := json.Unmarshal(payload, &document); err != nil {
+		return payload
+	}
+	document["format"] = "iau_mdc_established_showers"
+	document["records"] = parseIAUMDCRecords(string(body))
+	encoded, err := json.Marshal(document)
+	if err != nil {
+		return payload
+	}
+	return encoded
+}
+
+func parseIAUMDCRecords(text string) []map[string]any {
+	seen := make(map[string]struct{})
+	records := make([]map[string]any, 0)
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, `"`) {
+			continue
+		}
+		fields := strings.Split(line, "|")
+		if len(fields) < 13 {
+			continue
+		}
+		for index := range fields {
+			fields[index] = strings.Trim(strings.TrimSpace(fields[index]), `"`)
+		}
+		iauNumber, code, designation := fields[1], fields[3], fields[6]
+		if iauNumber == "" || code == "" || designation == "" {
+			continue
+		}
+		key := iauNumber + ":" + code
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+		ra, raErr := strconv.ParseFloat(fields[11], 64)
+		dec, decErr := strconv.ParseFloat(fields[12], 64)
+		if raErr != nil || decErr != nil {
+			continue
+		}
+		seen[key] = struct{}{}
+		records = append(records, map[string]any{
+			"iauNumber":      iauNumber,
+			"code":           code,
+			"designation":    designation,
+			"radiantRA":      ra,
+			"radiantDec":     dec,
+			"solarLongitude": strings.TrimSpace(fields[10]),
+			"activity":       strings.TrimSpace(fields[7]),
+		})
+	}
+	return records
+}
+
+// parseJPLCloseApproaches 解析 CNEOS close-approach API，收录未来 18 个月内距离
+// 地球 0.05 AU 的小天体近掠。CNEOS 返回 fields/data 表格，这里按字段名而非列号读取。
+func parseJPLCloseApproaches(_ context.Context, body []byte, sourceURL string, year int) (parsedEvents, error) {
+	var payload struct {
+		Fields []string            `json:"fields"`
+		Data   [][]json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return parsedEvents{}, fmt.Errorf("parse JPL close-approach JSON: %w", err)
+	}
+	indexes := make(map[string]int, len(payload.Fields))
+	for index, field := range payload.Fields {
+		indexes[field] = index
+	}
+	for _, required := range []string{"des", "cd", "dist"} {
+		if _, ok := indexes[required]; !ok {
+			return parsedEvents{payload: body, payloadJSON: json.RawMessage(body)}, fmt.Errorf("JPL close-approach data missing %s", required)
+		}
+	}
+	stringAt := func(row []json.RawMessage, field string) string {
+		index, ok := indexes[field]
+		if !ok || index >= len(row) {
+			return ""
+		}
+		var value string
+		_ = json.Unmarshal(row[index], &value)
+		return value
 	}
 	var events []Event
-	for _, shower := range showers {
-		at := time.Date(year, time.Month(shower.peakMonth), shower.peakDay, 0, 0, 0, 0, time.UTC)
-		geometry := map[string]any{
-			"precision":    "iau_mdc",
-			"code":         shower.code,
-			"radiantRA":    shower.ra,
-			"radiantDec":   shower.dec,
-			"zhr":          shower.zhr,
+	for _, row := range payload.Data {
+		designation, dateText, distanceText := stringAt(row, "des"), stringAt(row, "cd"), stringAt(row, "dist")
+		at, err := time.Parse("2006-Jan-02 15:04", dateText)
+		if err != nil || designation == "" {
+			continue
+		}
+		distance, err := strconv.ParseFloat(distanceText, 64)
+		if err != nil {
+			continue
+		}
+		geometry := map[string]any{"precision": "jpl_cneos_cad", "designation": designation, "distanceAU": distance}
+		for _, field := range []string{"dist_min", "dist_max", "v_rel", "v_inf", "h", "orbit_id", "t_sigma_f"} {
+			if value := stringAt(row, field); value != "" {
+				geometry[field] = value
+			}
 		}
 		geomRaw, _ := json.Marshal(geometry)
+		identifier := strings.NewReplacer(" ", "-", "/", "-", "(", "", ")", "").Replace(strings.ToLower(designation))
 		events = append(events, Event{
-			ID:         fmt.Sprintf("iau-mdc-meteor_shower-%s-%s", shower.code, at.UTC().Format("20060102")),
-			Kind:       "meteor_shower",
-			Title:      shower.nameZH + "极大",
-			TitleEN:    strings.ToUpper(shower.nameEN) + " MAXIMUM",
+			ID:         "jpl-cneos-close-approach-" + identifier + "-" + at.Format("20060102"),
+			Kind:       "small_body_close_approach",
+			Title:      designation + " 近地掠过",
+			TitleEN:    designation + " CLOSE APPROACH",
 			StartsAt:   at.UTC(),
 			DateLabel:  at.UTC().Format("2006年1月2日"),
-			Summary:    fmt.Sprintf("IAU MDC：%s（编号 %s），ZHR %d，辐射点赤经 %g°/赤纬 %g°。", shower.nameEN, shower.code, shower.zhr, shower.ra, shower.dec),
+			Summary:    fmt.Sprintf("JPL CNEOS 预测该小天体将以 %.4f AU 的名义最近距离掠过地球。", distance),
 			Origin:     "external_forecast",
-			SourceCode: "iau_mdc",
+			SourceCode: "jpl_small_bodies",
 			SourceURL:  sourceURL,
 			VerifiedAt: time.Now().UTC().Format(time.DateOnly),
 			Geometry:   geomRaw,
 		})
 	}
-	// 如果 IAU MDC 页面解析成功，也尝试从页面提取额外信息（不覆盖内置表）
-	// 这里只保存快照，不额外解析页面 HTML（IAU MDC 页面格式不固定）
 	coverageStart := time.Date(year, time.January, 1, 0, 0, 0, 0, time.UTC)
-	coverageEnd := coverageStart.AddDate(1, 0, 0)
-	return parsedEvents{events: events, payload: body, payloadJSON: payloadJSON, coverageStart: &coverageStart, coverageEnd: &coverageEnd}, nil
+	coverageEnd := coverageStart.AddDate(0, 18, 0)
+	return parsedEvents{events: events, payload: body, payloadJSON: json.RawMessage(body), coverageStart: &coverageStart, coverageEnd: &coverageEnd}, nil
 }

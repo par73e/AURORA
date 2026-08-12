@@ -12,19 +12,19 @@ import (
 // moonFixtureCase 与 frontend/tests/moon_reference.test.mjs 共享的基准用例。
 // Go 端计算后写入 testdata/moon_reference.json，node 端用 astronomy-engine 复核。
 type moonFixtureCase struct {
-	Name       string  `json:"name"`
-	Latitude   float64 `json:"latitude"`
-	Longitude  float64 `json:"longitude"`
-	At         int64   `json:"at"`
-	Timezone   string  `json:"timezone"`
-	DayStart   int64   `json:"dayStart"` // at 所在本地日期零点（Unix 秒），供 node 端构造搜索起点
-	Phase      float64 `json:"phase"`
+	Name         string  `json:"name"`
+	Latitude     float64 `json:"latitude"`
+	Longitude    float64 `json:"longitude"`
+	At           int64   `json:"at"`
+	Timezone     string  `json:"timezone"`
+	DayStart     int64   `json:"dayStart"` // at 所在本地日期零点（Unix 秒），供 node 端构造搜索起点
+	Phase        float64 `json:"phase"`
 	Illumination float64 `json:"illumination"`
-	Age        float64 `json:"age"`
-	Label      string  `json:"label"`
-	Moonrise   *int64  `json:"moonrise"`
-	Moonset    *int64  `json:"moonset"`
-	Transit    *int64  `json:"transit"`
+	Age          float64 `json:"age"`
+	Label        string  `json:"label"`
+	Moonrise     *int64  `json:"moonrise"`
+	Moonset      *int64  `json:"moonset"`
+	Transit      *int64  `json:"transit"`
 }
 
 func TestMoonServiceInvariantsAndFixture(t *testing.T) {

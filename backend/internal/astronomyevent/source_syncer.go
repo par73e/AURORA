@@ -3,12 +3,14 @@ package astronomyevent
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -44,7 +46,7 @@ type SourceSyncer struct {
 // ExternalSourceStore 是外部资料同步所需的最小存储接口。
 type ExternalSourceStore interface {
 	SourceSnapshotStore
-	ReplaceExternalForecast(ctx context.Context, events []Event) (int, error)
+	ReplaceExternalForecast(ctx context.Context, sourceCode, sourceURL string, events []Event) (int, error)
 }
 
 func NewSourceSyncer(store ExternalSourceStore) *SourceSyncer {
@@ -70,8 +72,10 @@ func (s *SourceSyncer) SyncOfficialSources(ctx context.Context) error {
 		{SourceCode: "usno_astronomy", URL: fmt.Sprintf("https://aa.usno.navy.mil/api/seasons?year=%d", year)},
 		{SourceCode: "nasa_gsfc_eclipse", URL: "https://eclipse.gsfc.nasa.gov/SEpath/SEpath.html"},
 		{SourceCode: "nasa_gsfc_eclipse", URL: "https://eclipse.gsfc.nasa.gov/LEdecade/LEdecade2021.html"},
+		{SourceCode: "imo_meteor_calendar", URL: fmt.Sprintf("https://www.imo.net/files/meteor-shower/cal%d.pdf", year)},
 		{SourceCode: "imo_meteor_calendar", URL: "https://www.imo.net/feed/"},
-		{SourceCode: "iau_mdc", URL: "https://www.ta3.sk/IAUC22DB/MDC200/"},
+		{SourceCode: "iau_mdc", URL: fmt.Sprintf("https://www.ta3.sk/IAUC22DB/MDC2022/Etc/streamestablisheddata%d.txt", year)},
+		{SourceCode: "jpl_small_bodies", URL: fmt.Sprintf("https://ssd-api.jpl.nasa.gov/cad.api?date-min=%s&date-max=%s&dist-max=0.05&sort=dist", startOfUTCDay(s.now()).Format(time.DateOnly), startOfUTCDay(s.now()).AddDate(0, 18, 0).Format(time.DateOnly))},
 	}
 	var failures []error
 	for _, feed := range feeds {
@@ -121,6 +125,11 @@ func (s *SourceSyncer) syncFeed(ctx context.Context, feed sourceFeed, year int) 
 		s.saveSnapshot(ctx, feed, parsed, body, year)
 		return fmt.Errorf("parse %s: %w", feed.SourceCode, parseErr)
 	}
+	// USNO 是 AURORA 本地月相/季节模型的交叉校验，不是独立的日历主数据。
+	// 因而只保存可审计快照；绝不将其另写为会与 computed 事件重复的 external_forecast。
+	if feed.SourceCode == "usno_astronomy" {
+		parsed.events = nil
+	}
 
 	// 先写快照（去重），再按需替换 external_forecast 事件。
 	inserted, err := s.saveSnapshot(ctx, feed, parsed, body, year)
@@ -131,7 +140,7 @@ func (s *SourceSyncer) syncFeed(ctx context.Context, feed sourceFeed, year int) 
 		records = 1
 	}
 	if len(parsed.events) > 0 {
-		n, replaceErr := s.store.ReplaceExternalForecast(ctx, parsed.events)
+		n, replaceErr := s.store.ReplaceExternalForecast(ctx, feed.SourceCode, feed.URL, parsed.events)
 		if replaceErr != nil {
 			return fmt.Errorf("replace external forecast %s: %w", feed.SourceCode, replaceErr)
 		}
@@ -144,13 +153,21 @@ func (s *SourceSyncer) syncFeed(ctx context.Context, feed sourceFeed, year int) 
 func (s *SourceSyncer) parseFeed(ctx context.Context, feed sourceFeed, body []byte, year int) (parsedEvents, error) {
 	switch feed.SourceCode {
 	case "usno_astronomy":
+		if strings.Contains(feed.URL, "/seasons") {
+			return parseUSNOSeasons(ctx, body, feed.URL, year)
+		}
 		return s.parseUSNO(ctx, body, feed.URL, year)
 	case "nasa_gsfc_eclipse":
 		return s.parseNASAGSFC(ctx, body, feed.URL)
 	case "imo_meteor_calendar":
+		if !strings.HasSuffix(strings.ToLower(feed.URL), ".pdf") {
+			return parseIMORSS(ctx, body, feed.URL, year)
+		}
 		return s.parseIMO(ctx, body, feed.URL, year)
 	case "iau_mdc":
 		return parseIAUMDC(ctx, body, feed.URL, year)
+	case "jpl_small_bodies":
+		return parseJPLCloseApproaches(ctx, body, feed.URL, year)
 	default:
 		return parsedEvents{payload: body}, nil
 	}
@@ -191,7 +208,8 @@ func sourceSnapshotPayload(body []byte, contentType string) json.RawMessage {
 	payload, _ := json.Marshal(map[string]any{
 		"contentType": contentType,
 		"bytes":       len(body),
-		"stored":      "hash_only",
+		"encoding":    "base64",
+		"data":        base64.StdEncoding.EncodeToString(body),
 	})
 	return payload
 }

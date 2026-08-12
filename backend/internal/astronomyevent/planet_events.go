@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"time"
+
+	"aurora/backend/internal/observatory"
 )
 
 // planetaryEvents 从每天一条 JPL 矢量中找到合、冲与内行星大距的候选日，
@@ -35,6 +38,7 @@ func planetaryEvents(samples map[string][]EphemerisSample, verifiedAt time.Time)
 					at = samples[left][index].Epoch
 					geom["separationDegrees"] = angularDistance(samples[left][index], samples[right][index])
 				}
+				geom["positions"] = eclipticPositions(samples, []string{left, right}, index, at)
 				events = append(events, planetaryEvent("planetary_conjunction", at, verifiedAt, geom,
 					fmt.Sprintf("%s合%s", planetChinese(left), planetChinese(right)),
 					strings.ToUpper(left)+"-"+strings.ToUpper(right)+" CONJUNCTION"))
@@ -60,6 +64,7 @@ func planetaryEvents(samples map[string][]EphemerisSample, verifiedAt time.Time)
 			} else {
 				at = samples[planet][index].Epoch
 			}
+			geom["positions"] = eclipticPositions(samples, []string{planet}, index, at)
 			events = append(events, planetaryEvent("planetary_opposition", at, verifiedAt, geom,
 				planetChinese(planet)+"冲日", strings.ToUpper(planet)+" OPPOSITION"))
 		}
@@ -85,6 +90,7 @@ func planetaryEvents(samples map[string][]EphemerisSample, verifiedAt time.Time)
 				geom["direction"] = direction
 				geom["precision"] = precision
 				geom["refinedAt"] = refinedAt.UTC().Format("2006-01-02T15:04:05")
+				geom["positions"] = eclipticPositions(samples, []string{planet}, index, at)
 				events = append(events, planetaryEvent("planetary_elongation", at, verifiedAt, geom,
 					planetChinese(planet)+chinese, strings.ToUpper(planet)+" GREATEST "+strings.ToUpper(direction)+" ELONGATION"))
 			} else {
@@ -96,12 +102,240 @@ func planetaryEvents(samples map[string][]EphemerisSample, verifiedAt time.Time)
 				}
 				geom["elongationDegrees"] = math.Abs(separation)
 				geom["direction"] = direction
+				geom["positions"] = eclipticPositions(samples, []string{planet}, index, at)
 				events = append(events, planetaryEvent("planetary_elongation", at, verifiedAt, geom,
 					planetChinese(planet)+chinese, strings.ToUpper(planet)+" GREATEST "+strings.ToUpper(direction)+" ELONGATION"))
 			}
 		}
 	}
+	for _, planet := range []string{"mercury", "venus", "mars", "jupiter", "saturn", "uranus", "neptune"} {
+		for _, index := range localMinima(samples[planet], samples["sun"], 5) {
+			at, separation, refined := refineQuadratic(samples[planet], samples["sun"], index, angularDistance)
+			precision := "daily_sample"
+			if !refined {
+				at, separation = samples[planet][index].Epoch, angularDistance(samples[planet][index], samples["sun"][index])
+			} else {
+				precision = "refined"
+			}
+			relation, suffix := "conjunction", "合日"
+			if planet == "mercury" || planet == "venus" {
+				if vectorDistance(samples[planet][index]) < vectorDistance(samples["sun"][index]) {
+					relation, suffix = "inferior", "下合"
+				} else {
+					relation, suffix = "superior", "上合"
+				}
+			}
+			geometry := map[string]any{
+				"object": planet, "relation": relation, "separationDegrees": separation, "precision": precision,
+				"positions": eclipticPositions(samples, []string{planet}, index, at),
+			}
+			if refined {
+				geometry["refinedAt"] = at.UTC().Format(time.RFC3339)
+			}
+			events = append(events, planetaryEvent("planetary_solar_conjunction", at, verifiedAt, geometry,
+				planetChinese(planet)+suffix, strings.ToUpper(planet)+" "+strings.ToUpper(relation)+" CONJUNCTION"))
+		}
+	}
 	return events
+}
+
+// moonConjunctionEvents 使用本地月球模型与缓存的 JPL 行星星历寻找月合。
+// 月球位置不写入数据库事实表；读取时会在当地可见性求解器中按同一时刻重新计算。
+func moonConjunctionEvents(samples map[string][]EphemerisSample, verifiedAt time.Time) []Event {
+	var events []Event
+	for _, planet := range []string{"mercury", "venus", "mars", "jupiter", "saturn"} {
+		planetSamples := samples[planet]
+		if len(planetSamples) < 3 {
+			continue
+		}
+		moonSamples := make([]EphemerisSample, 0, len(planetSamples))
+		for _, sample := range planetSamples {
+			coordinates := observatory.MoonEclipticCoordinates(sample.Epoch)
+			lon, lat := coordinates.LongitudeDegrees*math.Pi/180, coordinates.LatitudeDegrees*math.Pi/180
+			moonSamples = append(moonSamples, EphemerisSample{
+				Body: "moon", Epoch: sample.Epoch,
+				XAU: math.Cos(lat) * math.Cos(lon), YAU: math.Cos(lat) * math.Sin(lon), ZAU: math.Sin(lat),
+			})
+		}
+		for _, index := range localMinima(moonSamples, planetSamples, 5) {
+			at, separation, ok := refineQuadratic(moonSamples, planetSamples, index, angularDistance)
+			precision := "daily_sample"
+			if !ok {
+				at, separation = planetSamples[index].Epoch, angularDistance(moonSamples[index], planetSamples[index])
+			} else {
+				precision = "refined"
+			}
+			geometry := map[string]any{
+				"objects":           []string{"moon", planet},
+				"separationDegrees": separation,
+				"precision":         precision,
+				"positions":         eclipticPositions(samples, []string{planet}, index, at),
+			}
+			if precision == "refined" {
+				geometry["refinedAt"] = at.UTC().Format(time.RFC3339)
+			}
+			events = append(events, planetaryEvent("moon_conjunction", at, verifiedAt, geometry,
+				fmt.Sprintf("%s合月", planetChinese(planet)), strings.ToUpper(planet)+"-MOON CONJUNCTION"))
+		}
+	}
+	events = append(events, moonBrightObjectConjunctionEvents(samples["sun"], verifiedAt)...)
+	return events
+}
+
+// moonBrightObjectConjunctionEvents 使用稳定的 J2000 赤道坐标补齐月合亮星与星团。
+// 这些目录目标不依赖实时外网；事件寻找在黄道坐标中完成，而地点可见性在读取时
+// 仍按赤道坐标重新计算，避免把星表资料误当成行星 JPL 星历。
+func moonBrightObjectConjunctionEvents(reference []EphemerisSample, verifiedAt time.Time) []Event {
+	targets := []struct {
+		id, title, titleEN string
+		ra, dec            float64
+	}{
+		{"sirius", "天狼星", "SIRIUS", 101.287, -16.716},
+		{"arcturus", "大角星", "ARCTURUS", 213.915, 19.182},
+		{"vega", "织女星", "VEGA", 279.235, 38.784},
+		{"pleiades", "昴星团", "PLEIADES", 56.75, 24.116},
+		{"hyades", "毕星团", "HYADES", 66.75, 15.87},
+	}
+	if len(reference) < 3 {
+		return nil
+	}
+	var events []Event
+	for _, target := range targets {
+		star := observatory.EquatorialCoordinates{RightAscensionDegrees: target.ra, DeclinationDegrees: target.dec}
+		moonSamples, targetSamples := make([]EphemerisSample, 0, len(reference)), make([]EphemerisSample, 0, len(reference))
+		for _, sample := range reference {
+			moon := observatory.MoonEclipticCoordinates(sample.Epoch)
+			moonLon, moonLat := degRadians(moon.LongitudeDegrees), degRadians(moon.LatitudeDegrees)
+			object := observatory.EquatorialToEclipticCoordinates(star, sample.Epoch)
+			objectLon, objectLat := degRadians(object.LongitudeDegrees), degRadians(object.LatitudeDegrees)
+			moonSamples = append(moonSamples, EphemerisSample{Body: "moon", Epoch: sample.Epoch, XAU: math.Cos(moonLat) * math.Cos(moonLon), YAU: math.Cos(moonLat) * math.Sin(moonLon), ZAU: math.Sin(moonLat)})
+			targetSamples = append(targetSamples, EphemerisSample{Body: target.id, Epoch: sample.Epoch, XAU: math.Cos(objectLat) * math.Cos(objectLon), YAU: math.Cos(objectLat) * math.Sin(objectLon), ZAU: math.Sin(objectLat)})
+		}
+		for _, index := range localMinima(moonSamples, targetSamples, 5) {
+			at, separation, refined := refineQuadratic(moonSamples, targetSamples, index, angularDistance)
+			precision := "daily_sample"
+			if !refined {
+				at, separation = reference[index].Epoch, angularDistance(moonSamples[index], targetSamples[index])
+			} else {
+				precision = "refined"
+			}
+			geometry := map[string]any{
+				"objects":           []string{"moon", target.id},
+				"separationDegrees": separation,
+				"precision":         precision,
+				"positions": map[string]map[string]float64{target.id: {
+					"rightAscensionDegrees": target.ra,
+					"declinationDegrees":    target.dec,
+				}},
+			}
+			if refined {
+				geometry["refinedAt"] = at.UTC().Format(time.RFC3339)
+			}
+			events = append(events, planetaryEvent("moon_conjunction", at, verifiedAt, geometry,
+				fmt.Sprintf("%s合月", target.title), target.titleEN+"-MOON CONJUNCTION"))
+		}
+	}
+	return events
+}
+
+func degRadians(value float64) float64 { return value * math.Pi / 180 }
+
+// orbitalDistanceEvents 从以太阳为中心的 JPL 向量中寻找各行星近日点与远日点。
+// 这些是重要轨道几何节点，并不承诺某地点在该瞬间可见，因此本地层标为 non_visual。
+func orbitalDistanceEvents(samples map[string][]EphemerisSample, verifiedAt time.Time) []Event {
+	var events []Event
+	for _, planet := range []string{"mercury", "venus", "mars", "jupiter", "saturn", "uranus", "neptune"} {
+		series := samples[planet+"_heliocentric"]
+		for index := 1; index+1 < len(series); index++ {
+			before, current, after := vectorDistance(series[index-1]), vectorDistance(series[index]), vectorDistance(series[index+1])
+			kind, titleSuffix, titleENSuffix := "", "", ""
+			if current <= before && current < after {
+				kind, titleSuffix, titleENSuffix = "planetary_perihelion", "近日点", "PERIHELION"
+			} else if current >= before && current > after {
+				kind, titleSuffix, titleENSuffix = "planetary_aphelion", "远日点", "APHELION"
+			} else {
+				continue
+			}
+			at, distance, refined := refineQuadratic(series, series, index, func(left, _ EphemerisSample) float64 { return vectorDistance(left) })
+			precision := "daily_sample"
+			if !refined {
+				at, distance = series[index].Epoch, current
+			} else {
+				precision = "refined"
+			}
+			geometry := map[string]any{"object": planet, "distanceAU": distance, "precision": precision}
+			if refined {
+				geometry["refinedAt"] = at.UTC().Format(time.RFC3339)
+			}
+			events = append(events, planetaryEvent(kind, at, verifiedAt, geometry,
+				planetChinese(planet)+titleSuffix, strings.ToUpper(planet)+" "+titleENSuffix))
+		}
+	}
+	return events
+}
+
+func vectorDistance(sample EphemerisSample) float64 {
+	return math.Sqrt(sample.XAU*sample.XAU + sample.YAU*sample.YAU + sample.ZAU*sample.ZAU)
+}
+
+// multiPlanetAlignmentEvents 只记录具有明确定义的几何事件：至少三颗行星在地心黄道上
+// 落入 35° 以内，并以该紧凑角距的局部最小日作为事件时刻。它不使用“几星连珠”营销名称。
+func multiPlanetAlignmentEvents(samples map[string][]EphemerisSample, verifiedAt time.Time) []Event {
+	planets := []string{"mercury", "venus", "mars", "jupiter", "saturn", "uranus", "neptune"}
+	var events []Event
+	for left := 0; left < len(planets); left++ {
+		for middle := left + 1; middle < len(planets); middle++ {
+			for right := middle + 1; right < len(planets); right++ {
+				bodies := []string{planets[left], planets[middle], planets[right]}
+				series := samples[bodies[0]]
+				for index := 1; index+1 < len(series); index++ {
+					before := planetarySpan(samples, bodies, index-1)
+					current := planetarySpan(samples, bodies, index)
+					after := planetarySpan(samples, bodies, index+1)
+					if current > 35 || current > before || current >= after {
+						continue
+					}
+					at := series[index].Epoch
+					geometry := map[string]any{
+						"objects": bodies, "spanDegrees": current, "precision": "daily_sample",
+						"positions": eclipticPositions(samples, bodies, index, at),
+					}
+					events = append(events, planetaryEvent("multi_planet_alignment", at, verifiedAt, geometry,
+						"多颗行星同场几何接近", "MULTI-PLANET ALIGNMENT"))
+				}
+			}
+		}
+	}
+	return events
+}
+
+func planetarySpan(samples map[string][]EphemerisSample, bodies []string, index int) float64 {
+	longitudes := make([]float64, 0, len(bodies))
+	for _, body := range bodies {
+		series := samples[body]
+		if index < 0 || index >= len(series) {
+			return math.Inf(1)
+		}
+		longitudes = append(longitudes, normDegrees(math.Atan2(series[index].YAU, series[index].XAU)*180/math.Pi))
+	}
+	sort.Float64s(longitudes)
+	largestGap := 0.0
+	for i := range longitudes {
+		next := longitudes[(i+1)%len(longitudes)]
+		if i == len(longitudes)-1 {
+			next += 360
+		}
+		largestGap = math.Max(largestGap, next-longitudes[i])
+	}
+	return 360 - largestGap
+}
+
+func normDegrees(value float64) float64 {
+	value = math.Mod(value, 360)
+	if value < 0 {
+		value += 360
+	}
+	return value
 }
 
 // refineQuadratic 在候选日 index 附近用等距三点二次插值求极值时刻。
@@ -141,7 +375,55 @@ func refineQuadratic(left, right []EphemerisSample, index int, value func(l, r E
 
 func planetaryEvent(kind string, at, verifiedAt time.Time, geometry map[string]any, title, titleEN string) Event {
 	raw, _ := json.Marshal(geometry)
-	return Event{ID: fmt.Sprintf("%s-%s", kind, at.UTC().Format("20060102")), Kind: kind, Title: title, TitleEN: titleEN, StartsAt: at.UTC(), DateLabel: at.UTC().Format("2006年1月2日"), Summary: "基于 JPL Horizons 地心黄道坐标的日采样计算结果；候选日附近会继续精化。", Origin: "computed", SourceCode: "jpl_horizons_events", SourceURL: horizonsEventsEndpoint, VerifiedAt: verifiedAt.UTC().Format(time.DateOnly), Geometry: raw, Presentation: json.RawMessage(`{}`)}
+	identifier := kind + "-" + at.UTC().Format("20060102")
+	if object, ok := geometry["object"].(string); ok {
+		identifier += "-" + object
+	}
+	if objects, ok := geometry["objects"].([]string); ok {
+		identifier += "-" + strings.Join(objects, "-")
+	}
+	summary := "基于 JPL Horizons 地心黄道坐标的日采样计算结果。"
+	if geometry["precision"] == "refined" {
+		summary = "基于 JPL Horizons 日采样并以三点二次插值精化的计算结果；精度说明见来源。"
+	}
+	return Event{ID: identifier, Kind: kind, Title: title, TitleEN: titleEN, StartsAt: at.UTC(), DateLabel: at.UTC().Format("2006年1月2日"), Summary: summary, Origin: "computed", SourceCode: "jpl_horizons_events", SourceURL: horizonsEventsEndpoint, VerifiedAt: verifiedAt.UTC().Format(time.DateOnly), Geometry: raw, Presentation: json.RawMessage(`{}`)}
+}
+
+// eclipticPositions 把事件附近的 JPL 样本序列化为供本地可见性计算使用的黄道坐标。
+func eclipticPositions(samples map[string][]EphemerisSample, bodies []string, index int, at time.Time) map[string]map[string]float64 {
+	positions := make(map[string]map[string]float64, len(bodies))
+	for _, body := range bodies {
+		series := samples[body]
+		if index < 0 || index >= len(series) {
+			continue
+		}
+		sample := interpolateSample(series, index, at)
+		lon := math.Atan2(sample.YAU, sample.XAU) * 180 / math.Pi
+		lat := math.Atan2(sample.ZAU, math.Hypot(sample.XAU, sample.YAU)) * 180 / math.Pi
+		positions[body] = map[string]float64{"longitudeDegrees": signedAngleDegrees(lon), "latitudeDegrees": lat}
+	}
+	return positions
+}
+
+func interpolateSample(series []EphemerisSample, index int, at time.Time) EphemerisSample {
+	base := series[index]
+	if index+1 >= len(series) || !at.After(base.Epoch) {
+		return base
+	}
+	next := series[index+1]
+	span := next.Epoch.Sub(base.Epoch)
+	if span <= 0 {
+		return base
+	}
+	ratio := at.Sub(base.Epoch).Seconds() / span.Seconds()
+	if ratio < 0 || ratio > 1 {
+		return base
+	}
+	base.XAU += (next.XAU - base.XAU) * ratio
+	base.YAU += (next.YAU - base.YAU) * ratio
+	base.ZAU += (next.ZAU - base.ZAU) * ratio
+	base.Epoch = at
+	return base
 }
 
 func localMinima(left, right []EphemerisSample, threshold float64) []int {

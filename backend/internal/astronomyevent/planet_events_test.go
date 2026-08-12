@@ -3,6 +3,7 @@ package astronomyevent
 import (
 	"encoding/json"
 	"math"
+	"strings"
 	"testing"
 	"time"
 )
@@ -99,4 +100,86 @@ func TestRefineQuadraticHandlesBoundary(t *testing.T) {
 	if _, _, ok := refineQuadratic(left, right, 0, func(l, r EphemerisSample) float64 { return 0 }); ok {
 		t.Errorf("refineQuadratic(index=0) ok=true, want false")
 	}
+}
+
+func TestPlanetaryEventsIncludeCoordinatesForLocalVisibility(t *testing.T) {
+	base := time.Date(2026, time.August, 12, 0, 0, 0, 0, time.UTC)
+	day := func(body string, degrees []float64) []EphemerisSample {
+		items := make([]EphemerisSample, 0, len(degrees))
+		for i, degree := range degrees {
+			radians := degree * math.Pi / 180
+			items = append(items, EphemerisSample{Body: body, Epoch: base.AddDate(0, 0, i), XAU: math.Cos(radians), YAU: math.Sin(radians)})
+		}
+		return items
+	}
+	samples := map[string][]EphemerisSample{
+		"mercury": day("mercury", []float64{10, 11, 12}), "venus": day("venus", []float64{14, 11.1, 15}),
+		"mars": day("mars", []float64{80, 81, 82}), "jupiter": day("jupiter", []float64{120, 121, 122}),
+		"saturn": day("saturn", []float64{160, 161, 162}), "uranus": day("uranus", []float64{200, 201, 202}),
+		"neptune": day("neptune", []float64{240, 241, 242}), "sun": day("sun", []float64{0, 1, 2}),
+	}
+	for _, event := range planetaryEvents(samples, base) {
+		if event.Kind != "planetary_conjunction" {
+			continue
+		}
+		var geometry map[string]any
+		if err := json.Unmarshal(event.Geometry, &geometry); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := geometry["positions"].(map[string]any); !ok {
+			t.Fatalf("planetary event %s lacks positions for local visibility: %s", event.ID, event.Geometry)
+		}
+		return
+	}
+	t.Fatal("no conjunction generated")
+}
+
+func TestMoonBrightObjectConjunctionsCarryEquatorialCoordinates(t *testing.T) {
+	base := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	reference := make([]EphemerisSample, 400)
+	for index := range reference {
+		reference[index] = EphemerisSample{Body: "sun", Epoch: base.AddDate(0, 0, index)}
+	}
+	events := moonBrightObjectConjunctionEvents(reference, base)
+	if len(events) == 0 {
+		t.Fatal("no bright-star or cluster conjunctions generated")
+	}
+	var geometry map[string]any
+	if err := json.Unmarshal(events[0].Geometry, &geometry); err != nil {
+		t.Fatal(err)
+	}
+	positions, ok := geometry["positions"].(map[string]any)
+	if !ok || len(positions) != 1 {
+		t.Fatalf("positions=%v, want one static target", geometry["positions"])
+	}
+	for _, value := range positions {
+		coordinates, ok := value.(map[string]any)
+		if !ok || coordinates["rightAscensionDegrees"] == nil || coordinates["declinationDegrees"] == nil {
+			t.Fatalf("static target coordinates=%v, want RA/Dec", value)
+		}
+	}
+}
+
+func TestPlanetaryEventsIncludeSolarConjunction(t *testing.T) {
+	base := time.Date(2026, time.August, 12, 0, 0, 0, 0, time.UTC)
+	day := func(body string, degrees []float64) []EphemerisSample {
+		items := make([]EphemerisSample, 0, len(degrees))
+		for i, degree := range degrees {
+			radians := degree * math.Pi / 180
+			items = append(items, EphemerisSample{Body: body, Epoch: base.AddDate(0, 0, i), XAU: math.Cos(radians), YAU: math.Sin(radians)})
+		}
+		return items
+	}
+	samples := map[string][]EphemerisSample{
+		"mercury": day("mercury", []float64{2, 0.1, 3}), "venus": day("venus", []float64{40, 41, 42}),
+		"mars": day("mars", []float64{80, 81, 82}), "jupiter": day("jupiter", []float64{120, 121, 122}),
+		"saturn": day("saturn", []float64{160, 161, 162}), "uranus": day("uranus", []float64{200, 201, 202}),
+		"neptune": day("neptune", []float64{240, 241, 242}), "sun": day("sun", []float64{0, 0, 0}),
+	}
+	for _, event := range planetaryEvents(samples, base) {
+		if event.Kind == "planetary_solar_conjunction" && strings.Contains(event.ID, "mercury") {
+			return
+		}
+	}
+	t.Fatal("no Mercury solar conjunction generated")
 }

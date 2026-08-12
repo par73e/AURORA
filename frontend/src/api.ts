@@ -234,6 +234,13 @@ export interface AstronomyEvent {
   sourceUrl: string
   verifiedAt: string
   geometry: Record<string, unknown>
+  global: Record<string, unknown> & { description: string }
+  source: {
+    kind: 'computed' | 'external_forecast' | 'curated'
+    name: string
+    url: string
+    verifiedAt: string
+  }
   local?: EventLocalVisibility
 }
 

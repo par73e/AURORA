@@ -20,7 +20,8 @@ var horizonPlanetCommands = map[string]string{
 // FetchGeocentricEclipticSamples 取得地心黄道位置矢量；以 AU 为单位，日采样。
 // 每颗行星使用一个顺序请求，符合 Horizons 的单请求使用约定。
 func FetchGeocentricEclipticSamples(ctx context.Context, client *http.Client, body string, from, to time.Time) ([]EphemerisSample, error) {
-	command, ok := horizonPlanetCommands[body]
+	baseBody := strings.TrimSuffix(body, "_heliocentric")
+	command, ok := horizonPlanetCommands[baseBody]
 	if !ok {
 		return nil, fmt.Errorf("unsupported Horizons body %q", body)
 	}
@@ -28,7 +29,11 @@ func FetchGeocentricEclipticSamples(ctx context.Context, client *http.Client, bo
 	query.Set("format", "text")
 	query.Set("COMMAND", command)
 	query.Set("EPHEM_TYPE", "VECTORS")
-	query.Set("CENTER", "500@399")
+	center := "500@399"
+	if strings.HasSuffix(body, "_heliocentric") {
+		center = "500@10"
+	}
+	query.Set("CENTER", center)
 	query.Set("REF_PLANE", "ECLIPTIC")
 	query.Set("OUT_UNITS", "AU-D")
 	query.Set("VEC_TABLE", "1")
@@ -125,7 +130,22 @@ func (s *EphemerisSyncer) SyncPlanetaryPositions(ctx context.Context) (syncErr e
 		byBody[body] = samples
 		records += len(samples)
 	}
+	for _, body := range []string{"mercury", "venus", "mars", "jupiter", "saturn", "uranus", "neptune"} {
+		heliocentricBody := body + "_heliocentric"
+		samples, err := FetchGeocentricEclipticSamples(ctx, s.client, heliocentricBody, from, to)
+		if err != nil {
+			return err
+		}
+		if err := s.store.ReplaceEphemerisSamples(ctx, heliocentricBody, from, to, samples); err != nil {
+			return err
+		}
+		byBody[heliocentricBody] = samples
+		records += len(samples)
+	}
 	events := append(coreEvents(from, to, s.now()), planetaryEvents(byBody, s.now())...)
+	events = append(events, moonConjunctionEvents(byBody, s.now())...)
+	events = append(events, orbitalDistanceEvents(byBody, s.now())...)
+	events = append(events, multiPlanetAlignmentEvents(byBody, s.now())...)
 	if err := s.store.ReplaceComputed(ctx, ListQuery{From: from, To: to}, events); err != nil {
 		return err
 	}

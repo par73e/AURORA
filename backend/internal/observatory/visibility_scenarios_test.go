@@ -14,9 +14,9 @@ func TestVisibilityScenarios(t *testing.T) {
 	// 2026-09-14 金星合月（来自交接文档的示例）
 	at := time.Date(2026, 9, 14, 11, 10, 0, 0, time.UTC)
 	input := EventInput{
-		Kind:     "planetary_conjunction",
+		Kind:     "moon_conjunction",
 		StartsAt: at,
-		Geometry: map[string]any{"objects": []any{"venus", "moon"}, "separationDegrees": 0.5},
+		Geometry: map[string]any{"objects": []any{"venus", "moon"}, "separationDegrees": 0.5, "positions": map[string]any{"venus": map[string]any{"longitudeDegrees": 180.0, "latitudeDegrees": 0.0}}},
 	}
 
 	cases := []struct {
@@ -26,8 +26,8 @@ func TestVisibilityScenarios(t *testing.T) {
 	}{
 		{"shanghai", 31.2304, 121.4737},
 		{"northern_high_lat", 64.1466, -21.9426}, // 雷克雅未克
-		{"southern", -33.8688, 151.2093},          // 悉尼
-		{"no_visibility_window", 89.5, 0},         // 接近北极点
+		{"southern", -33.8688, 151.2093},         // 悉尼
+		{"no_visibility_window", 89.5, 0},        // 接近北极点
 	}
 	for _, c := range cases {
 		vis := solver.Solve(input, c.latitude, c.longitude, "Asia/Shanghai")
@@ -66,7 +66,7 @@ func TestVisibilitySolverMeteorShowerShanghai(t *testing.T) {
 	moons := NewMoonService()
 	solver := NewVisibilitySolver(moons)
 	at := time.Date(2026, 8, 12, 16, 0, 0, 0, time.UTC)
-	vis := solver.Solve(EventInput{Kind: "meteor_shower", StartsAt: at}, 31.2304, 121.4737, "Asia/Shanghai")
+	vis := solver.Solve(EventInput{ID: "perseids-2026", Kind: "meteor_shower", StartsAt: at, Geometry: map[string]any{"slug": "perseids"}}, 31.2304, 121.4737, "Asia/Shanghai")
 	valid := map[string]bool{"observable": true, "limited": true, "not_visible": true}
 	if !valid[vis.Status] {
 		t.Errorf("meteor_shower shanghai status=%s, want observable/limited/not_visible", vis.Status)
