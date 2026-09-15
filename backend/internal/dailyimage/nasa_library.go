@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -105,7 +106,11 @@ func (client *NASAImageLibraryClient) fetch(ctx context.Context, at time.Time) (
 	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
 		return ImageWindow{}, errors.New("decode NASA image library response")
 	}
-	items := make([]ImageWindow, 0, len(payload.Collection.Items))
+	type candidate struct {
+		nasaID string
+		window ImageWindow
+	}
+	items := make([]candidate, 0, len(payload.Collection.Items))
 	for _, item := range payload.Collection.Items {
 		if len(item.Data) == 0 || len(item.Links) == 0 {
 			continue
@@ -118,12 +123,68 @@ func (client *NASAImageLibraryClient) fetch(ctx context.Context, at time.Time) (
 		if strings.TrimSpace(data.Center) != "" {
 			credit = "NASA / " + strings.TrimSpace(data.Center)
 		}
-		items = append(items, ImageWindow{ID: "nasa-library", SourceID: "nasa-library", SourceName: "NASA Image and Video Library", Title: data.Title, PublishedAt: dateOnly(data.DateCreated), ImageURL: thumbnail, ThumbnailURL: thumbnail, MediaType: "image", Credit: credit, LicenseNote: "请以 NASA 条目中的版权与使用说明为准", SourceURL: "https://images.nasa.gov/details/" + url.PathEscape(data.NASAID), SelectionMode: "rotating", Summary: data.Description, Status: "ready"})
+		items = append(items, candidate{nasaID: data.NASAID, window: ImageWindow{ID: "nasa-library", SourceID: "nasa-library", SourceName: "NASA Image and Video Library", Title: data.Title, PublishedAt: dateOnly(data.DateCreated), ImageURL: thumbnail, ThumbnailURL: thumbnail, MediaType: "image", Credit: credit, LicenseNote: "版权与使用条件见原始链接", SourceURL: "https://images.nasa.gov/details/" + url.PathEscape(data.NASAID), SelectionMode: "rotating", Summary: data.Description, Status: "ready"}})
 	}
 	if len(items) == 0 {
 		return ImageWindow{}, errors.New("NASA image library returned no usable image")
 	}
-	return items[at.UTC().YearDay()%len(items)], nil
+	selected := items[at.UTC().YearDay()%len(items)]
+	selected.window.HDURL = selected.window.ImageURL
+	if originalURL, err := client.fetchOriginalAsset(ctx, selected.nasaID); err == nil {
+		selected.window.HDURL = originalURL
+	}
+	return selected.window, nil
+}
+
+func (client *NASAImageLibraryClient) fetchOriginalAsset(ctx context.Context, nasaID string) (string, error) {
+	endpoint, err := url.Parse(client.baseURL)
+	if err != nil {
+		return "", errors.New("prepare NASA image asset request")
+	}
+	endpoint.RawQuery = ""
+	endpoint.Path = path.Join(path.Dir(endpoint.Path), "asset", url.PathEscape(nasaID))
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return "", errors.New("create NASA image asset request")
+	}
+	response, err := client.httpClient.Do(request)
+	if err != nil {
+		return "", fmt.Errorf("request NASA image asset: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("NASA image asset returned %d", response.StatusCode)
+	}
+	var payload struct {
+		Collection struct {
+			Items []struct {
+				Href string `json:"href"`
+			} `json:"items"`
+		} `json:"collection"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return "", errors.New("decode NASA image asset response")
+	}
+	for _, item := range payload.Collection.Items {
+		href := strings.Replace(item.Href, "http://images-assets.nasa.gov/", "https://images-assets.nasa.gov/", 1)
+		if strings.Contains(strings.ToLower(href), "~orig.") && imageAssetURL(href) {
+			return href, nil
+		}
+	}
+	return "", errors.New("NASA image asset response has no original image")
+}
+
+func imageAssetURL(value string) bool {
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return false
+	}
+	switch strings.ToLower(path.Ext(parsed.Path)) {
+	case ".jpg", ".jpeg", ".png", ".webp", ".gif", ".tif", ".tiff":
+		return true
+	default:
+		return false
+	}
 }
 
 func dateOnly(raw string) string {

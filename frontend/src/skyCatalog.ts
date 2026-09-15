@@ -92,9 +92,32 @@ function galacticPlanePoint(longitudeDegrees: number) {
   const z = galacticToICRS[2][0] * galacticX + galacticToICRS[2][1] * galacticY
   const rightAscensionDegrees = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360
   return {
+    galacticLongitude: longitudeDegrees,
     raHours: rightAscensionDegrees / 15,
     decDegrees: Math.asin(Math.max(-1, Math.min(1, z))) * 180 / Math.PI,
   }
 }
 
-export const milkyWayCenterline = Array.from({ length: 181 }, (_, index) => galacticPlanePoint(index * 2))
+// 星图呈现的是摄影中容易辨认的银河主体，而不是等亮度的完整银道大圆。
+// 将银心经度展开到 -180°…180° 后，用人马座核心、盾牌座星云与天鹅座方向的
+// 视觉强度锚点控制宽度和透明度；远离这一区域的银道面不再绘制。
+const milkyWayVisualProfile: Array<[number, number]> = [
+  [-36, 0], [-28, .18], [-14, .68], [0, 1], [18, .9], [42, .72], [68, .52], [90, .24], [102, 0],
+]
+
+function milkyWayVisualStrength(longitudeDegrees: number) {
+  const longitude = longitudeDegrees > 180 ? longitudeDegrees - 360 : longitudeDegrees
+  for (let index = 1; index < milkyWayVisualProfile.length; index++) {
+    const [previousLongitude, previousStrength] = milkyWayVisualProfile[index - 1]
+    const [nextLongitude, nextStrength] = milkyWayVisualProfile[index]
+    if (longitude > nextLongitude) continue
+    const progress = (longitude - previousLongitude) / (nextLongitude - previousLongitude)
+    return previousStrength + (nextStrength - previousStrength) * Math.max(0, Math.min(1, progress))
+  }
+  return 0
+}
+
+export const milkyWayCenterline = Array.from({ length: 181 }, (_, index) => {
+  const point = galacticPlanePoint(index * 2)
+  return { ...point, visualStrength: milkyWayVisualStrength(point.galacticLongitude) }
+})

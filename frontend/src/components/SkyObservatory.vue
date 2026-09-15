@@ -232,28 +232,44 @@ const constellationGeometry = computed(() => constellationLines.map((constellati
 }).filter((item) => item.paths.length))
 const milkyWayGeometry = computed(() => {
   const coords = activeCoordinates.value
-  if (!coords) return { paths: [] as string[], label: null as { x: number; y: number } | null }
-  const runs: Array<Array<{ x: number; y: number }>> = []
-  let run: Array<{ x: number; y: number }> = []
-  const flush = () => {
-    if (run.length > 1) runs.push(run)
-    run = []
-  }
+  if (!coords) return { segments: [] as Array<{ path: string; strength: number; width: number; rift: number }>, label: null as { x: number; y: number } | null }
+  const segments: Array<{ path: string; strength: number; width: number; rift: number }> = []
+  const labelCandidates: Array<{ x: number; y: number; strength: number }> = []
+  let previous: { x: number; y: number; strength: number } | null = null
   for (const point of milkyWayCenterline) {
+    if (point.visualStrength <= 0) {
+      previous = null
+      continue
+    }
     const position = calculateFixedObjectPosition(point.raHours % 24, point.decDegrees, simulatedTime.value, coords.latitude, coords.longitude, elevation.value)
     const projection = projectHorizontalDirection(position.azimuth, position.altitude, skyCamera.value)
-    if (!position.visible || !projection.inViewport || (run.at(-1) && Math.abs(projection.x - run.at(-1)!.x) > .3)) {
-      flush()
+    if (!position.visible || !projection.inViewport || (previous && Math.abs(projection.x - previous.x) > .3)) {
+      previous = null
       if (!position.visible || !projection.inViewport) continue
     }
-    run.push(projection)
+    // 靠近地平线时，即使几何上已升起，摄影中的银河也会被大气消光迅速淹没。
+    const altitudeVisibility = Math.max(0, Math.min(1, (position.altitude - 3) / 17))
+    const strength = point.visualStrength * altitudeVisibility
+    const current = { ...projection, strength }
+    if (strength > .025) {
+      labelCandidates.push(current)
+      if (previous) {
+        const segmentStrength = (previous.strength + strength) / 2
+        segments.push({
+          path: `M ${(previous.x * 1000).toFixed(2)} ${(previous.y * 1000).toFixed(2)} L ${(current.x * 1000).toFixed(2)} ${(current.y * 1000).toFixed(2)}`,
+          strength: segmentStrength,
+          width: 24 + segmentStrength * 54,
+          rift: Math.max(0, (segmentStrength - .4) * 1.15),
+        })
+      }
+      previous = current
+    } else {
+      previous = null
+    }
   }
-  flush()
-  const paths = runs.map((points) => `M ${points.map((point) => `${(point.x * 1000).toFixed(2)} ${(point.y * 1000).toFixed(2)}`).join(' L ')}`)
-  const labelRun = runs.reduce<Array<{ x: number; y: number }> | null>((longest, points) => !longest || points.length > longest.length ? points : longest, null)
-  const label = labelRun?.filter((point) => point.x >= .12 && point.x <= .88 && point.y >= .1 && point.y <= .76)
-    .reduce<{ x: number; y: number } | null>((nearest, point) => !nearest || Math.abs(point.x - .5) < Math.abs(nearest.x - .5) ? point : nearest, null) ?? null
-  return { paths, label }
+  const label = labelCandidates.filter((point) => point.x >= .12 && point.x <= .88 && point.y >= .1 && point.y <= .76)
+    .reduce<{ x: number; y: number; strength: number } | null>((strongest, point) => !strongest || point.strength > strongest.strength ? point : strongest, null)
+  return { segments, label }
 })
 const altitudeGuides = computed(() => [30, 60].map((altitude) => projectAltitudeGuide(altitude, skyCamera.value, .75)))
 const horizonFieldStyle = computed(() => ({
@@ -1579,7 +1595,11 @@ onBeforeUnmount(() => {
             <div class="sky-night" aria-hidden="true" />
             <div class="star-grain" aria-hidden="true" />
             <svg class="altitude-guides" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true">
-              <g class="milky-way-band"><path v-for="(path, index) in milkyWayGeometry.paths" :key="`milky-haze-${index}`" class="milky-way-haze" :d="path" vector-effect="non-scaling-stroke" /><path v-for="(path, index) in milkyWayGeometry.paths" :key="`milky-core-${index}`" class="milky-way-core" :d="path" vector-effect="non-scaling-stroke" /></g>
+              <g class="milky-way-band">
+                <path v-for="(segment, index) in milkyWayGeometry.segments" :key="`milky-haze-${index}`" class="milky-way-haze" :d="segment.path" :style="{ strokeWidth: `${segment.width}px`, opacity: segment.strength * (1 - daylight) }" vector-effect="non-scaling-stroke" />
+                <path v-for="(segment, index) in milkyWayGeometry.segments" :key="`milky-core-${index}`" class="milky-way-core" :d="segment.path" :style="{ strokeWidth: `${segment.width * .34}px`, opacity: segment.strength * (1 - daylight) }" vector-effect="non-scaling-stroke" />
+                <path v-for="(segment, index) in milkyWayGeometry.segments" :key="`milky-rift-${index}`" class="milky-way-rift" :d="segment.path" :style="{ strokeWidth: `${segment.width * .09}px`, opacity: segment.rift * (1 - daylight) }" vector-effect="non-scaling-stroke" />
+              </g>
               <g v-for="constellation in constellationGeometry" :key="constellation.name" class="constellation-lines"><path v-for="(path, index) in constellation.paths" :key="`${constellation.name}-${index}`" :d="path" vector-effect="non-scaling-stroke" /></g>
               <path v-for="guide in altitudeGuides" :key="guide.altitude" class="altitude-guide" :d="guide.path" vector-effect="non-scaling-stroke" />
               <g v-if="selectedSkyTrajectory" class="sky-trajectory" :style="{ '--trajectory-tint': selectedSkyTrajectory.tint }">
@@ -1692,8 +1712,9 @@ onBeforeUnmount(() => {
                   <time v-if="window.status === 'ready'">{{ formatImageWindowDate(window.publishedAt) }}</time>
                   <h3>{{ window.title }}</h3>
                   <p v-if="window.summary">{{ window.summary }}</p>
-                  <dl v-if="window.status === 'ready'"><div><dt>完整署名</dt><dd>{{ window.credit }}</dd></div><div v-if="window.licenseNote"><dt>使用说明</dt><dd>{{ window.licenseNote }}</dd></div></dl>
-                  <div class="daily-image-links"><a :href="window.sourceUrl" target="_blank" rel="noreferrer">打开原始内容</a><a v-if="window.hdUrl" :href="window.hdUrl" target="_blank" rel="noreferrer">高清原图</a></div>
+                  <dl v-if="window.status === 'ready'"><div><dt>完整署名</dt><dd>{{ window.credit }}</dd></div></dl>
+                  <p v-if="window.status === 'ready' && window.licenseNote" class="image-license-note">{{ window.licenseNote }}</p>
+                  <div class="daily-image-links"><a :href="window.sourceUrl" target="_blank" rel="noreferrer">原始链接</a><a v-if="window.hdUrl" :href="window.hdUrl" target="_blank" rel="noreferrer">高清原图</a></div>
                 </div>
               </article>
             </div>
@@ -1713,8 +1734,9 @@ onBeforeUnmount(() => {
               <time v-if="window.status === 'ready'">{{ formatImageWindowDate(window.publishedAt) }}</time>
               <h3>{{ window.title }}</h3>
               <p v-if="window.summary">{{ window.summary }}</p>
-              <dl v-if="window.status === 'ready'"><div><dt>完整署名</dt><dd>{{ window.credit }}</dd></div><div v-if="window.licenseNote"><dt>使用说明</dt><dd>{{ window.licenseNote }}</dd></div></dl>
-              <div class="daily-image-links"><a :href="window.sourceUrl" target="_blank" rel="noreferrer">打开原始内容</a><a v-if="window.hdUrl" :href="window.hdUrl" target="_blank" rel="noreferrer">高清原图</a></div>
+              <dl v-if="window.status === 'ready'"><div><dt>完整署名</dt><dd>{{ window.credit }}</dd></div></dl>
+              <p v-if="window.status === 'ready' && window.licenseNote" class="image-license-note">{{ window.licenseNote }}</p>
+              <div class="daily-image-links"><a :href="window.sourceUrl" target="_blank" rel="noreferrer">原始链接</a><a v-if="window.hdUrl" :href="window.hdUrl" target="_blank" rel="noreferrer">高清原图</a></div>
             </div>
               </article>
             </div>
@@ -1929,9 +1951,10 @@ onBeforeUnmount(() => {
 .altitude-guides { position:absolute; z-index:1; inset:0; width:100%; height:100%; overflow:hidden; pointer-events:none; }
 .altitude-guide,.sky-trajectory path { fill:none; stroke-linecap:round; stroke-linejoin:round; }
 .altitude-guide { stroke:color-mix(in srgb,rgba(10,20,36,.72) calc(var(--sky-daylight,0) * 100%),rgba(165,188,222,.3)); stroke-width:1; stroke-dasharray:3 4; }
-.milky-way-band path { fill:none; stroke-linecap:round; stroke-linejoin:round; opacity:calc(1 - var(--sky-daylight,0)); }
-.milky-way-haze { stroke:rgba(207,220,238,.055); stroke-width:54; filter:blur(14px); }
-.milky-way-core { stroke:rgba(221,231,244,.075); stroke-width:18; filter:blur(4px); }
+.milky-way-band path { fill:none; stroke-linecap:round; stroke-linejoin:round; pointer-events:none; }
+.milky-way-haze { stroke:rgba(213,220,229,.1); filter:blur(16px); }
+.milky-way-core { stroke:rgba(233,230,218,.115); filter:blur(5px); }
+.milky-way-rift { stroke:rgba(6,17,30,.24); filter:blur(2px); }
 .milky-way-name { position:absolute; z-index:2; padding:2px 5px; color:rgba(199,214,234,.62); font:8px var(--font-mono,monospace); letter-spacing:.12em; background:rgba(7,17,30,.46); border-radius:2px; transform:translate(-50%,-50%); pointer-events:none; }
 .constellation-lines path { fill:none; stroke:rgba(157,184,232,.3); stroke-width:1; stroke-linecap:round; }
 .constellation-name { position:absolute; z-index:2; padding:2px 5px; color:rgba(199,214,234,.58); font:8px var(--font-mono,monospace); letter-spacing:.12em; background:rgba(7,17,30,.45); transform:translate(-50%,-50%); pointer-events:none; }
@@ -2142,13 +2165,14 @@ onBeforeUnmount(() => {
 .image-window-copy dl { display:grid; gap:12px; margin:0; padding:14px 0; border-top:1px solid var(--sky-line); }
 .image-window-copy dt { color:var(--sky-muted); font-size:9px; }
 .image-window-copy dd { margin:4px 0 0; font-size:10px; line-height:1.55; }
+.image-window-copy > .image-license-note { display:block; overflow:visible; margin:8px 0 0; color:rgba(135,155,168,.62); font-size:8px; line-height:1.55; -webkit-line-clamp:unset; }
 .image-window-missing { display:grid; min-height:220px; align-content:center; gap:10px; padding:24px; color:var(--sky-muted); background:rgba(7,12,19,.68); border:1px solid var(--sky-line); }
 .image-window-missing > span { color:var(--sky-amber); font-size:24px; line-height:1; }
 .image-window-missing strong { color:var(--sky-ink); font-size:15px; font-weight:500; }
 .image-window-missing p { margin:0; font-size:11px; line-height:1.65; }
 .image-window-missing button { justify-self:start; padding:0; color:var(--sky-cyan); font:11px inherit; background:transparent; border:0; cursor:pointer; }
 .image-window-missing button:hover,.image-window-missing button:focus-visible { color:var(--sky-ink); outline:0; }
-.daily-image-links { display:flex; flex-wrap:wrap; gap:14px 18px; margin-top:21px; }
+.daily-image-links { display:flex; flex-wrap:wrap; gap:14px 18px; margin-top:17px; }
 .daily-image-links a { color:var(--sky-cyan); font-size:10px; text-decoration:none; }
 .daily-image-links a:hover,.daily-image-links a:focus-visible { color:var(--sky-ink); outline:0; }
 .daily-image-state { display:grid; gap:7px; max-width:560px; padding:62px 0; border-bottom:1px solid var(--sky-line); }

@@ -59,14 +59,18 @@ func TestNASAImageLibraryClientUsesPublicSearchAndCachesResult(t *testing.T) {
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
-		if r.URL.Query().Get("media_type") != "image" || r.URL.Query().Get("q") == "" {
-			t.Fatalf("query = %s", r.URL.RawQuery)
+		if r.URL.Path == "/asset/ARC-001" {
+			_, _ = w.Write([]byte(`{"collection":{"items":[{"href":"http://images-assets.nasa.gov/image/ARC-001/ARC-001~orig.tif"},{"href":"http://images-assets.nasa.gov/image/ARC-001/ARC-001~thumb.jpg"}]}}`))
+			return
+		}
+		if r.URL.Path != "/search" || r.URL.Query().Get("media_type") != "image" || r.URL.Query().Get("q") == "" {
+			t.Fatalf("path=%s query=%s", r.URL.Path, r.URL.RawQuery)
 		}
 		_, _ = w.Write([]byte(`{"collection":{"items":[{"data":[{"nasa_id":"ARC-001","title":"A NASA archive image","description":"An archive description","date_created":"2025-01-02T00:00:00Z","center":"JPL"}],"links":[{"href":"https://example.test/thumb.jpg"}]}]}}`))
 	}))
 	defer server.Close()
 	client := NewNASAImageLibraryClient()
-	client.baseURL = server.URL
+	client.baseURL = server.URL + "/search"
 	client.httpClient = server.Client()
 	at := time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC)
 	first, err := client.Pick(context.Background(), at)
@@ -77,8 +81,20 @@ func TestNASAImageLibraryClientUsesPublicSearchAndCachesResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if calls != 1 || first.SourceURL != "https://images.nasa.gov/details/ARC-001" || second.Title != first.Title {
+	if calls != 2 || first.SourceURL != "https://images.nasa.gov/details/ARC-001" || first.HDURL != "https://images-assets.nasa.gov/image/ARC-001/ARC-001~orig.tif" || second.Title != first.Title {
 		t.Fatalf("calls=%d first=%#v second=%#v", calls, first, second)
+	}
+}
+
+func TestEveryReadyImageWindowHasHighResolutionLink(t *testing.T) {
+	apod := imageWindow(Image{Date: "2026-08-12", Title: "APOD", MediaType: "image", URL: "https://example.test/apod.jpg", SourceName: "NASA APOD", SourceURL: "https://example.test/apod"})
+	if apod.HDURL != apod.ImageURL {
+		t.Fatalf("APOD HD URL = %q, want image fallback %q", apod.HDURL, apod.ImageURL)
+	}
+	for _, window := range CuratedWindows() {
+		if window.HDURL == "" || window.HDURL == window.ImageURL {
+			t.Fatalf("curated HD link is missing: %#v", window)
+		}
 	}
 }
 

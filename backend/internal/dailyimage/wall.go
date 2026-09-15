@@ -155,8 +155,8 @@ func imageWindow(image Image) ImageWindow {
 	return ImageWindow{
 		ID: "apod-" + image.Date, SourceID: "apod", SourceName: image.SourceName, Title: image.Title,
 		PublishedAt: image.Date, ImageURL: image.URL, ThumbnailURL: thumbnail, MediaType: image.MediaType,
-		Credit: credit, LicenseNote: "版权以 NASA APOD 当期字段为准", SourceURL: image.SourceURL,
-		HDURL: image.HDURL, SelectionMode: "daily", Summary: image.Explanation, Status: "ready",
+		Credit: credit, LicenseNote: "版权信息见原始链接", SourceURL: image.SourceURL,
+		HDURL: firstNonEmpty(image.HDURL, image.URL), SelectionMode: "daily", Summary: image.Explanation, Status: "ready",
 	}
 }
 
@@ -189,5 +189,14 @@ func unavailableWindow(id, sourceID, sourceName, sourceURL, message string) Imag
 }
 
 func sourceWindow(id string, sourceID string, sourceName string, title string, publishedAt string, imageURL string, credit string, licenseNote string, sourceURL string, summary string) ImageWindow {
-	return ImageWindow{ID: id, SourceID: sourceID, SourceName: sourceName, Title: title, PublishedAt: publishedAt, ImageURL: imageURL, ThumbnailURL: imageURL, MediaType: "image", Credit: credit, LicenseNote: licenseNote, SourceURL: sourceURL, SelectionMode: "curated", Summary: summary, Status: "ready"}
+	return ImageWindow{ID: id, SourceID: sourceID, SourceName: sourceName, Title: title, PublishedAt: publishedAt, ImageURL: imageURL, ThumbnailURL: imageURL, MediaType: "image", Credit: credit, LicenseNote: licenseNote, SourceURL: sourceURL, HDURL: strings.Replace(imageURL, "/screen/", "/large/", 1), SelectionMode: "curated", Summary: summary, Status: "ready"}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
