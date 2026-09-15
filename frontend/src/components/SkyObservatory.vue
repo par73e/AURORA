@@ -1181,7 +1181,7 @@ async function submitLocationSearch() {
   } catch {
     if (!controller.signal.aborted) {
       locationSearchStatus.value = 'error'
-      locationFormError.value = '地点搜索暂不可用，你仍可直接输入经纬度。'
+      locationFormError.value = '地点搜索暂不可用，请输入经纬度。'
     }
   } finally {
     if (locationSearchController === controller) locationSearchController = undefined
@@ -1376,7 +1376,7 @@ onBeforeUnmount(() => {
               <li v-for="place in locationSearchResults" :key="`${place.adcode}-${place.latitude}-${place.longitude}`"><button type="button" @click="selectLocationCandidate(place)"><strong>{{ place.label }}</strong><small>{{ place.latitude.toFixed(4) }}, {{ place.longitude.toFixed(4) }} · WGS84</small></button></li>
             </ul>
             <form @submit.prevent="submitManualCoordinates">
-              <label>或直接输入 WGS84 经纬度</label>
+              <label>请输入经纬度</label>
               <div class="coordinate-inputs"><input v-model="manualLatitude" inputmode="decimal" aria-label="纬度" placeholder="纬度" /><input v-model="manualLongitude" inputmode="decimal" aria-label="经度" placeholder="经度" /><button type="submit">使用</button></div>
             </form>
             <p v-if="locationFormError" class="location-form-error" role="alert">{{ locationFormError }}</p>
