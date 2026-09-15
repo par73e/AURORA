@@ -215,6 +215,7 @@ export class SolarSystemScene {
   /** 点击选中的探测器（其轨道保持点亮；点击空白/关闭面板时清除） */
   private probeSelectedId: string | null = null
   private probeMeshes: THREE.Mesh[] = []
+  private probesVisible = true
   /** 探测器轨迹线材质（悬停该探测器时轨迹变亮） */
   private trajectoryMaterials = new Map<string, THREE.LineBasicMaterial>()
   /** 每颗行星当前展示的轨道角度（弧度，黄道面 XZ 平面，0 = +x） */
@@ -971,6 +972,7 @@ export class SolarSystemScene {
       )
       marker.userData = { id: data.id }
       marker.position.copy(points[0])
+      marker.visible = this.probesVisible
       this.scene.add(marker)
       this.probeMeshes.push(marker)
 
@@ -991,6 +993,7 @@ export class SolarSystemScene {
           new THREE.BufferGeometry().setFromPoints(orbitPoints.map((q) => new THREE.Vector3(q.x, q.y, q.z))),
           material,
         )
+        trajectory.visible = this.probesVisible
         this.scene.add(trajectory)
         this.trajectoryMaterials.set(data.id, material)
       }
@@ -1012,6 +1015,16 @@ export class SolarSystemScene {
     this.updateLabels()
   }
 
+  setProbesVisible(visible: boolean) {
+    this.probesVisible = visible
+    for (const runtime of this.probeRuntimes.values()) {
+      runtime.marker.visible = visible
+      if (runtime.trajectory) runtime.trajectory.visible = visible
+    }
+    if (!visible) this.probeSelectedId = null
+    this.updateLabels()
+  }
+
   /** 深空探测器位置更新：椭圆轨道任务按开普勒方程在拟合椭圆上传播（标记严格落在椭圆上）；
    *  其余任务按墙钟在真实采样点间线性插值 */
   private updateProbes() {
@@ -1026,6 +1039,7 @@ export class SolarSystemScene {
         runtime.currentAU = rAU
         runtime.currentEpochMs = now
         runtime.marker.position.copy(runtime.current)
+        runtime.marker.visible = this.probesVisible
         runtime.marker.scale.setScalar(missionMarkerScale(runtime.current.distanceTo(this.camera.position), PROBE_MARKER_REF_DISTANCE, this.probeSelectedId === runtime.data.id))
         continue
       }
@@ -1058,6 +1072,7 @@ export class SolarSystemScene {
         if (r > 0 && r < JWST_MIN_SCENE_RADIUS) runtime.current.multiplyScalar(JWST_MIN_SCENE_RADIUS / r)
       }
       runtime.marker.position.copy(runtime.current)
+      runtime.marker.visible = this.probesVisible
       // 标记部分透视补偿（同地球/月球标记）：scale=(d/基准)^0.6，远小近大但不过度，
       // 与行星比例保持一致——远处是点、贴脸放大也不胀成巨球
       runtime.marker.scale.setScalar(missionMarkerScale(runtime.current.distanceTo(this.camera.position), PROBE_MARKER_REF_DISTANCE, this.probeSelectedId === runtime.data.id))
@@ -1130,7 +1145,7 @@ export class SolarSystemScene {
       labels.push(this.projectLabel('planet', 'moon', world, MOON.radius, width, height, halfFovTan))
     }
 
-    for (const runtime of this.probeRuntimes.values()) {
+    if (this.probesVisible) for (const runtime of this.probeRuntimes.values()) {
       // 标签偏移按其实际屏幕半径（标记为部分透视补偿，world 半径随相机距离缩放）
       const d = runtime.current.distanceTo(this.camera.position)
       const scaledRadius = PROBE_MARKER_RADIUS * Math.pow(d / PROBE_MARKER_REF_DISTANCE, 0.6)

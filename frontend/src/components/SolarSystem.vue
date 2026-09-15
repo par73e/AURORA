@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { SolarSystemScene, type SolarLabel } from '../solar/scene'
 import { solarSession } from '../solar/session'
 import { MOON, planets, SUN, type PlanetSpec } from '../solar/data'
@@ -65,6 +65,7 @@ let unmounted = false
 let probesRequest: AbortController | undefined
 /** 深空探测器（JPL Horizons 日同步，/api/v1/voyage/probes） */
 const probes = ref<DeepSpaceProbe[]>([])
+const spacecraftEnabled = ref(solarSession.spacecraftVisible)
 /** 点击选中的探测器（信息面板） */
 const selectedProbe = ref<DeepSpaceProbe | null>(null)
 /** 选中探测器当前距日（AU，打开面板时读取一次） */
@@ -114,7 +115,7 @@ const activeNameEn = computed(() => {
 })
 
 const planetLabels = computed(() => labels.value.filter((l) => l.kind === 'planet'))
-const probeLabels = computed(() => labels.value.filter((l) => l.kind === 'probe'))
+const probeLabels = computed(() => spacecraftEnabled.value ? labels.value.filter((l) => l.kind === 'probe') : [])
 const sunLabel = computed(() => labels.value.find((l) => l.kind === 'sun') ?? null)
 const beltLabels = computed(() => labels.value.filter((l) => l.kind === 'belt'))
 const earthLabel = computed(() => labels.value.find((l) => l.kind === 'planet' && l.id === 'earth') ?? null)
@@ -302,6 +303,7 @@ onMounted(() => {
       labels.value = next
     },
   )
+  scene.setProbesVisible(spacecraftEnabled.value)
   // 会话记忆：上次是"真实公转位置"模式则直接恢复（无动画）；刷新/首次访问为默认排布
   if (!alignedPositions.value) scene.setRealPositions()
   if (props.enterFromSun) {
@@ -423,6 +425,12 @@ function resetView() {
   scene?.resetView()
 }
 
+watch(spacecraftEnabled, (enabled) => {
+  solarSession.spacecraftVisible = enabled
+  scene?.setProbesVisible(enabled)
+  if (!enabled) closeProbePanel()
+})
+
 defineExpose({ resetView })
 </script>
 
@@ -523,6 +531,7 @@ defineExpose({ resetView })
       <i :class="{ real: !alignedPositions }" aria-hidden="true" />
       显示行星当前位置
     </button>
+    <button class="spacecraft-toggle" :class="{ off: !spacecraftEnabled }" type="button" :aria-pressed="spacecraftEnabled" @click="spacecraftEnabled = !spacecraftEnabled"><i aria-hidden="true" />{{ spacecraftEnabled ? '隐藏飞行器' : '显示飞行器' }}</button>
 
     <div class="solar-credits" aria-hidden="true">
       <span>Solar System Scope · CC BY 4.0</span>
@@ -710,6 +719,7 @@ defineExpose({ resetView })
 .probe-panel-note { margin: 0; color: rgba(100, 128, 144, .6); font: 400 8px var(--font-mono); letter-spacing: .04em; }
 
 .position-toggle,
+.spacecraft-toggle,
 .reset-view {
   position: absolute;
   z-index: 8;
@@ -732,7 +742,9 @@ defineExpose({ resetView })
 .reset-view {
   bottom: 118px; /* 位于"显示行星当前位置"上方 */
 }
+.spacecraft-toggle { bottom: 162px; }
 .position-toggle:hover,
+.spacecraft-toggle:hover,
 .reset-view:hover {
   border-color: rgba(114, 215, 255, .4);
   background: rgba(3, 9, 15, .92);
@@ -749,6 +761,9 @@ defineExpose({ resetView })
   background: var(--blue);
   box-shadow: 0 0 8px rgba(114, 215, 255, .6);
 }
+.spacecraft-toggle i { width: 7px; height: 7px; border-radius: 50%; background: var(--blue); box-shadow: 0 0 8px rgba(114, 215, 255, .55); }
+.spacecraft-toggle.off i { background: rgba(132, 157, 170, .62); box-shadow: none; }
+.spacecraft-toggle:focus-visible { outline: 1px solid rgba(114, 215, 255, .9); outline-offset: 3px; }
 
 .solar-credits {
   position: absolute;
@@ -777,6 +792,7 @@ defineExpose({ resetView })
   .solar-readout { left: 24px; }
   .solar-credits { right: 24px; }
 .position-toggle { right: 24px; }
+.spacecraft-toggle { right: 24px; }
 .reset-view { right: 24px; }
 }
 </style>

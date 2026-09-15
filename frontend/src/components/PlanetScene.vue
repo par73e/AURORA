@@ -191,6 +191,7 @@ import MissionDetailPanel from './MissionDetailPanel.vue'
 import MissionSceneLabel from './MissionSceneLabel.vue'
 import type { MissionDetail } from '../missionPresentation'
 import { ENDPOINT_SCENE_NOTE, missionMarkerScale, spacecraftFields, spacecraftFocusDistance, surfaceFocusDistance, surfaceMissionFields } from '../missionPresentation'
+import { solarSession } from '../solar/session'
 
 const props = defineProps<{ planet: PlanetPageConfig; revealTick?: number; enterFromSolar?: boolean; leaving?: boolean; headerExpanded?: boolean }>()
 const emit = defineEmits<{
@@ -213,7 +214,8 @@ function emitTexturesReady() {
 
 const canvasHost = ref<HTMLDivElement | null>(null)
 const terminatorEnabled = ref(false)
-const spacecraftEnabled = ref(true)
+const spacecraftEnabled = ref(solarSession.spacecraftVisible)
+watch(spacecraftEnabled, (enabled) => { solarSession.spacecraftVisible = enabled })
 const orbitsEnabled = ref(true)
 /** 着陆点/任务终点开关；大气坠毁仅在有官方发布或可靠复算坐标时绘制标记。 */
 const sitesEnabled = ref(true)

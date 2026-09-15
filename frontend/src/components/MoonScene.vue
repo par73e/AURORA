@@ -195,6 +195,7 @@ import MissionDetailPanel from './MissionDetailPanel.vue'
 import MissionSceneLabel from './MissionSceneLabel.vue'
 import type { MissionDetail } from '../missionPresentation'
 import { missionMarkerScale, spacecraftFields, spacecraftFocusDistance, surfaceMissionFields } from '../missionPresentation'
+import { solarSession } from '../solar/session'
 import type { PlanetProfile } from '../planetPages'
 
 const moonProfile: PlanetProfile = {
@@ -232,7 +233,8 @@ function emitTexturesReady() {
 
 const canvasHost = ref<HTMLDivElement | null>(null)
 const terminatorEnabled = ref(false)
-const spacecraftEnabled = ref(true)
+const spacecraftEnabled = ref(solarSession.spacecraftVisible)
+watch(spacecraftEnabled, (enabled) => { solarSession.spacecraftVisible = enabled })
 const orbitsEnabled = ref(true)
 const sitesEnabled = ref(true)
 const selectedCraft = ref<string | null>(null)
