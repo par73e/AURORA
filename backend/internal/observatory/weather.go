@@ -158,8 +158,8 @@ func (client *Client) weather(ctx context.Context, latitude, longitude float64) 
 	query.Set("latitude", strconv.FormatFloat(latitude, 'f', 6, 64))
 	query.Set("longitude", strconv.FormatFloat(longitude, 'f', 6, 64))
 	query.Set("timezone", "auto")
-	// 按观测点当地自然日读取今天与明天。前端只展示明天 00:00–23:00，
-	// 但必须同时请求今天，才能保留当前天气与今夜跨午夜的评分数据。
+	// 按观测点当地自然日读取今天与明天。前端从当地当前整点展示到明日 24:00，
+	// 同时保留当前天气、今夜跨午夜评分和完整的明日夜间评分数据。
 	query.Set("forecast_days", "2")
 	query.Set("current", "temperature_2m,dew_point_2m,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,precipitation,wind_speed_10m,wind_gusts_10m,weather_code")
 	query.Set("hourly", "temperature_2m,dew_point_2m,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,precipitation,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl,weather_code")

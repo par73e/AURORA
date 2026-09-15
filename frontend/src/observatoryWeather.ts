@@ -1,3 +1,13 @@
+import { zonedDateKey, zonedDateKeyAfterDays, zonedMinuteOfDay } from './astronomy.ts'
+
+/** 取用户所在地当前整点起，直到明日 24:00 前的逐小时预报。 */
+export function forecastHoursThroughTomorrow<T extends { time: string }>(hours: T[], at: Date, timezone: string) {
+  const currentHour = Math.floor(zonedMinuteOfDay(at, timezone) / 60)
+  const start = `${zonedDateKey(at, timezone)}T${String(currentHour).padStart(2, '0')}:00`
+  const end = `${zonedDateKeyAfterDays(at, timezone, 1)}T23:00`
+  return hours.filter((hour) => hour.time >= start && hour.time <= end)
+}
+
 /** Open-Meteo 使用的 WMO weather interpretation code（WMO 4677）中文展示。 */
 export function conditionDescription(code: number) {
   switch (code) {

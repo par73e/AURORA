@@ -9,7 +9,7 @@ FORM: desktop field observatory; four focused workspaces share one clock, one lo
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { fetchObserverPlace, searchObserverPlaces, fetchObservingConditions, fetchMoonDay, fetchLightPollution, fetchAstronomyEvents, fetchImageWall, type ObservingConditions, type MoonDay, type LightPollution, type AstronomyEvent, type AstronomyEventSourceStatus, type ImageWall, type ObserverPlaceCandidate } from '../api'
 import { analyzeNight, bearing, bodies, calculateFixedObjectPosition, calculatePosition, calculateTrack, calculateTwilight, dateFromZonedLocalTime, daylightFactor, moonPhase, observeTips, observingStatus, upcomingMoonPhases, zonedDateAtMinute, zonedDateKey, zonedDateKeyAfterDays, zonedMinuteOfDay, type BodyId, type BodyTrack, type NightAnalysis } from '../astronomy'
-import { conditionDescription, weatherGlyph } from '../observatoryWeather'
+import { conditionDescription, forecastHoursThroughTomorrow, weatherGlyph } from '../observatoryWeather'
 import { projectAltitudeGuide, projectHorizontalDirection, type SkyCamera } from '../skyProjection'
 import { easeOutExpo, normalizeAzimuth, shortestAzimuthDelta, skyTurnDuration } from '../skyMotion'
 import { constellationLines, milkyWayCenterline, skyCatalog, type SkyCatalogObject } from '../skyCatalog'
@@ -441,10 +441,12 @@ const recommendation = computed(() => {
     })
   return { window: bestHour, windowLabel, targets, weatherAvailable, weatherCoverage }
 })
-// 预报矩阵只展示明天当地时间 00:00–23:00，不再暴露滚动 48 小时窗口。
-const hourlyForecast = computed(() => (conditions.value?.hourly ?? [])
-  .filter((hour) => hour.time.slice(0, 10) === tomorrowDateKey.value)
-  .slice(0, 24))
+// 预报矩阵从用户所在地当前整点开始，保留今天剩余小时，并显示到明日 24:00。
+const hourlyForecast = computed(() => forecastHoursThroughTomorrow(
+  conditions.value?.hourly ?? [],
+  now.value,
+  observatoryTimezone.value,
+))
 const forecastDateGroups = computed(() => {
   const groups: Array<{ date: string; hours: number }> = []
   for (const hour of hourlyForecast.value) {
@@ -1467,8 +1469,8 @@ onBeforeUnmount(() => {
         </section>
 
         <section class="forecast-section">
-          <div class="forecast-heading"><p>明日天气预报</p><span>完整一天 · 00:00–23:00 · {{ conditions?.source ?? '等待天气源' }} · {{ conditions?.timezone ?? '—' }}</span></div>
-          <div v-if="hourlyForecast.length" class="forecast-matrix" role="table" aria-label="明日逐小时观测天气预报">
+          <div class="forecast-heading"><p>逐小时天气预报</p><span>当前整点–明日 24:00 · {{ hourlyForecast.length || '—' }} 小时 · {{ conditions?.source ?? '等待天气源' }} · {{ conditions?.timezone ?? '—' }}</span></div>
+          <div v-if="hourlyForecast.length" class="forecast-matrix" role="table" aria-label="当前整点至明日24点的逐小时观测天气预报">
             <div class="matrix-labels" aria-hidden="true">
               <span><strong>日期</strong><small>月 / 日</small></span>
               <span><strong>时间</strong><small>HH:mm</small></span>
@@ -1510,7 +1512,7 @@ onBeforeUnmount(() => {
               </div>
             </div></div>
           </div>
-          <div v-else class="integration-state"><span>01</span><div><h3>{{ conditionsStatus === 'error' ? '明日天气预报暂不可用' : '正在连接明日天气预报' }}</h3><p>明日逐小时预报将在天气数据加载后显示。</p></div></div>
+          <div v-else class="integration-state"><span>01</span><div><h3>{{ conditionsStatus === 'error' ? '天气预报暂不可用' : '正在连接天气预报' }}</h3><p>从当前整点到明日 24:00 的逐小时预报将在数据加载后显示。</p></div></div>
         </section>
       </section>
 
