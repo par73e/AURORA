@@ -6,7 +6,9 @@ test('星图目录的名称、坐标与星座连线引用完整', () => {
   const ids = new Set(skyCatalog.map(item => item.id))
   assert.ok(skyCatalog.filter(item => item.kind === 'star').length >= 30)
   assert.ok(skyCatalog.filter(item => item.kind === 'messier').length >= 15)
-  assert.ok(milkyWayCenterline.length >= 10)
+  assert.equal(milkyWayCenterline.length, 181)
+  assert.ok(Math.abs(milkyWayCenterline[0].raHours - 17.7603) < .01)
+  assert.ok(Math.abs(milkyWayCenterline[0].decDegrees + 28.9362) < .01)
   for (const item of skyCatalog) {
     assert.ok(item.name && item.nameEn && item.constellation)
     assert.ok(item.raHours >= 0 && item.raHours <= 24)
@@ -18,4 +20,6 @@ test('星图目录的名称、坐标与星座连线引用完整', () => {
       assert.ok(ids.has(to), `${constellation.name} 缺少连线端点 ${to}`)
     }
   }
+  const bigDipper = constellationLines.find(item => item.name === '北斗七星')
+  assert.equal(new Set(bigDipper?.segments.flat()).size, 7)
 })

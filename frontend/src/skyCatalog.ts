@@ -71,11 +71,30 @@ export const skyCatalog: SkyCatalogObject[] = [
 
 export const constellationLines = [
   { name: '猎户座', segments: [['betelgeuse','bellatrix'],['betelgeuse','alnitak'],['bellatrix','mintaka'],['alnitak','alnilam'],['alnilam','mintaka'],['alnitak','saiph'],['mintaka','rigel'],['saiph','rigel']] },
-  { name: '大熊座', segments: [['dubhe','merak'],['merak','phecda'],['phecda','megrez'],['megrez','dubhe'],['megrez','alioth'],['alioth','mizar'],['mizar','alkaid']] },
+  { name: '北斗七星', segments: [['dubhe','merak'],['merak','phecda'],['phecda','megrez'],['megrez','dubhe'],['megrez','alioth'],['alioth','mizar'],['mizar','alkaid']] },
   { name: '仙后座', segments: [['caph','schedar'],['schedar','gamma-cas'],['gamma-cas','ruchbah'],['ruchbah','segin']] },
 ].map((item) => ({ ...item, segments: item.segments as Array<[string,string]> }))
 
-// 银河中心带的粗略 J2000 中心线，只表达方向与跨度，不冒充精密全天巡天图。
-export const milkyWayCenterline = [
-  [0.8,62],[3.2,52],[5.8,20],[7.2,-10],[9.5,-45],[12.5,-62],[15.5,-48],[17.8,-30],[18.7,0],[20.3,35],[22.4,55],[24.8,62],
-].map(([raHours, decDegrees]) => ({ raHours, decDegrees }))
+// IAU 银道坐标系到 ICRS/J2000 的正交变换矩阵（此处取转置方向）。
+// 对银纬 b=0° 每 2° 采样一次，生成固定在天球上的连续银道面中心线。
+const galacticToICRS = [
+  [-0.0548755604, 0.4941094279, -0.8676661490],
+  [-0.8734370902, -0.4448296300, -0.1980763734],
+  [-0.4838350155, 0.7469822445, 0.4559837762],
+] as const
+
+function galacticPlanePoint(longitudeDegrees: number) {
+  const longitude = longitudeDegrees * Math.PI / 180
+  const galacticX = Math.cos(longitude)
+  const galacticY = Math.sin(longitude)
+  const x = galacticToICRS[0][0] * galacticX + galacticToICRS[0][1] * galacticY
+  const y = galacticToICRS[1][0] * galacticX + galacticToICRS[1][1] * galacticY
+  const z = galacticToICRS[2][0] * galacticX + galacticToICRS[2][1] * galacticY
+  const rightAscensionDegrees = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360
+  return {
+    raHours: rightAscensionDegrees / 15,
+    decDegrees: Math.asin(Math.max(-1, Math.min(1, z))) * 180 / Math.PI,
+  }
+}
+
+export const milkyWayCenterline = Array.from({ length: 181 }, (_, index) => galacticPlanePoint(index * 2))
