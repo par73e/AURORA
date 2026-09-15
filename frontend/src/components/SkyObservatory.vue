@@ -50,6 +50,8 @@ const latitude = ref<number | null>(null)
 const longitude = ref<number | null>(null)
 const locationStatus = ref<'idle' | 'locating' | 'resolving' | 'located' | 'partial' | 'denied' | 'unavailable'>('idle')
 const showLocationEditor = ref(false)
+const locationControl = ref<HTMLElement | null>(null)
+const locationTrigger = ref<HTMLButtonElement | null>(null)
 const locationQuery = ref('')
 const manualLatitude = ref('')
 const manualLongitude = ref('')
@@ -1095,6 +1097,7 @@ function requestLocation() {
       if (revision !== locationRevision) return
       latitude.value = coords.latitude
       longitude.value = coords.longitude
+      showLocationEditor.value = false
       void resolveLocationName(coords.latitude, coords.longitude, revision)
     },
     (error) => {
@@ -1113,6 +1116,24 @@ function requestLocation() {
 
 function toggleLocationEditor() {
   showLocationEditor.value = !showLocationEditor.value
+}
+
+function closeLocationEditor(returnFocus = false) {
+  if (!showLocationEditor.value) return
+  showLocationEditor.value = false
+  if (returnFocus) locationTrigger.value?.focus()
+}
+
+function onLocationOutsidePointerDown(event: PointerEvent) {
+  const target = event.target
+  if (target instanceof Node && !locationControl.value?.contains(target)) closeLocationEditor()
+}
+
+function onLocationEditorKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Escape' || !showLocationEditor.value) return
+  event.preventDefault()
+  event.stopPropagation()
+  closeLocationEditor(true)
 }
 
 function useCoordinates(nextLatitude: number, nextLongitude: number, label?: string) {
@@ -1297,6 +1318,8 @@ watch(moonCanvas, (canvas) => {
 
 onMounted(() => {
   window.addEventListener('popstate', onPopState)
+  document.addEventListener('pointerdown', onLocationOutsidePointerDown)
+  document.addEventListener('keydown', onLocationEditorKeydown)
   // 秒钟在独立的小组件内更新；星历只需按分钟检查一次。
   minuteClock = window.setInterval(() => {
     const real = new Date()
@@ -1320,6 +1343,8 @@ onBeforeUnmount(() => {
   imageWallController?.abort()
   if (homeExitTimer !== undefined) window.clearTimeout(homeExitTimer)
   window.removeEventListener('popstate', onPopState)
+  document.removeEventListener('pointerdown', onLocationOutsidePointerDown)
+  document.removeEventListener('keydown', onLocationEditorKeydown)
   if (minuteClock !== undefined) window.clearInterval(minuteClock)
   cancelPendingSkyView()
   cancelSkyViewTurn()
@@ -1334,26 +1359,30 @@ onBeforeUnmount(() => {
       <AuroraBrand class="sky-brand" subtitle="SKY OBSERVATORY" variant="sky" :leaving="skyLeaving" @click="beginHomeExit" />
       <div class="sidebar-divider" aria-hidden="true" />
 
-      <button class="sky-location" type="button" :aria-expanded="showLocationEditor" aria-controls="location-editor" @click="toggleLocationEditor">
-        <span class="location-mark" aria-hidden="true" />
-        <span aria-live="polite"><strong>{{ locationLabel }}</strong><small>{{ coordinateLabel }}</small></span>
-        <i>更改</i>
-      </button>
-      <section v-if="showLocationEditor" id="location-editor" class="location-editor" aria-label="设置观测地点">
-        <button class="location-gps" type="button" :disabled="locationStatus === 'locating' || locationStatus === 'resolving'" @click="requestLocation">{{ locationStatus === 'locating' || locationStatus === 'resolving' ? '正在定位…' : '使用设备定位' }}</button>
-        <form @submit.prevent="submitLocationSearch">
-          <label for="location-query">搜索乡镇、区县或城市</label>
-          <div><input id="location-query" v-model="locationQuery" autocomplete="address-level2" placeholder="例：上海市崇明区" /><button type="submit" :disabled="locationSearchStatus === 'loading'">搜索</button></div>
-        </form>
-        <ul v-if="locationSearchResults.length" class="location-results">
-          <li v-for="place in locationSearchResults" :key="`${place.adcode}-${place.latitude}-${place.longitude}`"><button type="button" @click="selectLocationCandidate(place)"><strong>{{ place.label }}</strong><small>{{ place.latitude.toFixed(4) }}, {{ place.longitude.toFixed(4) }} · WGS84</small></button></li>
-        </ul>
-        <form @submit.prevent="submitManualCoordinates">
-          <label>或直接输入 WGS84 经纬度</label>
-          <div class="coordinate-inputs"><input v-model="manualLatitude" inputmode="decimal" aria-label="纬度" placeholder="纬度" /><input v-model="manualLongitude" inputmode="decimal" aria-label="经度" placeholder="经度" /><button type="submit">使用</button></div>
-        </form>
-        <p v-if="locationFormError" class="location-form-error" role="alert">{{ locationFormError }}</p>
-      </section>
+      <div ref="locationControl" class="location-control">
+        <button ref="locationTrigger" class="sky-location" type="button" aria-haspopup="dialog" :aria-expanded="showLocationEditor" aria-controls="location-editor" @click="toggleLocationEditor">
+          <span class="location-mark" aria-hidden="true" />
+          <span aria-live="polite"><strong>{{ locationLabel }}</strong><small>{{ coordinateLabel }}</small></span>
+          <i>{{ showLocationEditor ? '收起' : '更改' }}</i>
+        </button>
+        <Transition name="location-panel">
+          <section v-if="showLocationEditor" id="location-editor" class="location-editor" role="dialog" aria-label="设置观测地点">
+            <button class="location-gps" type="button" :disabled="locationStatus === 'locating' || locationStatus === 'resolving'" @click="requestLocation">{{ locationStatus === 'locating' || locationStatus === 'resolving' ? '正在定位…' : '使用设备定位' }}</button>
+            <form @submit.prevent="submitLocationSearch">
+              <label for="location-query">搜索乡镇、区县或城市</label>
+              <div><input id="location-query" v-model="locationQuery" autocomplete="address-level2" placeholder="例：上海市崇明区" /><button type="submit" :disabled="locationSearchStatus === 'loading'">搜索</button></div>
+            </form>
+            <ul v-if="locationSearchResults.length" class="location-results">
+              <li v-for="place in locationSearchResults" :key="`${place.adcode}-${place.latitude}-${place.longitude}`"><button type="button" @click="selectLocationCandidate(place)"><strong>{{ place.label }}</strong><small>{{ place.latitude.toFixed(4) }}, {{ place.longitude.toFixed(4) }} · WGS84</small></button></li>
+            </ul>
+            <form @submit.prevent="submitManualCoordinates">
+              <label>或直接输入 WGS84 经纬度</label>
+              <div class="coordinate-inputs"><input v-model="manualLatitude" inputmode="decimal" aria-label="纬度" placeholder="纬度" /><input v-model="manualLongitude" inputmode="decimal" aria-label="经度" placeholder="经度" /><button type="submit">使用</button></div>
+            </form>
+            <p v-if="locationFormError" class="location-form-error" role="alert">{{ locationFormError }}</p>
+          </section>
+        </Transition>
+      </div>
 
       <nav class="sky-menu" aria-label="天文观测页面">
         <button v-for="item in menu" :key="item.id" type="button" :class="{ active: activePage === item.id }" @click="selectPage(item.id)">
@@ -1652,6 +1681,7 @@ onBeforeUnmount(() => {
 }
 .sky-sidebar { position:sticky; z-index:30; top:0; display:flex; flex-direction:column; min-height:100dvh; padding:30px 20px 18px; border-right:1px solid var(--sky-line); background:linear-gradient(180deg,var(--sky-panel) 0%,var(--sky-deep) 100%); }
 .sky-brand { margin-left:5px; color:var(--sky-ink); } /* 图标轨道环向左探出约 5px，右移品牌使图标最左端与下方分隔线左端对齐 */
+.location-control { width:100%; }
 .sky-location { display:grid; grid-template-columns:22px 1fr auto; gap:10px; align-items:center; width:100%; margin:0 0 28px; padding:0; color:inherit; text-align:left; background:none; border:0; cursor:pointer; }
 .sidebar-divider { margin:24px 0 16px; border-top:1px solid var(--sky-line); }
 .location-mark { width:14px; height:14px; border:1px solid var(--sky-amber); border-radius:50% 50% 50% 0; transform:rotate(-45deg); }
@@ -1660,24 +1690,28 @@ onBeforeUnmount(() => {
 .sky-location strong { font-size:11px; font-weight:600; }
 .sky-location small { margin-top:4px; color:var(--sky-muted); font:9px var(--font-mono,monospace); }
 .sky-location i { color:var(--sky-cyan); font:8px var(--font-mono,monospace); font-style:normal; letter-spacing:.08em; }
-.location-editor { position:absolute; z-index:20; top:110px; left:18px; width:310px; padding:16px; color:var(--sky-ink); background:rgba(13,24,40,.98); border:1px solid rgba(157,184,232,.34); border-radius:12px; box-shadow:0 18px 60px rgba(0,0,0,.38); }
-.location-editor form + form { margin-top:15px; padding-top:14px; border-top:1px solid var(--sky-line); }
-.location-editor label { display:block; margin-bottom:7px; color:var(--sky-muted); font-size:9px; }
-.location-editor form > div { display:flex; gap:6px; }
-.location-editor input { min-width:0; width:100%; padding:8px 9px; color:var(--sky-ink); background:var(--sky-deep); border:1px solid var(--sky-line); border-radius:5px; outline:0; }
-.location-editor input:focus { border-color:var(--sky-cyan); }
-.location-editor button { flex:none; padding:7px 10px; color:var(--sky-cyan); background:rgba(157,184,232,.05); border:1px solid var(--sky-line); border-radius:5px; cursor:pointer; }
-.location-editor button:hover:not(:disabled),.location-editor button:focus-visible { color:var(--sky-ink); border-color:var(--sky-cyan); outline:0; }
+.location-editor { position:absolute; z-index:20; top:146px; left:18px; width:286px; padding:13px; color:var(--sky-ink); background:var(--sky-sunken); border:1px solid rgba(157,184,232,.24); border-radius:7px; box-shadow:0 16px 38px rgba(2,8,18,.42); }
+.location-editor form + form { margin-top:12px; padding-top:11px; border-top:1px solid var(--sky-line); }
+.location-editor label { display:block; margin-bottom:6px; color:var(--sky-muted); font:8px/1.45 var(--font-mono,monospace); letter-spacing:.04em; }
+.location-editor form > div { display:flex; gap:5px; }
+.location-editor input { min-width:0; width:100%; padding:7px 8px; color:var(--sky-ink); background:var(--sky-deep); border:1px solid var(--sky-line); border-radius:4px; outline:0; font:10px/1.4 var(--font-sans,system-ui,sans-serif); }
+.location-editor input::placeholder { color:rgba(138,150,171,.72); }
+.location-editor input:focus-visible { border-color:var(--sky-cyan); box-shadow:0 0 0 1px rgba(157,184,232,.12); }
+.location-editor button { flex:none; padding:7px 9px; color:var(--sky-cyan); background:rgba(157,184,232,.035); border:1px solid var(--sky-line); border-radius:4px; cursor:pointer; font:9px/1.25 var(--font-sans,system-ui,sans-serif); }
+.location-editor button:hover:not(:disabled),.location-editor button:focus-visible { color:var(--sky-ink); background:rgba(157,184,232,.075); border-color:rgba(157,184,232,.58); outline:0; }
 .location-editor button:disabled { opacity:.5; cursor:wait; }
-.location-gps { width:100%; margin-bottom:15px; }
-.coordinate-inputs input { width:82px; }
-.location-results { max-height:190px; margin:8px 0 0; padding:0; overflow:auto; list-style:none; border:1px solid var(--sky-line); }
+.location-gps { width:100%; margin-bottom:12px; letter-spacing:.03em; }
+.coordinate-inputs input { width:76px; }
+.location-results { max-height:168px; margin:7px 0 0; padding:0; overflow:auto; list-style:none; border-block:1px solid var(--sky-line); }
 .location-results li + li { border-top:1px solid var(--sky-line); }
-.location-results button { display:flex; justify-content:space-between; gap:12px; width:100%; padding:9px; text-align:left; border:0; border-radius:0; }
+.location-results button { display:flex; justify-content:space-between; gap:10px; width:100%; padding:8px 2px; text-align:left; border:0; border-radius:0; }
 .location-results strong,.location-results small { display:block; }
-.location-results strong { font-size:10px; font-weight:500; }
-.location-results small { color:var(--sky-muted); font:8px var(--font-mono,monospace); }
-.location-form-error { margin:10px 0 0; color:#f28f84; font-size:9px; line-height:1.5; }
+.location-results strong { font-size:9px; font-weight:600; }
+.location-results small { color:var(--sky-muted); font:7px/1.4 var(--font-mono,monospace); white-space:nowrap; }
+.location-form-error { margin:8px 0 0; color:#f28f84; font-size:8px; line-height:1.5; }
+.location-panel-enter-active,.location-panel-leave-active { transition:opacity .14s ease,transform .14s ease; }
+.location-panel-enter-from,.location-panel-leave-to { opacity:0; transform:translateY(-4px); }
+@media (prefers-reduced-motion:reduce) { .location-panel-enter-active,.location-panel-leave-active { transition:none; } }
 .sky-menu { border-top:1px solid var(--sky-line); }
 .sky-menu button { position:relative; display:grid; grid-template-columns:25px 1fr auto; align-items:center; width:calc(100% + 40px); min-height:60px; margin-left:-20px; padding:0 20px 0 28px; color:var(--sky-muted); text-align:left; background:none; border:0; border-bottom:1px solid var(--sky-line); cursor:pointer; transition:background .2s,color .2s; }
 .sky-menu button::before { position:absolute; top:0; bottom:0; left:0; width:2px; background:var(--sky-amber); content:""; transform:scaleY(0); transform-origin:center; transition:transform .2s; }
