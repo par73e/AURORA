@@ -1850,8 +1850,8 @@ onBeforeUnmount(() => {
 
 /* ---------- 星图（天幕） ---------- */
 .sky-catalog-search { position:relative; z-index:8; display:grid; grid-template-columns:auto minmax(180px,320px); gap:10px; align-items:center; width:max-content; max-width:100%; margin:-4px 0 12px auto; }
-.sky-catalog-search label { color:var(--sky-muted); font-size:9px; }
-.sky-catalog-search input { width:100%; padding:8px 10px; color:var(--sky-ink); background:var(--sky-sunken); border:1px solid var(--sky-line); border-radius:6px; outline:0; }
+.sky-catalog-search label { color:var(--sky-muted); font-size:10px; font-weight:600; letter-spacing:.02em; }
+.sky-catalog-search input { width:100%; padding:8px 10px; color:var(--sky-ink); background:var(--sky-sunken); border:1px solid var(--sky-line); border-radius:6px; outline:0; font:10px/1.4 var(--font-sans,system-ui,sans-serif); }
 .sky-catalog-search input:focus { border-color:var(--sky-cyan); }
 .sky-catalog-search ul { position:absolute; z-index:12; top:calc(100% + 6px); right:0; width:320px; max-width:85vw; margin:0; padding:0; overflow:hidden; list-style:none; background:rgba(13,24,40,.98); border:1px solid rgba(157,184,232,.28); border-radius:8px; box-shadow:0 18px 42px rgba(0,0,0,.34); }
 .sky-catalog-search li + li { border-top:1px solid var(--sky-line); }
