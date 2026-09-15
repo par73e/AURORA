@@ -102,6 +102,35 @@ func TestRefineQuadraticHandlesBoundary(t *testing.T) {
 	}
 }
 
+func TestRefineQuadraticRejectsDegenerateSamples(t *testing.T) {
+	t0 := time.Date(2026, time.January, 2, 0, 0, 0, 0, time.UTC)
+	right := []EphemerisSample{{Epoch: t0.Add(-24 * time.Hour)}, {Epoch: t0}, {Epoch: t0.Add(24 * time.Hour)}}
+	tests := []struct {
+		name string
+		left []EphemerisSample
+	}{
+		{
+			name: "zero sampling interval",
+			left: []EphemerisSample{{Epoch: t0}, {Epoch: t0, XAU: 1}, {Epoch: t0.Add(24 * time.Hour), XAU: 2}},
+		},
+		{
+			name: "linear values have no quadratic extremum",
+			left: []EphemerisSample{{Epoch: t0.Add(-24 * time.Hour)}, {Epoch: t0, XAU: 1}, {Epoch: t0.Add(24 * time.Hour), XAU: 2}},
+		},
+		{
+			name: "extremum outside central half step",
+			left: []EphemerisSample{{Epoch: t0.Add(-24 * time.Hour), XAU: 0}, {Epoch: t0, XAU: 1}, {Epoch: t0.Add(24 * time.Hour), XAU: 3}},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, _, ok := refineQuadratic(test.left, right, 1, func(l, _ EphemerisSample) float64 { return l.XAU }); ok {
+				t.Fatal("refineQuadratic() ok=true, want false")
+			}
+		})
+	}
+}
+
 func TestPlanetaryEventsIncludeCoordinatesForLocalVisibility(t *testing.T) {
 	base := time.Date(2026, time.August, 12, 0, 0, 0, 0, time.UTC)
 	day := func(body string, degrees []float64) []EphemerisSample {

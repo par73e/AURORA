@@ -11,8 +11,6 @@ type Config struct {
 	Port                   string
 	DatabaseURL            string
 	AMapWebKey             string
-	LightPollutionKey      string
-	LightPollutionURL      string
 	LightPollutionDataPath string
 	NASAAPIKey             string
 }
@@ -36,8 +34,6 @@ func Load() Config {
 		Port:                   port,
 		DatabaseURL:            databaseURL,
 		AMapWebKey:             os.Getenv("AMAP_WEB_KEY"),
-		LightPollutionKey:      os.Getenv("LIGHT_POLLUTION_KEY"),
-		LightPollutionURL:      os.Getenv("LIGHT_POLLUTION_URL"),
 		LightPollutionDataPath: os.Getenv("LIGHT_POLLUTION_DATA_PATH"),
 		NASAAPIKey:             os.Getenv("NASA_API_KEY"),
 	}

@@ -122,3 +122,49 @@ func TestAstronomyEventsHandlerValidatesLocationTogether(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
 }
+
+func TestDeduplicateAstronomyEventsPrefersComputableRecordAndKeepsCuratedPresentation(t *testing.T) {
+	at := time.Date(2026, time.August, 15, 5, 59, 0, 0, time.UTC)
+	curatedPresentation := json.RawMessage(`{"advice":"等待日落后再观察"}`)
+	events := []astronomyevent.Event{
+		{ID: "venus-greatest-eastern-elongation-2026", Kind: "planetary_elongation", Title: "金星东大距", StartsAt: at, Origin: "curated", Presentation: curatedPresentation},
+		{ID: "planetary_elongation-20260814-venus", Kind: "planetary_elongation", Title: "金星东大距", StartsAt: at.Add(-25 * time.Hour), Origin: "computed", Geometry: json.RawMessage(`{"object":"venus","positions":{"venus":{"longitudeDegrees":120,"latitudeDegrees":0}}}`)},
+	}
+	got := deduplicateAstronomyEvents(events)
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1: %+v", len(got), got)
+	}
+	if got[0].Origin != "computed" || got[0].ID != "planetary_elongation-20260814-venus" {
+		t.Fatalf("canonical event = %+v, want computed event", got[0])
+	}
+	if string(got[0].Presentation) != string(curatedPresentation) {
+		t.Fatalf("presentation = %s, want curated copy %s", got[0].Presentation, curatedPresentation)
+	}
+}
+
+func TestDeduplicateAstronomyEventsKeepsLaterIndependentEvent(t *testing.T) {
+	at := time.Date(2026, time.August, 15, 0, 0, 0, 0, time.UTC)
+	events := []astronomyevent.Event{
+		{ID: "venus-elongation-august", Kind: "planetary_elongation", Title: "金星东大距", StartsAt: at, Origin: "computed", Geometry: json.RawMessage(`{"object":"venus"}`)},
+		{ID: "venus-elongation-december", Kind: "planetary_elongation", Title: "金星西大距", StartsAt: at.AddDate(0, 4, 0), Origin: "computed", Geometry: json.RawMessage(`{"object":"venus"}`)},
+	}
+	if got := deduplicateAstronomyEvents(events); len(got) != 2 {
+		t.Fatalf("len = %d, want two independent elongations", len(got))
+	}
+}
+
+func TestDeduplicateAstronomyEventsKeepsDifferentMeteorShowers(t *testing.T) {
+	at := time.Date(2026, time.August, 12, 16, 0, 0, 0, time.UTC)
+	events := []astronomyevent.Event{
+		{ID: "perseids-2026", Kind: "meteor_shower", Title: "英仙座流星雨极大", StartsAt: at, Origin: "curated"},
+		{ID: "imo-meteor_shower-per-20260812", Kind: "meteor_shower", Title: "英仙座流星雨极大", StartsAt: at, Origin: "external_forecast", Geometry: json.RawMessage(`{"slug":"perseids"}`)},
+		{ID: "aurigids-2026", Kind: "meteor_shower", Title: "御夫座流星雨极大", StartsAt: at, Origin: "curated"},
+	}
+	got := deduplicateAstronomyEvents(events)
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2: %+v", len(got), got)
+	}
+	if got[0].Origin != "external_forecast" {
+		t.Fatalf("perseids canonical origin = %s, want external_forecast", got[0].Origin)
+	}
+}

@@ -13,6 +13,7 @@ type EventInput struct {
 	ID       string
 	Kind     string
 	StartsAt time.Time
+	EndsAt   *time.Time
 	Geometry map[string]any // 行星事件的 object/objects、合的 separationDegrees 等
 }
 
@@ -71,31 +72,54 @@ func (s *VisibilitySolver) Solve(event EventInput, latitude, longitude float64, 
 	}
 }
 
-// solveMoonPhase 用月球中天高度判断满月/上下弦的本地可见性。
+// solveMoonPhase 在事件前后搜索实际落入当地夜晚的月球窗口。
+// 不能只取事件所在本地日期的中天：相位精确时刻可能在白天，而相邻夜晚仍可观测。
 func (s *VisibilitySolver) solveMoonPhase(event EventInput, latitude, longitude float64, loc *time.Location) EventVisibility {
 	if s.moons == nil {
 		return EventVisibility{Status: "not_calculated", Reason: "本地星历服务尚未配置。"}
 	}
-	day, err := s.moons.Day(latitude, longitude, 0, event.StartsAt, loc.String())
-	if err != nil || day.Transit == nil {
-		return EventVisibility{Status: "not_visible", Reason: "该本地日期内月球没有可用的中天窗口。"}
+	const step = 15 * time.Minute
+	start := event.StartsAt.UTC().Add(-18 * time.Hour)
+	end := event.StartsAt.UTC().Add(18 * time.Hour)
+	validTimes := make([]time.Time, 0, 72)
+	bestIndex := -1
+	bestAltitude := -math.MaxFloat64
+	bestSunAltitude := math.MaxFloat64
+	bestDistance := time.Duration(1<<63 - 1)
+	for at := start; !at.After(end); at = at.Add(step) {
+		moonAltitude := s.moons.Altitude(latitude, longitude, 0, at)
+		sunAltitude := EclipticToHorizontalAltitude("sun", latitude, longitude, at)
+		if moonAltitude <= 0 || sunAltitude > -6 {
+			continue
+		}
+		validTimes = append(validTimes, at)
+		distance := at.Sub(event.StartsAt.UTC())
+		if distance < 0 {
+			distance = -distance
+		}
+		if moonAltitude > bestAltitude+1e-9 || (math.Abs(moonAltitude-bestAltitude) <= 1e-9 && distance < bestDistance) {
+			bestIndex = len(validTimes) - 1
+			bestAltitude = moonAltitude
+			bestSunAltitude = sunAltitude
+			bestDistance = distance
+		}
 	}
-	bestAt := time.Unix(*day.Transit, 0).UTC()
-	altitude := s.moons.Altitude(latitude, longitude, 0, bestAt)
+	if bestIndex < 0 {
+		return EventVisibility{Status: "not_visible", Reason: "相位时刻前后 18 小时内没有月球位于地平线上方的当地夜间窗口。"}
+	}
+	bestAt := validTimes[bestIndex]
+	windowStart, windowEnd, _, _ := contiguousVisibilityWindow(validTimes, bestIndex, step)
 	var azimuth *float64
 	if provider, ok := s.moons.(MoonAzimuthProvider); ok {
 		value := provider.Azimuth(latitude, longitude, 0, bestAt)
 		azimuth = &value
 	}
 	bestAtText := bestAt.In(loc).Format(time.RFC3339)
-	windowStartText := bestAt.Add(-2 * time.Hour).In(loc).Format(time.RFC3339)
-	windowEndText := bestAt.Add(2 * time.Hour).In(loc).Format(time.RFC3339)
-	if altitude < 0 {
-		return EventVisibility{Status: "not_visible", Reason: "该本地日期内月球最高点仍在地平线以下。"}
-	}
-	status, reason := "observable", "月球在本地日期内有较好的中天高度。"
-	if altitude < 10 {
-		status, reason = "limited", "月球中天高度较低，地平线遮挡和大气消光可能影响观测。"
+	windowStartText := windowStart.In(loc).Format(time.RFC3339)
+	windowEndText := windowEnd.In(loc).Format(time.RFC3339)
+	status, reason := "observable", "事件前后最近的当地夜晚中，月球高度适合观测。"
+	if bestAltitude < 10 || bestSunAltitude > -12 {
+		status, reason = "limited", "可见窗口内月球高度较低或仍有暮光，观测条件有限。"
 	}
 	return EventVisibility{
 		Status:          status,
@@ -103,7 +127,7 @@ func (s *VisibilitySolver) solveMoonPhase(event EventInput, latitude, longitude 
 		WindowStart:     &windowStartText,
 		WindowEnd:       &windowEndText,
 		AzimuthDegrees:  azimuth,
-		AltitudeDegrees: &altitude,
+		AltitudeDegrees: &bestAltitude,
 		Reason:          reason,
 	}
 }
@@ -139,7 +163,8 @@ func (s *VisibilitySolver) solvePlanetary(event EventInput, latitude, longitude 
 	var bestAt time.Time
 	bestSunAlt := math.MaxFloat64
 	foundNight := false
-	var windowStart, windowEnd *time.Time
+	validTimes := make([]time.Time, 0, 48)
+	bestIndex := -1
 	for at := start; !at.After(end); at = at.Add(30 * time.Minute) {
 		sunAlt := EclipticToHorizontalAltitude("sun", latitude, longitude, at)
 		// 要求太阳在暮光结束后（民用暮光 -6°）
@@ -156,39 +181,34 @@ func (s *VisibilitySolver) solvePlanetary(event EventInput, latitude, longitude 
 				currentLowestObject = object
 			}
 		}
-		if currentMinimumAlt >= 0 {
-			if windowStart == nil {
-				value := at
-				windowStart = &value
-			}
-			value := at
-			windowEnd = &value
+		if currentMinimumAlt < 0 {
+			continue
 		}
+		validTimes = append(validTimes, at)
 		if currentMinimumAlt > bestAlt {
 			bestAlt = currentMinimumAlt
 			bestObject = currentLowestObject
 			bestAt = at
 			bestSunAlt = sunAlt
+			bestIndex = len(validTimes) - 1
 		}
 	}
 
 	if !foundNight {
 		return EventVisibility{Status: "not_visible", Reason: "事件发生时本地为白昼或极昼，目标不可见。"}
 	}
-	if windowStart == nil {
+	if bestIndex < 0 {
 		return EventVisibility{Status: "not_visible", Reason: "事件发生时至少有一个目标在当地地平线以下。"}
 	}
 
+	windowStart, windowEnd, _, _ := contiguousVisibilityWindow(validTimes, bestIndex, 30*time.Minute)
 	azimuth := eventObjectAzimuth(s, event.Geometry, bestObject, latitude, longitude, bestAt)
 	bestAtText := bestAt.In(loc).Format(time.RFC3339)
 	windowStartText, windowEndText := windowStart.In(loc).Format(time.RFC3339), windowEnd.In(loc).Format(time.RFC3339)
 	altPtr := &bestAlt
 	azPtr := &azimuth
 
-	if bestAlt < 0 {
-		return EventVisibility{Status: "not_visible", Reason: "事件发生时目标在本当地地平线以下。"}
-	}
-	if bestAlt < 5 || bestSunAlt > -6 {
+	if bestAlt < 5 || bestSunAlt > -12 {
 		return EventVisibility{
 			Status:          "limited",
 			BestAt:          &bestAtText,
@@ -293,7 +313,7 @@ func collectConjunctionObjects(geometry map[string]any) []string {
 
 // solveLunarEclipse 按当地月球高度+NASA/GSFC 食类型/食分判定月食可见性。
 // 月食可裸眼安全观看。食类型/食分来自 NASA/GSFC 解析（geometry.eclipseType/magnitude）；
-// 扩展观测窗口（事件时刻 ±2 小时）内采样月球高度，找最佳时刻。
+// 以资料给出的起止时刻为核心扩展窗口；缺少结束时刻时使用事件时刻 ±3 小时。
 func (s *VisibilitySolver) solveLunarEclipse(event EventInput, latitude, longitude float64, loc *time.Location) EventVisibility {
 	if s.moons == nil {
 		return EventVisibility{Status: "not_calculated", Reason: "本地星历服务尚未配置。"}
@@ -304,36 +324,32 @@ func (s *VisibilitySolver) solveLunarEclipse(event EventInput, latitude, longitu
 	}
 	magnitude, _ := event.Geometry["magnitude"].(string)
 
-	// 扩展观测窗口（事件时刻 ±2 小时）内采样月球高度与太阳高度，
-	// 找出"月球在地平上、太阳在地平下"的最佳时刻。
-	start := event.StartsAt.UTC().Add(-2 * time.Hour)
-	end := event.StartsAt.UTC().Add(2 * time.Hour)
+	start := event.StartsAt.UTC().Add(-3 * time.Hour)
+	end := event.StartsAt.UTC().Add(3 * time.Hour)
+	if event.EndsAt != nil && event.EndsAt.After(event.StartsAt) {
+		start = event.StartsAt.UTC().Add(-time.Hour)
+		end = event.EndsAt.UTC().Add(time.Hour)
+	}
+	const step = 15 * time.Minute
 	bestMoonAlt := -math.MaxFloat64
 	var bestAt time.Time
-	bestSunAlt := math.MaxFloat64
-	found := false
-	var windowStart, windowEnd *time.Time
-	for at := start; !at.After(end); at = at.Add(15 * time.Minute) {
+	validTimes := make([]time.Time, 0, 32)
+	bestIndex := -1
+	for at := start; !at.After(end); at = at.Add(step) {
 		moonAlt := s.moons.Altitude(latitude, longitude, 0, at)
 		sunAlt := EclipticToHorizontalAltitude("sun", latitude, longitude, at)
 		if moonAlt <= 0 || sunAlt > -6 {
 			continue
 		}
-		found = true
-		if windowStart == nil {
-			value := at
-			windowStart = &value
-		}
-		value := at
-		windowEnd = &value
+		validTimes = append(validTimes, at)
 		if moonAlt > bestMoonAlt {
 			bestMoonAlt = moonAlt
 			bestAt = at
-			bestSunAlt = sunAlt
+			bestIndex = len(validTimes) - 1
 		}
 	}
 
-	if !found {
+	if bestIndex < 0 {
 		at := event.StartsAt.UTC()
 		moonAlt := s.moons.Altitude(latitude, longitude, 0, at)
 		if moonAlt <= 0 {
@@ -342,28 +358,25 @@ func (s *VisibilitySolver) solveLunarEclipse(event EventInput, latitude, longitu
 		return EventVisibility{Status: "not_visible", Reason: "月食发生时当地为白昼，月球不可见。"}
 	}
 
+	windowStart, windowEnd, _, _ := contiguousVisibilityWindow(validTimes, bestIndex, step)
 	bestAtText := bestAt.In(loc).Format(time.RFC3339)
 	windowStartText, windowEndText := windowStart.In(loc).Format(time.RFC3339), windowEnd.In(loc).Format(time.RFC3339)
 	altPtr := &bestMoonAlt
+	var azimuth *float64
+	if provider, ok := s.moons.(MoonAzimuthProvider); ok {
+		value := provider.Azimuth(latitude, longitude, 0, bestAt)
+		azimuth = &value
+	}
 	magNote := ""
 	if magnitude != "" {
 		magNote = fmt.Sprintf("食分 %s。", magnitude)
 	}
 
-	if bestSunAlt > -6 {
-		return EventVisibility{
-			Status:          "limited",
-			BestAt:          &bestAtText,
-			AltitudeDegrees: altPtr,
-			WindowStart:     &windowStartText,
-			WindowEnd:       &windowEndText,
-			Reason:          fmt.Sprintf("%s型月食：当地仍处于暮光阶段，观测条件有限。%s", eclipseType, magNote),
-		}
-	}
 	if bestMoonAlt < 10 {
 		return EventVisibility{
 			Status:          "limited",
 			BestAt:          &bestAtText,
+			AzimuthDegrees:  azimuth,
 			AltitudeDegrees: altPtr,
 			WindowStart:     &windowStartText,
 			WindowEnd:       &windowEndText,
@@ -373,6 +386,7 @@ func (s *VisibilitySolver) solveLunarEclipse(event EventInput, latitude, longitu
 	return EventVisibility{
 		Status:          "observable",
 		BestAt:          &bestAtText,
+		AzimuthDegrees:  azimuth,
 		AltitudeDegrees: altPtr,
 		WindowStart:     &windowStartText,
 		WindowEnd:       &windowEndText,
@@ -399,9 +413,10 @@ func (s *VisibilitySolver) solveMeteorShower(event EventInput, latitude, longitu
 	end := at.Add(3 * time.Hour)
 	bestRadiantAlt := -math.MaxFloat64
 	var bestAt time.Time
+	validTimes := make([]time.Time, 0, 24)
+	moonlightValues := make([]float64, 0, 24)
+	bestIndex := -1
 	bestSunAlt := math.MaxFloat64
-	found := false
-	var windowStart, windowEnd *time.Time
 	for t := start; !t.After(end); t = t.Add(20 * time.Minute) {
 		sunAlt := EclipticToHorizontalAltitude("sun", latitude, longitude, t)
 		if sunAlt > -6 {
@@ -411,40 +426,44 @@ func (s *VisibilitySolver) solveMeteorShower(event EventInput, latitude, longitu
 		if radiantAlt <= 0 {
 			continue
 		}
-		found = true
-		if windowStart == nil {
-			value := t
-			windowStart = &value
-		}
-		value := t
-		windowEnd = &value
+		validTimes = append(validTimes, t)
+		moonAltitude := s.moons.Altitude(latitude, longitude, 0, t)
+		illumination := math.Max(0, math.Min(1, s.moons.Phase(t).Illumination))
+		moonlightValues = append(moonlightValues, illumination*math.Max(0, math.Sin(deg2rad(moonAltitude))))
 		if radiantAlt > bestRadiantAlt {
 			bestRadiantAlt = radiantAlt
 			bestAt = t
 			bestSunAlt = sunAlt
+			bestIndex = len(validTimes) - 1
 		}
 	}
 
-	if !found {
+	if bestIndex < 0 {
 		return EventVisibility{
 			Status: "not_visible",
 			Reason: "流星雨极大时当地辐射点在地平线下或为白昼，目标不可见。",
 		}
 	}
 
+	windowStart, windowEnd, firstIndex, lastIndex := contiguousVisibilityWindow(validTimes, bestIndex, 20*time.Minute)
 	bestAtText := bestAt.In(loc).Format(time.RFC3339)
 	windowStartText, windowEndText := windowStart.In(loc).Format(time.RFC3339), windowEnd.In(loc).Format(time.RFC3339)
 	altPtr := &bestRadiantAlt
+	_, radiantAzimuth := meteorShowerRadiantHorizontal(event, latitude, longitude, bestAt)
+	azPtr := &radiantAzimuth
 
-	// 月光条件：月球亮面占比高且月球在地平上 → limited
-	phase := s.moons.Phase(bestAt)
-	moonAlt := s.moons.Altitude(latitude, longitude, 0, bestAt)
-	moonlightStrong := phase.Illumination > 0.5 && moonAlt > 0
+	// 对最终观测窗口的全部样本取最强月光，而不是只检查辐射点最高的瞬间。
+	maxMoonlight := 0.0
+	for index := firstIndex; index <= lastIndex; index++ {
+		maxMoonlight = math.Max(maxMoonlight, moonlightValues[index])
+	}
+	moonlightStrong := maxMoonlight > 0.35
 
 	if bestRadiantAlt < 15 {
 		return EventVisibility{
 			Status:          "limited",
 			BestAt:          &bestAtText,
+			AzimuthDegrees:  azPtr,
 			AltitudeDegrees: altPtr,
 			WindowStart:     &windowStartText,
 			WindowEnd:       &windowEndText,
@@ -455,6 +474,7 @@ func (s *VisibilitySolver) solveMeteorShower(event EventInput, latitude, longitu
 		return EventVisibility{
 			Status:          "limited",
 			BestAt:          &bestAtText,
+			AzimuthDegrees:  azPtr,
 			AltitudeDegrees: altPtr,
 			WindowStart:     &windowStartText,
 			WindowEnd:       &windowEndText,
@@ -465,6 +485,7 @@ func (s *VisibilitySolver) solveMeteorShower(event EventInput, latitude, longitu
 		return EventVisibility{
 			Status:          "limited",
 			BestAt:          &bestAtText,
+			AzimuthDegrees:  azPtr,
 			AltitudeDegrees: altPtr,
 			WindowStart:     &windowStartText,
 			WindowEnd:       &windowEndText,
@@ -474,6 +495,7 @@ func (s *VisibilitySolver) solveMeteorShower(event EventInput, latitude, longitu
 	return EventVisibility{
 		Status:          "observable",
 		BestAt:          &bestAtText,
+		AzimuthDegrees:  azPtr,
 		AltitudeDegrees: altPtr,
 		WindowStart:     &windowStartText,
 		WindowEnd:       &windowEndText,
@@ -482,14 +504,33 @@ func (s *VisibilitySolver) solveMeteorShower(event EventInput, latitude, longitu
 }
 
 // meteorShowerRadiantAltitude 计算流星雨辐射点在给定地点、时刻的地平高度。
-// 辐射点赤经/赤纬来自 IMO/IAU MDC 资料；这里内置主要流星雨的固定辐射点坐标。
 // 辐射点坐标在 geometry 中（geometry.radiantRA/radiantDec）或按事件 ID 查表。
 func meteorShowerRadiantAltitude(event EventInput, latitude, longitude float64, at time.Time) float64 {
+	altitude, _ := meteorShowerRadiantHorizontal(event, latitude, longitude, at)
+	return altitude
+}
+
+func meteorShowerRadiantHorizontal(event EventInput, latitude, longitude float64, at time.Time) (altitude, azimuth float64) {
 	ra, dec, ok := meteorShowerRadiant(event)
 	if !ok {
-		return math.NaN()
+		return math.NaN(), math.NaN()
 	}
-	return equatorialToHorizontalAltitude(ra, dec, latitude, longitude, at)
+	return EquatorialCoordinatesToHorizontal(EquatorialCoordinates{RightAscensionDegrees: ra, DeclinationDegrees: dec}, latitude, longitude, at)
+}
+
+// contiguousVisibilityWindow returns the uninterrupted sampled interval that
+// contains bestIndex. This prevents separate dusk/dawn or rise/set windows from
+// being presented as one continuous interval.
+func contiguousVisibilityWindow(times []time.Time, bestIndex int, step time.Duration) (time.Time, time.Time, int, int) {
+	first, last := bestIndex, bestIndex
+	maximumGap := step + step/2
+	for first > 0 && times[first].Sub(times[first-1]) <= maximumGap {
+		first--
+	}
+	for last+1 < len(times) && times[last+1].Sub(times[last]) <= maximumGap {
+		last++
+	}
+	return times[first], times[last], first, last
 }
 
 // meteorShowerRadiant 返回流星雨辐射点的赤经/赤纬（度）。

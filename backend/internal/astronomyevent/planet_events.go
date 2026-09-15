@@ -349,26 +349,31 @@ func refineQuadratic(left, right []EphemerisSample, index int, value func(l, r E
 	t0 := left[index].Epoch
 	h := t0.Sub(left[index-1].Epoch).Hours() / 24 // 采样步长（天）
 	if math.Abs(h) < 1e-9 {
-		return t0, value(left[index], right[index]), true
+		return time.Time{}, 0, false
 	}
 	yPrev := value(left[index-1], right[index-1])
 	y0 := value(left[index], right[index])
 	yNext := value(left[index+1], right[index+1])
+	if math.IsNaN(yPrev) || math.IsNaN(y0) || math.IsNaN(yNext) ||
+		math.IsInf(yPrev, 0) || math.IsInf(y0, 0) || math.IsInf(yNext, 0) {
+		return time.Time{}, 0, false
+	}
 	denom := yPrev - 2*y0 + yNext
-	if denom == 0 {
-		return t0, y0, true
+	scale := math.Max(1, math.Max(math.Abs(yPrev), math.Max(math.Abs(y0), math.Abs(yNext))))
+	if math.Abs(denom) <= 1e-12*scale {
+		return time.Time{}, 0, false
 	}
 	// 极值偏移（天）：t* - t0 = h * (yPrev - yNext) / (2 * denom)
 	offset := h * (yPrev - yNext) / (2 * denom)
 	// 限制偏移在 ±0.5 步长内，避免插值发散
-	if math.Abs(offset) > math.Abs(h)*0.5 {
-		offset = 0
+	if math.IsNaN(offset) || math.IsInf(offset, 0) || math.Abs(offset) > math.Abs(h)*0.5 {
+		return time.Time{}, 0, false
 	}
 	refinedAt := t0.Add(time.Duration(offset * 24 * float64(time.Hour)))
 	// 用插值公式重新计算极值：y* = y0 + (yNext-yPrev)/(2h) * offset + denom/(2h²) * offset²
 	refinedValue := y0 + (yNext-yPrev)/(2*h)*offset + denom/(2*h*h)*offset*offset
 	if math.IsNaN(refinedValue) || math.IsInf(refinedValue, 0) {
-		refinedValue = y0
+		return time.Time{}, 0, false
 	}
 	return refinedAt, refinedValue, true
 }

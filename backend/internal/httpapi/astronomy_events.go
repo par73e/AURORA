@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"aurora/backend/internal/astronomyevent"
@@ -61,6 +62,7 @@ func astronomyEventsHandler(store astronomyevent.Store, solver *observatory.Visi
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "暂时无法读取天象事件"})
 			return
 		}
+		events = deduplicateAstronomyEvents(events)
 		response := make([]astronomyEventResponse, 0, len(events))
 		for _, event := range events {
 			global := decodeEventGeometry(event.Geometry)
@@ -89,6 +91,146 @@ func astronomyEventsHandler(store astronomyevent.Store, solver *observatory.Visi
 			"locationVisibility": map[bool]string{true: "partial", false: "location_required"}[hasLocation],
 		})
 	}
+}
+
+// deduplicateAstronomyEvents resolves the migration overlap between the old
+// curated 2026 list and current computed/external feeds. The canonical record
+// keeps the richer geometry needed by local visibility, while curated display
+// copy is retained when the canonical source has no presentation document.
+func deduplicateAstronomyEvents(events []astronomyevent.Event) []astronomyevent.Event {
+	result := make([]astronomyevent.Event, 0, len(events))
+	for _, event := range events {
+		key := astronomyEventSemanticKey(event)
+		if key == "" {
+			result = append(result, event)
+			continue
+		}
+		index := -1
+		for candidateIndex := len(result) - 1; candidateIndex >= 0; candidateIndex-- {
+			candidate := result[candidateIndex]
+			if astronomyEventSemanticKey(candidate) != key {
+				continue
+			}
+			difference := event.StartsAt.Sub(candidate.StartsAt)
+			if difference < 0 {
+				difference = -difference
+			}
+			if difference <= astronomyEventDuplicateTolerance(event.Kind) {
+				index = candidateIndex
+				break
+			}
+		}
+		if index < 0 {
+			result = append(result, event)
+			continue
+		}
+		current := result[index]
+		if astronomyEventQuality(event) > astronomyEventQuality(current) {
+			event.Presentation = preferredEventPresentation(event.Presentation, current.Presentation)
+			result[index] = event
+		} else {
+			current.Presentation = preferredEventPresentation(current.Presentation, event.Presentation)
+			result[index] = current
+		}
+	}
+	return result
+}
+
+func astronomyEventSemanticKey(event astronomyevent.Event) string {
+	switch event.Kind {
+	case "solar_eclipse", "lunar_eclipse", "new_moon", "first_quarter", "full_moon", "last_quarter",
+		"march_equinox", "june_solstice", "september_equinox", "december_solstice":
+		return event.Kind
+	case "meteor_shower", "planetary_elongation", "planetary_opposition", "planetary_conjunction", "moon_conjunction":
+		subject := astronomyEventSubject(event)
+		if subject != "" {
+			return event.Kind + "|" + subject
+		}
+	}
+	return ""
+}
+
+func astronomyEventDuplicateTolerance(kind string) time.Duration {
+	switch kind {
+	case "planetary_elongation", "planetary_opposition", "planetary_conjunction", "moon_conjunction":
+		return 48 * time.Hour
+	case "meteor_shower", "solar_eclipse", "lunar_eclipse":
+		return 36 * time.Hour
+	default:
+		return 12 * time.Hour
+	}
+}
+
+func astronomyEventSubject(event astronomyevent.Event) string {
+	geometry := decodeEventGeometry(event.Geometry)
+	if slug, ok := geometry["slug"].(string); ok && slug != "" {
+		return strings.ToLower(slug)
+	}
+	if object, ok := geometry["object"].(string); ok && object != "" {
+		return strings.ToLower(object)
+	}
+	if objects, ok := geometry["objects"].([]any); ok {
+		names := make([]string, 0, len(objects))
+		for _, value := range objects {
+			if name, ok := value.(string); ok {
+				names = append(names, strings.ToLower(name))
+			}
+		}
+		sort.Strings(names)
+		if len(names) > 0 {
+			return strings.Join(names, "+")
+		}
+	}
+	text := strings.ToLower(event.ID + " " + event.Title + " " + event.TitleEN)
+	aliases := []struct {
+		canonical string
+		values    []string
+	}{
+		{"perseids", []string{"perseids", "英仙座"}},
+		{"kappa-cygnids", []string{"kappa-cygnids", "kappa cygnids", "天鹅座 κ", "天鹅座κ"}},
+		{"aurigids", []string{"aurigids", "御夫座"}},
+		{"september-epsilon-perseids", []string{"september-epsilon-perseids", "september epsilon perseids", "九月 ε 英仙座", "九月ε英仙座"}},
+		{"mercury", []string{"mercury", "水星"}},
+		{"venus", []string{"venus", "金星"}},
+		{"mars", []string{"mars", "火星"}},
+		{"jupiter", []string{"jupiter", "木星"}},
+		{"saturn", []string{"saturn", "土星"}},
+		{"uranus", []string{"uranus", "天王星"}},
+		{"neptune", []string{"neptune", "海王星"}},
+	}
+	for _, alias := range aliases {
+		for _, value := range alias.values {
+			if strings.Contains(text, value) {
+				return alias.canonical
+			}
+		}
+	}
+	return ""
+}
+
+func astronomyEventQuality(event astronomyevent.Event) int {
+	score := 0
+	if event.Origin != "curated" {
+		score += 10
+	}
+	geometry := decodeEventGeometry(event.Geometry)
+	if len(geometry) > 0 {
+		score += 5
+	}
+	if _, ok := geometry["positions"]; ok {
+		score += 20
+	}
+	if event.EndsAt != nil {
+		score++
+	}
+	return score
+}
+
+func preferredEventPresentation(primary, fallback json.RawMessage) json.RawMessage {
+	if len(decodeEventGeometry(primary)) > 0 {
+		return primary
+	}
+	return fallback
 }
 
 func astronomyVisibilityRank(local *eventLocalVisibility) int {
@@ -146,6 +288,7 @@ func resolveEventLocalVisibility(event astronomyevent.Event, latitude, longitude
 		ID:       event.ID,
 		Kind:     event.Kind,
 		StartsAt: event.StartsAt,
+		EndsAt:   event.EndsAt,
 		Geometry: geometry,
 	}
 	vis := solver.Solve(input, latitude, longitude, timezone)

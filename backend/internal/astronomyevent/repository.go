@@ -1,6 +1,7 @@
 package astronomyevent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -67,6 +68,10 @@ func (r *Repository) ReplaceComputed(ctx context.Context, query ListQuery, event
 		return fmt.Errorf("clear computed astronomy events: %w", err)
 	}
 	for _, event := range events {
+		geometry, presentation, err := normalizedEventDocuments(event)
+		if err != nil {
+			return fmt.Errorf("normalize computed astronomy event %s: %w", event.ID, err)
+		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO astronomy_events
 				(id, kind, title_zh, title_en, starts_at, ends_at, date_label, summary, origin, source_code, source_url, verified_at, geometry, presentation)
@@ -78,7 +83,7 @@ func (r *Repository) ReplaceComputed(ctx context.Context, query ListQuery, event
 				source_url = EXCLUDED.source_url, verified_at = EXCLUDED.verified_at,
 				geometry = EXCLUDED.geometry, presentation = EXCLUDED.presentation, updated_at = now()`,
 			event.ID, event.Kind, event.Title, event.TitleEN, event.StartsAt, event.EndsAt, event.DateLabel,
-			event.Summary, event.SourceCode, event.SourceURL, event.VerifiedAt, event.Geometry, event.Presentation,
+			event.Summary, event.SourceCode, event.SourceURL, event.VerifiedAt, geometry, presentation,
 		); err != nil {
 			return fmt.Errorf("upsert computed astronomy event %s: %w", event.ID, err)
 		}
@@ -186,6 +191,10 @@ func (r *Repository) ReplaceExternalForecast(ctx context.Context, sourceCode, so
 	}
 	written := 0
 	for _, event := range events {
+		geometry, presentation, err := normalizedEventDocuments(event)
+		if err != nil {
+			return written, fmt.Errorf("normalize external forecast event %s: %w", event.ID, err)
+		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO astronomy_events
 				(id, kind, title_zh, title_en, starts_at, ends_at, date_label, summary, origin, source_code, source_url, verified_at, geometry, presentation)
@@ -197,7 +206,7 @@ func (r *Repository) ReplaceExternalForecast(ctx context.Context, sourceCode, so
 				source_url = EXCLUDED.source_url, verified_at = EXCLUDED.verified_at,
 				geometry = EXCLUDED.geometry, presentation = EXCLUDED.presentation, updated_at = now()`,
 			event.ID, event.Kind, event.Title, event.TitleEN, event.StartsAt, event.EndsAt, event.DateLabel,
-			event.Summary, sourceCode, sourceURL, event.VerifiedAt, event.Geometry, event.Presentation,
+			event.Summary, sourceCode, sourceURL, event.VerifiedAt, geometry, presentation,
 		); err != nil {
 			return written, fmt.Errorf("upsert external forecast event %s: %w", event.ID, err)
 		}
@@ -207,4 +216,35 @@ func (r *Repository) ReplaceExternalForecast(ctx context.Context, sourceCode, so
 		return 0, fmt.Errorf("commit external forecast events: %w", err)
 	}
 	return written, nil
+}
+
+// normalizedEventDocuments ensures the NOT NULL JSONB columns always receive
+// JSON objects. Empty optional documents become {}, while malformed or
+// non-object JSON remains an explicit producer error instead of corrupting the
+// event contract.
+func normalizedEventDocuments(event Event) (json.RawMessage, json.RawMessage, error) {
+	geometry, err := normalizedJSONObject(event.Geometry)
+	if err != nil {
+		return nil, nil, fmt.Errorf("geometry: %w", err)
+	}
+	presentation, err := normalizedJSONObject(event.Presentation)
+	if err != nil {
+		return nil, nil, fmt.Errorf("presentation: %w", err)
+	}
+	return geometry, presentation, nil
+}
+
+func normalizedJSONObject(raw json.RawMessage) (json.RawMessage, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return json.RawMessage(`{}`), nil
+	}
+	var object map[string]any
+	if err := json.Unmarshal(trimmed, &object); err != nil || object == nil {
+		if err == nil {
+			err = errors.New("must be a JSON object")
+		}
+		return nil, err
+	}
+	return raw, nil
 }

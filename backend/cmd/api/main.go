@@ -55,19 +55,19 @@ func main() {
 	dailyImage := dailyimage.NewAPODClient(cfg.NASAAPIKey)
 	imageWall := dailyimage.NewCachedWallService(dailyimage.NewWallService(dailyImage, dailyimage.NewNASAImageLibraryClient()), dailyImageRepository)
 	moons := observatory.NewMoonService()
-	var lights observatory.LightPollutionProvider = observatory.NewLightPollutionClient(cfg.LightPollutionKey)
-	if cfg.LightPollutionURL != "" {
-		lights = observatory.NewLightPollutionClientWithURLs(cfg.LightPollutionKey, cfg.LightPollutionURL, &http.Client{Timeout: 8 * time.Second})
-	}
+	// 光污染只读取本地年度 VIIRS 栅格，避免运行时依赖外部 API 和特殊网络环境。
+	var lights observatory.LightPollutionProvider
 	if cfg.LightPollutionDataPath != "" {
 		rasterLights, rasterErr := observatory.OpenRasterLightProvider(cfg.LightPollutionDataPath)
 		if rasterErr != nil {
-			slog.Warn("local light pollution raster unavailable; using configured fallback", "path", cfg.LightPollutionDataPath, "error", rasterErr)
+			slog.Warn("local light pollution raster unavailable; light pollution reference disabled", "path", cfg.LightPollutionDataPath, "error", rasterErr)
 		} else {
 			lights = rasterLights
 			defer rasterLights.Close()
 			slog.Info("local VIIRS light pollution raster loaded", "path", cfg.LightPollutionDataPath)
 		}
+	} else {
+		slog.Warn("local light pollution raster is not configured; light pollution reference disabled")
 	}
 	dataSyncer := syncer.NewWithMoonVoyageMars(repository, moonRepository, marsRepository, voyageRepository)
 	eventSourceSyncer := astronomyevent.NewSourceSyncer(eventRepository)
