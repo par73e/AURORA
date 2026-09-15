@@ -81,3 +81,14 @@ func TestNASAImageLibraryClientUsesPublicSearchAndCachesResult(t *testing.T) {
 		t.Fatalf("calls=%d first=%#v second=%#v", calls, first, second)
 	}
 }
+
+func TestImageWindowDoesNotUseVideoAsThumbnail(t *testing.T) {
+	window := imageWindow(Image{Date: "2026-09-14", Title: "Video APOD", MediaType: "video", URL: "https://example.test/movie.mp4", ThumbnailURL: "https://example.test/also-movie.mp4", SourceName: "NASA APOD", SourceURL: "https://example.test/source"})
+	if window.ThumbnailURL != "" {
+		t.Fatalf("video thumbnail = %q, want empty fallback", window.ThumbnailURL)
+	}
+	window = imageWindow(Image{Date: "2026-09-14", Title: "Video APOD", MediaType: "video", URL: "https://example.test/movie.mp4", ThumbnailURL: "https://example.test/poster.jpg", SourceName: "NASA APOD", SourceURL: "https://example.test/source"})
+	if window.ThumbnailURL != "https://example.test/poster.jpg" {
+		t.Fatalf("image thumbnail = %q", window.ThumbnailURL)
+	}
+}

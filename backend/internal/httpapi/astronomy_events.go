@@ -63,6 +63,15 @@ func astronomyEventsHandler(store astronomyevent.Store, solver *observatory.Visi
 			return
 		}
 		events = deduplicateAstronomyEvents(events)
+		sourceStatuses := []astronomyevent.SourceStatus{}
+		if statusStore, ok := store.(astronomyevent.SourceStatusStore); ok {
+			statuses, statusErr := statusStore.ListSourceStatuses(r.Context())
+			if statusErr != nil {
+				slog.Warn("load astronomy source statuses", "error", statusErr)
+			} else {
+				sourceStatuses = statuses
+			}
+		}
 		response := make([]astronomyEventResponse, 0, len(events))
 		for _, event := range events {
 			global := decodeEventGeometry(event.Geometry)
@@ -89,6 +98,7 @@ func astronomyEventsHandler(store astronomyevent.Store, solver *observatory.Visi
 				"to":   to.Add(-time.Nanosecond).Format(time.DateOnly),
 			},
 			"locationVisibility": map[bool]string{true: "partial", false: "location_required"}[hasLocation],
+			"sources":            sourceStatuses,
 		})
 	}
 }

@@ -3,6 +3,9 @@ package dailyimage
 import (
 	"context"
 	"errors"
+	"net/url"
+	"path"
+	"strings"
 	"time"
 )
 
@@ -139,14 +142,30 @@ func imageWindow(image Image) ImageWindow {
 		credit = image.Copyright
 	}
 	thumbnail := image.URL
-	if image.MediaType == "video" && image.ThumbnailURL != "" {
-		thumbnail = image.ThumbnailURL
+	if image.MediaType == "video" {
+		thumbnail = ""
+		if imageURLLooksLikeImage(image.ThumbnailURL) {
+			thumbnail = image.ThumbnailURL
+		}
 	}
 	return ImageWindow{
 		ID: "apod-" + image.Date, SourceID: "apod", SourceName: image.SourceName, Title: image.Title,
 		PublishedAt: image.Date, ImageURL: image.URL, ThumbnailURL: thumbnail, MediaType: image.MediaType,
 		Credit: credit, LicenseNote: "版权以 NASA APOD 当期字段为准", SourceURL: image.SourceURL,
 		HDURL: image.HDURL, SelectionMode: "daily", Summary: image.Explanation, Status: "ready",
+	}
+}
+
+func imageURLLooksLikeImage(value string) bool {
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return false
+	}
+	switch strings.ToLower(path.Ext(parsed.Path)) {
+	case ".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif":
+		return true
+	default:
+		return false
 	}
 }
 

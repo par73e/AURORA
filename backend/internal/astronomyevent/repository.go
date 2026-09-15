@@ -57,6 +57,58 @@ func (r *Repository) List(ctx context.Context, query ListQuery) ([]Event, error)
 	return events, nil
 }
 
+func (r *Repository) ListSourceStatuses(ctx context.Context) ([]SourceStatus, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT ds.code, ds.name, ds.base_url,
+		       latest.started_at,
+		       CASE WHEN recent_failure.error_message IS NOT NULL THEN false ELSE latest.success END,
+		       COALESCE(latest.records_written, 0),
+		       COALESCE(recent_failure.error_message, latest.error_message, ''),
+		       succeeded.started_at,
+		       snapshot.coverage_start, snapshot.coverage_end
+		FROM data_sources ds
+		LEFT JOIN LATERAL (
+			SELECT started_at, success, records_written, error_message
+			FROM sync_runs WHERE source_code = ds.code ORDER BY started_at DESC LIMIT 1
+		) latest ON true
+		LEFT JOIN LATERAL (
+			SELECT error_message
+			FROM sync_runs
+			WHERE source_code = ds.code AND success = false
+			  AND started_at >= latest.started_at - interval '5 minutes'
+			ORDER BY started_at DESC LIMIT 1
+		) recent_failure ON true
+		LEFT JOIN LATERAL (
+			SELECT started_at FROM sync_runs
+			WHERE source_code = ds.code AND success = true ORDER BY started_at DESC LIMIT 1
+		) succeeded ON true
+		LEFT JOIN LATERAL (
+			SELECT coverage_start, coverage_end
+			FROM astronomy_event_source_snapshots
+			WHERE source_code = ds.code ORDER BY fetched_at DESC LIMIT 1
+		) snapshot ON true
+		WHERE ds.code = ANY($1)
+		ORDER BY array_position($1::text[], ds.code)`,
+		[]string{"nasa_gsfc_eclipse", "imo_meteor_calendar", "iau_mdc", "jpl_small_bodies", "usno_astronomy"})
+	if err != nil {
+		return nil, fmt.Errorf("list astronomy source statuses: %w", err)
+	}
+	defer rows.Close()
+	statuses := make([]SourceStatus, 0, 5)
+	for rows.Next() {
+		var status SourceStatus
+		if err := rows.Scan(&status.Code, &status.Name, &status.URL, &status.LastAttemptAt, &status.Success,
+			&status.RecordsWritten, &status.Error, &status.LastSuccessAt, &status.CoverageStart, &status.CoverageEnd); err != nil {
+			return nil, fmt.Errorf("scan astronomy source status: %w", err)
+		}
+		statuses = append(statuses, status)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate astronomy source statuses: %w", err)
+	}
+	return statuses, nil
+}
+
 // ReplaceComputed 原子替换窗口内由 AURORA 模型生成的事件，绝不触碰人工校订或外部预测事件。
 func (r *Repository) ReplaceComputed(ctx context.Context, query ListQuery, events []Event) error {
 	tx, err := r.pool.Begin(ctx)

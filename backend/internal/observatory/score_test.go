@@ -121,12 +121,12 @@ func TestScoreObservingPrecipitationPenalty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScoreObserving error: %v", err)
 	}
-	// 期望：100 − 7 − 2.12 − (10 + 10×sqrt(3.2)) = 62.99 → 63。
-	if *score.Score != 63 {
-		t.Errorf("score = %d，期望 63（含连续降水惩罚）", *score.Score)
+	// 任意可测降水都会把结果压到“不建议观测”的区间。
+	if *score.Score != 16 {
+		t.Errorf("score = %d，期望 16（含降水否决性惩罚）", *score.Score)
 	}
-	if math.Abs(score.Factors.PrecipitationPenalty-(10+10*math.Sqrt(3.2))) > 1e-9 {
-		t.Errorf("降水惩罚 = %v，期望连续量级惩罚", score.Factors.PrecipitationPenalty)
+	if score.Factors.PrecipitationPenalty != 75 {
+		t.Errorf("降水惩罚 = %v，期望封顶 75", score.Factors.PrecipitationPenalty)
 	}
 	if score.Weather == nil || score.Weather.Time != "2026-08-09T08:00" {
 		t.Errorf("weather 应命中 08:00，得到 %+v", score.Weather)
@@ -233,9 +233,9 @@ func TestScoreDistributionMatchesObservingConditions(t *testing.T) {
 		want    int
 	}{
 		{name: "clear moonless sky stays near the top of the scale", weather: Hourly{Time: "2026-08-09T10:00", VisibilityMeters: 20000}, want: 100},
-		{name: "thin high cloud still permits bright-target observing", weather: Hourly{Time: "2026-08-09T10:00", VisibilityMeters: 20000, CloudCover: 100, CloudCoverHigh: 100}, want: 75},
-		{name: "mixed cloud cover falls into the middle of the scale", weather: Hourly{Time: "2026-08-09T10:00", VisibilityMeters: 10000, CloudCover: 60, CloudCoverLow: 20, CloudCoverMid: 35, CloudCoverHigh: 50}, want: 52},
-		{name: "overcast drizzle is effectively not an observing night", weather: Hourly{Time: "2026-08-09T10:00", VisibilityMeters: 8000, CloudCover: 96, CloudCoverLow: 22, CloudCoverMid: 83, CloudCoverHigh: 91, Precipitation: 0.1}, want: 1},
+		{name: "full high cloud is not a good general observing night", weather: Hourly{Time: "2026-08-09T10:00", VisibilityMeters: 20000, CloudCover: 100, CloudCoverHigh: 100}, want: 45},
+		{name: "mixed cloud cover falls into the middle of the scale", weather: Hourly{Time: "2026-08-09T10:00", VisibilityMeters: 10000, CloudCover: 60, CloudCoverLow: 20, CloudCoverMid: 35, CloudCoverHigh: 50}, want: 63},
+		{name: "overcast drizzle is effectively not an observing night", weather: Hourly{Time: "2026-08-09T10:00", VisibilityMeters: 8000, CloudCover: 96, CloudCoverLow: 22, CloudCoverMid: 83, CloudCoverHigh: 91, Precipitation: 0.1}, want: 0},
 	}
 	moon := stubMoon{result: MoonPhaseResult{Illumination: 0}, altitude: -10}
 	for _, test := range tests {
@@ -253,6 +253,21 @@ func TestAerosolPenaltyIsSmallTransparencyCorrection(t *testing.T) {
 	readings := []AirQuality{{Time: "2026-08-09T10:00", AerosolOpticalDepth: 0.55}}
 	if got := aerosolPenaltyAt(readings, "Asia/Shanghai", "2026-08-09T10:00"); math.Abs(got-6) > 1e-9 {
 		t.Errorf("AOD 0.55 penalty = %v，期望 6", got)
+	}
+}
+
+func TestOperationalWeatherRisksAffectScore(t *testing.T) {
+	if got := weatherPenaltyFrom(95, 0); got != 75 {
+		t.Fatalf("thunderstorm penalty = %v, want 75", got)
+	}
+	if got := windPenaltyFrom(40, 60); got != 15 {
+		t.Fatalf("strong wind penalty = %v, want 15", got)
+	}
+	if got := dewPenaltyFrom(8, 7, 92); got != 8 {
+		t.Fatalf("dew penalty = %v, want 8", got)
+	}
+	if got := dewPenaltyFrom(0, 0, 0); got != 0 {
+		t.Fatalf("missing humidity must not create a dew penalty: %v", got)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,14 +15,19 @@ import (
 )
 
 type astronomyEventStoreStub struct {
-	query  astronomyevent.ListQuery
-	events []astronomyevent.Event
-	err    error
+	query   astronomyevent.ListQuery
+	events  []astronomyevent.Event
+	sources []astronomyevent.SourceStatus
+	err     error
 }
 
 func (s *astronomyEventStoreStub) List(_ context.Context, query astronomyevent.ListQuery) ([]astronomyevent.Event, error) {
 	s.query = query
 	return s.events, s.err
+}
+
+func (s *astronomyEventStoreStub) ListSourceStatuses(_ context.Context) ([]astronomyevent.SourceStatus, error) {
+	return s.sources, s.err
 }
 
 func TestAstronomyEventsHandlerUsesRequestedDateRange(t *testing.T) {
@@ -55,6 +61,17 @@ func TestAstronomyEventsHandlerDefaultsToThirtyDaysFromNow(t *testing.T) {
 	}
 	if want := now.Add(30 * 24 * time.Hour); !store.query.To.Equal(want) {
 		t.Errorf("to = %s, want %s", store.query.To, want)
+	}
+}
+
+func TestAstronomyEventsHandlerReturnsSourceStatuses(t *testing.T) {
+	success := false
+	store := &astronomyEventStoreStub{sources: []astronomyevent.SourceStatus{{Code: "imo_meteor_calendar", Name: "IMO", Success: &success, Error: "temporarily offline"}}}
+	handler := astronomyEventsHandler(store, nil, time.Now)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/astronomy/events", nil))
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"code":"imo_meteor_calendar"`) {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
 }
 

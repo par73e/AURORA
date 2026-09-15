@@ -13,6 +13,7 @@ import (
 
 type fakeReverseGeocoder struct {
 	place     observerlocation.Place
+	places    []observerlocation.Candidate
 	err       error
 	latitude  float64
 	longitude float64
@@ -22,6 +23,13 @@ func (fake *fakeReverseGeocoder) Reverse(_ context.Context, latitude, longitude 
 	fake.latitude = latitude
 	fake.longitude = longitude
 	return fake.place, fake.err
+}
+
+func (fake *fakeReverseGeocoder) Search(_ context.Context, query string) ([]observerlocation.Candidate, error) {
+	if query == "失败地点" {
+		return nil, fake.err
+	}
+	return fake.places, fake.err
 }
 
 func TestReverseLocationHandler(t *testing.T) {
@@ -66,5 +74,24 @@ func TestReverseLocationHandlerHidesUpstreamError(t *testing.T) {
 	reverseLocationHandler(&fakeReverseGeocoder{err: errors.New("third-party detail")}).ServeHTTP(response, request)
 	if response.Code != http.StatusBadGateway || strings.Contains(response.Body.String(), "third-party detail") {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestSearchLocationHandlerReturnsCandidates(t *testing.T) {
+	geocoder := &fakeReverseGeocoder{places: []observerlocation.Candidate{{Label: "上海市崇明区陈家镇", Latitude: 31.50, Longitude: 121.81}}}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/location/search?q=上海市崇明区陈家镇", nil)
+	response := httptest.NewRecorder()
+	searchLocationHandler(geocoder).ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"label":"上海市崇明区陈家镇"`) {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestSearchLocationHandlerRejectsShortQuery(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/location/search?q=沪", nil)
+	response := httptest.NewRecorder()
+	searchLocationHandler(&fakeReverseGeocoder{}).ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d", response.Code)
 	}
 }

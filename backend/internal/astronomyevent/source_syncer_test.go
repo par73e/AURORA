@@ -47,7 +47,10 @@ func TestSourceSyncerRecordsOfficialSourceSnapshots(t *testing.T) {
 	syncer := NewSourceSyncer(store)
 	syncer.now = func() time.Time { return time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC) }
 	syncer.parseIMO = func(_ context.Context, body []byte, _ string, _ int) (parsedEvents, error) {
-		return parsedEvents{payload: body}, nil
+		return parsedEvents{payload: body, events: []Event{{ID: "meteor"}}}, nil
+	}
+	syncer.parseNASAGSFC = func(_ context.Context, body []byte, _ string) (parsedEvents, error) {
+		return parsedEvents{payload: body, events: []Event{{ID: "eclipse"}}}, nil
 	}
 	syncer.client = &http.Client{Transport: roundTripper(func(request *http.Request) (*http.Response, error) {
 		body := `{"endpoint":"` + request.URL.Path + `"}`
@@ -60,13 +63,13 @@ func TestSourceSyncerRecordsOfficialSourceSnapshots(t *testing.T) {
 	if err := syncer.SyncOfficialSources(context.Background()); err != nil {
 		t.Fatalf("SyncOfficialSources() error = %v", err)
 	}
-	if got, want := len(store.snapshots), 8; got != want {
+	if got, want := len(store.snapshots), 9; got != want {
 		t.Fatalf("snapshots = %d, want %d", got, want)
 	}
 	if got := string(store.snapshots[0].RawPayload); !strings.Contains(got, "endpoint") {
 		t.Errorf("first snapshot = %s, want original JSON", got)
 	}
-	if got, want := store.finished, 8; got != want {
+	if got, want := store.finished, 9; got != want {
 		t.Errorf("finished = %d, want %d", got, want)
 	}
 }

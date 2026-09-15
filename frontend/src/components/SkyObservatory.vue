@@ -7,11 +7,12 @@ FORM: desktop field observatory; four focused workspaces share one clock, one lo
 -->
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { fetchObserverPlace, fetchObservingConditions, fetchMoonDay, fetchLightPollution, fetchAstronomyEvents, fetchImageWall, type ObservingConditions, type MoonDay, type LightPollution, type AstronomyEvent, type ImageWall } from '../api'
-import { analyzeNight, bearing, bodies, calculatePosition, calculateTrack, calculateTwilight, dateFromZonedLocalTime, daylightFactor, moonPhase, observeTips, observingStatus, upcomingMoonPhases, zonedDateAtMinute, zonedDateKey, zonedMinuteOfDay, type BodyId, type BodyTrack, type NightAnalysis } from '../astronomy'
+import { fetchObserverPlace, searchObserverPlaces, fetchObservingConditions, fetchMoonDay, fetchLightPollution, fetchAstronomyEvents, fetchImageWall, type ObservingConditions, type MoonDay, type LightPollution, type AstronomyEvent, type AstronomyEventSourceStatus, type ImageWall, type ObserverPlaceCandidate } from '../api'
+import { analyzeNight, bearing, bodies, calculateFixedObjectPosition, calculatePosition, calculateTrack, calculateTwilight, dateFromZonedLocalTime, daylightFactor, moonPhase, observeTips, observingStatus, upcomingMoonPhases, zonedDateAtMinute, zonedDateKey, zonedMinuteOfDay, type BodyId, type BodyTrack, type NightAnalysis } from '../astronomy'
 import { conditionDescription, weatherGlyph } from '../observatoryWeather'
 import { projectAltitudeGuide, projectHorizontalDirection, type SkyCamera } from '../skyProjection'
 import { easeOutExpo, normalizeAzimuth, shortestAzimuthDelta, skyTurnDuration } from '../skyMotion'
+import { constellationLines, milkyWayCenterline, skyCatalog, type SkyCatalogObject } from '../skyCatalog'
 import moonNearsideTexture from '../assets/solar/2k_moon.jpg'
 import AuroraBrand from './AuroraBrand.vue'
 import ObservatoryClock from './ObservatoryClock.vue'
@@ -48,6 +49,13 @@ const locationLabel = ref('等待位置授权')
 const latitude = ref<number | null>(null)
 const longitude = ref<number | null>(null)
 const locationStatus = ref<'idle' | 'locating' | 'resolving' | 'located' | 'partial' | 'denied' | 'unavailable'>('idle')
+const showLocationEditor = ref(false)
+const locationQuery = ref('')
+const manualLatitude = ref('')
+const manualLongitude = ref('')
+const locationSearchStatus = ref<'idle' | 'loading' | 'ready' | 'error'>('idle')
+const locationSearchResults = ref<ObserverPlaceCandidate[]>([])
+const locationFormError = ref('')
 const conditions = ref<ObservingConditions | null>(null)
 const conditionsStatus = ref<'idle' | 'loading' | 'ready' | 'error'>('idle')
 // 后端数据源：月相每日、逐小时评分、光污染按地点；任一失败均回退本地计算/诚实占位。
@@ -66,6 +74,7 @@ let timeScrubAnimationFrame: number | undefined
 let pendingMinuteOfDay: number | undefined
 let locationRevision = 0
 let locationLookupController: AbortController | undefined
+let locationSearchController: AbortController | undefined
 let conditionsController: AbortController | undefined
 let homeExitTimer: number | undefined
 let moonTexturePixels: ImageData | undefined
@@ -96,7 +105,6 @@ const scrubFraction = computed(() => (minuteOfDay.value / 1439).toFixed(4))
 const coordinateLabel = computed(() => activeCoordinates.value
   ? `${activeCoordinates.value.latitude >= 0 ? '北纬' : '南纬'} ${Math.abs(activeCoordinates.value.latitude).toFixed(1)}° · ${activeCoordinates.value.longitude >= 0 ? '东经' : '西经'} ${Math.abs(activeCoordinates.value.longitude).toFixed(1)}°`
   : '允许定位后生成本地数据')
-const locationAction = computed(() => locationStatus.value === 'located' ? 'GPS' : locationStatus.value === 'resolving' || locationStatus.value === 'locating' ? '请求中' : '重试')
 const moon = computed(() => moonPhase(now.value))
 const elevation = computed(() => conditions.value?.elevation ?? 0)
 // 升落、整日采样与中天只随“当地日期/地点”变化，不应在时间条每移动一分钟时重算。
@@ -160,6 +168,7 @@ const railCurrentMarkers = computed(() => new Map(
 const twilight = computed(() => activeCoordinates.value ? calculateTwilight(simulatedDayAnchor.value, activeCoordinates.value.latitude, activeCoordinates.value.longitude, elevation.value, observatoryTimezone.value) : null)
 // 今夜夜空分析：天文夜窗口、无月黑夜与银河核心可见时段（纯本地星历）。
 const nightAnalysis = computed<NightAnalysis | null>(() => activeCoordinates.value ? analyzeNight(now.value, activeCoordinates.value.latitude, activeCoordinates.value.longitude, elevation.value, observatoryTimezone.value) : null)
+const tomorrowNightAnalysis = computed<NightAnalysis | null>(() => activeCoordinates.value ? analyzeNight(new Date(now.value.getTime() + 24 * 60 * 60_000), activeCoordinates.value.latitude, activeCoordinates.value.longitude, elevation.value, observatoryTimezone.value) : null)
 function windowRange(window: NightAnalysis['astronomicalNight']) {
   return window ? `${formatTime(window.start)} – ${formatTime(window.end)}` : '—'
 }
@@ -167,6 +176,58 @@ function windowRange(window: NightAnalysis['astronomicalNight']) {
 const daylight = computed(() => twilight.value ? daylightFactor(twilight.value, simulatedTime.value) : 0)
 const visibleSkyBodies = computed(() => tracks.value.filter((track) => track.visible))
 const horizonBodies = computed(() => visibleSkyBodies.value.filter((track) => projectHorizontalDirection(track.azimuth, track.altitude, skyCamera.value).inViewport))
+const selectedCatalogId = ref<string | null>(null)
+const skySearchQuery = ref('')
+const catalogPositions = computed(() => {
+  const coords = activeCoordinates.value
+  if (!coords) return new Map<string, ReturnType<typeof calculateFixedObjectPosition>>()
+  return new Map(skyCatalog.map((item) => [item.id, calculateFixedObjectPosition(item.raHours, item.decDegrees, simulatedTime.value, coords.latitude, coords.longitude, elevation.value)]))
+})
+const projectedCatalog = computed(() => skyCatalog.flatMap((item) => {
+  const position = catalogPositions.value.get(item.id)
+  if (!position?.visible) return []
+  const projection = projectHorizontalDirection(position.azimuth, position.altitude, skyCamera.value)
+  return projection.inViewport ? [{ item, position, projection }] : []
+}))
+const visibleCatalogStars = computed(() => projectedCatalog.value.filter(({ item }) => item.kind === 'star'))
+const visibleMessierObjects = computed(() => projectedCatalog.value.filter(({ item }) => item.kind === 'messier'))
+const catalogSearchResults = computed(() => {
+  const query = skySearchQuery.value.trim().toLocaleLowerCase()
+  if (!query) return []
+  return skyCatalog.filter((item) => `${item.name} ${item.nameEn} ${item.constellation}`.toLocaleLowerCase().includes(query)).slice(0, 8)
+})
+const constellationGeometry = computed(() => constellationLines.map((constellation) => {
+  const paths = constellation.segments.flatMap(([fromId, toId]) => {
+    const from = projectedCatalog.value.find(({ item }) => item.id === fromId)?.projection
+    const to = projectedCatalog.value.find(({ item }) => item.id === toId)?.projection
+    if (!from || !to || Math.abs(from.x - to.x) > .35) return []
+    return [`M ${(from.x * 1000).toFixed(2)} ${(from.y * 1000).toFixed(2)} L ${(to.x * 1000).toFixed(2)} ${(to.y * 1000).toFixed(2)}`]
+  })
+  const points = projectedCatalog.value.filter(({ item }) => item.constellation === constellation.name).map(({ projection }) => projection)
+  const label = points.length ? { x: points.reduce((sum, point) => sum + point.x, 0) / points.length, y: points.reduce((sum, point) => sum + point.y, 0) / points.length } : null
+  return { ...constellation, paths, label }
+}).filter((item) => item.paths.length))
+const milkyWayPaths = computed(() => {
+  const coords = activeCoordinates.value
+  if (!coords) return []
+  const paths: string[] = []
+  let run: Array<{ x: number; y: number }> = []
+  const flush = () => {
+    if (run.length > 1) paths.push(`M ${run.map((point) => `${(point.x * 1000).toFixed(2)} ${(point.y * 1000).toFixed(2)}`).join(' L ')}`)
+    run = []
+  }
+  for (const point of milkyWayCenterline) {
+    const position = calculateFixedObjectPosition(point.raHours % 24, point.decDegrees, simulatedTime.value, coords.latitude, coords.longitude, elevation.value)
+    const projection = projectHorizontalDirection(position.azimuth, position.altitude, skyCamera.value)
+    if (!position.visible || !projection.inViewport || (run.at(-1) && Math.abs(projection.x - run.at(-1)!.x) > .3)) {
+      flush()
+      if (!position.visible || !projection.inViewport) continue
+    }
+    run.push(projection)
+  }
+  flush()
+  return paths
+})
 const altitudeGuides = computed(() => [30, 60].map((altitude) => projectAltitudeGuide(altitude, skyCamera.value, .75)))
 const horizonFieldStyle = computed(() => ({
   '--sky-daylight': String(daylight.value),
@@ -226,6 +287,16 @@ const tonightScore = computed<TonightScore | null>(() => {
   if (!candidates.length) return null
   return candidates.reduce((best, item) => item.score > best.score ? item : best)
 })
+function bestScoreForNight(night: NightAnalysis['astronomicalNight'] | undefined) {
+  const scores = conditions.value?.scores ?? []
+  if (!night || !scores.length) return null
+  const candidates = scores.filter((item) => {
+    const at = dateFromZonedLocalTime(item.time, observatoryTimezone.value).getTime()
+    return at >= night.start.getTime() && at <= night.end.getTime()
+  })
+  return candidates.reduce<TonightScore | null>((best, item) => !best || item.score > best.score ? item : best, null)
+}
+const tomorrowScore = computed(() => bestScoreForNight(tomorrowNightAnalysis.value?.astronomicalNight))
 const hasTonightScoreDetails = computed(() => Boolean(tonightScore.value?.factors && tonightScore.value?.weather))
 const scoreWeather = computed(() => hasTonightScoreDetails.value ? tonightScore.value?.weather ?? null : null)
 const displayedConditions = computed<ObservingConditions['current'] | ObservingConditions['hourly'][number] | null>(() => {
@@ -271,6 +342,9 @@ const scoreFactors = computed<ScoreFactorPart[] | null>(() => {
   if (score.factors.visibilityPenalty > 0) parts.push({ key: 'visibility', label: '通透度', value: -score.factors.visibilityPenalty, kind: 'penalty' })
   if (score.factors.moonPenalty > 0) parts.push({ key: 'moon', label: '月光', value: -score.factors.moonPenalty, kind: 'penalty' })
   if (score.factors.aerosolPenalty > 0) parts.push({ key: 'aerosol', label: '气溶胶', value: -score.factors.aerosolPenalty, kind: 'penalty' })
+  if (score.factors.windPenalty > 0) parts.push({ key: 'wind', label: '风与阵风', value: -score.factors.windPenalty, kind: 'penalty' })
+  if (score.factors.dewPenalty > 0) parts.push({ key: 'dew', label: '结露风险', value: -score.factors.dewPenalty, kind: 'penalty' })
+  if (score.factors.weatherPenalty > 0) parts.push({ key: 'weather', label: '天气现象', value: -score.factors.weatherPenalty, kind: 'penalty' })
   return parts
 })
 function factorBarWidth(part: ScoreFactorPart) {
@@ -278,30 +352,7 @@ function factorBarWidth(part: ScoreFactorPart) {
   const scale = scoreFactors.value?.reduce((max, item) => Math.max(max, Math.abs(item.value)), 0) ?? 30
   return `${Math.max(6, Math.abs(part.value) / Math.max(1, scale) * 100)}%`
 }
-// 今夜建议（动态推荐）：器材选择 → 逐小时评分 × 天文夜窗口 × 逐目标月光/曙暮光 → 最佳窗口与推荐目标。
-const EQUIPMENT_STORAGE_KEY = 'aurora.observatory.equipment'
-const equipment = ref<'naked' | 'binoculars' | 'telescope'>(loadEquipmentPreference())
-function loadEquipmentPreference(): 'naked' | 'binoculars' | 'telescope' {
-  try {
-    const stored = window.localStorage.getItem(EQUIPMENT_STORAGE_KEY)
-    return stored === 'binoculars' || stored === 'telescope' ? stored : 'naked'
-  } catch {
-    return 'naked'
-  }
-}
-watch(equipment, (value) => {
-  try {
-    window.localStorage.setItem(EQUIPMENT_STORAGE_KEY, value)
-  } catch {
-    // localStorage 不可用时静默失败，不影响功能
-  }
-})
-const equipmentOptions = [
-  { id: 'naked' as const, label: '裸眼', magnitudeLimit: 4.5, note: '只推荐最亮目标' },
-  { id: 'binoculars' as const, label: '双筒', magnitudeLimit: 8.5, note: '可尝试天王星' },
-  { id: 'telescope' as const, label: '望远镜', magnitudeLimit: Infinity, note: '全部九体' },
-]
-const equipmentNote = computed(() => equipmentOptions.find((item) => item.id === equipment.value)?.note ?? '')
+// 今夜建议（动态推荐）：逐小时评分 × 天文夜窗口 × 逐目标月光/曙暮光 → 最佳窗口与推荐目标。
 // 推荐目标 → 星图定位：切到星图页、平滑转动罗盘到该天体当前方位、并展开该行详情。
 function locateRecommendedBody(body: BodyId) {
   const track = tracks.value.find((item) => item.id === body)
@@ -320,7 +371,6 @@ const recommendation = computed(() => {
   if (!tracks.value.length || !night || !coords) return null
   const nightStart = night.start
   const nightEnd = night.end
-  const magnitudeLimit = equipmentOptions.find((item) => item.id === equipment.value)?.magnitudeLimit ?? Infinity
   // 仅认天文夜内已覆盖的逐小时预报；绝不以白天的高分代替“今夜”结果。
   const darkHours = hourly.filter((item) => {
     const at = dateFromZonedLocalTime(item.time, observatoryTimezone.value)
@@ -336,9 +386,9 @@ const recommendation = computed(() => {
     const bestScore = Math.max(...darkHours.map((item) => item.score))
     if (bestScore >= 40) {
       bestHour = darkHours.find((item) => item.score === bestScore) ?? null
-      windowLabel = bestHour ? `最佳窗口 ${bestHour.time.slice(11, 16)} · 评分 ${bestScore}` : '未来 24 小时未见理想窗口'
+      windowLabel = bestHour ? `最佳窗口 ${bestHour.time.slice(11, 16)} · 评分 ${bestScore}` : '未来 48 小时未见理想窗口'
     } else {
-      windowLabel = '未来 24 小时天气与月光条件有限'
+      windowLabel = '未来 48 小时天气与月光条件有限'
     }
   } else {
     windowLabel = hourly.length ? `今夜天文夜暂未进入天气预报范围 · ${formatTime(nightStart)} – ${formatTime(nightEnd)}` : `天气源暂不可用，天文夜 ${formatTime(nightStart)} – ${formatTime(nightEnd)}`
@@ -363,7 +413,7 @@ const recommendation = computed(() => {
       }
       return { body, best }
     })
-    .filter((entry) => entry.best && (entry.best.magnitude ?? Infinity) <= magnitudeLimit)
+    .filter((entry) => entry.best)
     .sort((a, b) => (b.best?.score ?? -Infinity) - (a.best?.score ?? -Infinity))
     .slice(0, 3)
     .map((entry) => {
@@ -385,7 +435,7 @@ const recommendation = computed(() => {
     })
   return { window: bestHour, windowLabel, targets, weatherAvailable, weatherCoverage }
 })
-const hourlyForecast = computed(() => conditions.value?.hourly.slice(0, 24) ?? [])
+const hourlyForecast = computed(() => conditions.value?.hourly.slice(0, 48) ?? [])
 const forecastDateGroups = computed(() => {
   const groups: Array<{ date: string; hours: number }> = []
   for (const hour of hourlyForecast.value) {
@@ -404,7 +454,13 @@ const curatedEvents = computed(() => astronomyEvents.value
     const start = new Date(event.startsAt).getTime()
     return start >= now.value.getTime() - 36 * 60 * 60_000 && start <= now.value.getTime() + 31 * 24 * 60 * 60_000
   }))
-const visibleCuratedEvents = computed(() => showAllCuratedEvents.value ? curatedEvents.value : curatedEvents.value.slice(0, 5))
+const visibleCuratedEvents = computed(() => {
+  if (showAllCuratedEvents.value) return curatedEvents.value
+  // 近地小天体数量很多，默认摘要先保留对普通观测者更可执行的事件；展开后仍按日期完整展示。
+  const highlights = curatedEvents.value.filter((event) => event.kind !== 'small_body_close_approach')
+  const closeApproaches = curatedEvents.value.filter((event) => event.kind === 'small_body_close_approach')
+  return [...highlights, ...closeApproaches].slice(0, 5)
+})
 const hasHiddenCuratedEvents = computed(() => curatedEvents.value.length > 5)
 
 function formatTime(value: Date | null) {
@@ -433,6 +489,18 @@ function formatEventMoment(value?: string) {
     timeZone: observatoryTimezone.value,
     month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
   }).format(at)
+}
+
+function formatSourceDate(value?: string) {
+  if (!value) return '尚无成功记录'
+  const at = new Date(value)
+  return Number.isNaN(at.getTime()) ? value : new Intl.DateTimeFormat('zh-CN', { timeZone: observatoryTimezone.value, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(at)
+}
+
+function sourceStatusMessage(source: AstronomyEventSourceStatus) {
+  if (source.success !== false) return `最近同步 ${formatSourceDate(source.lastSuccessAt)}`
+  if (source.code === 'imo_meteor_calendar') return 'IMO 年度日历当前不可用；继续使用上次缓存'
+  return '部分资料同步失败；继续使用上次缓存'
 }
 
 function formatImageWindowDate(value?: string) {
@@ -490,17 +558,6 @@ function toggleEvent(event: AstronomyEvent) {
 
 function toggleAllCuratedEvents() {
   showAllCuratedEvents.value = !showAllCuratedEvents.value
-}
-
-function openEventInSky(event: AstronomyEvent) {
-  const focusMinute = event.local?.bestAt ? Math.floor(new Date(event.local.bestAt).getMinutes() + new Date(event.local.bestAt).getHours() * 60) : null
-  const focusAzimuth = event.local?.azimuthDegrees ?? null
-  if (focusMinute == null || focusAzimuth == null) return
-  followingRealTime.value = false
-  minuteOfDay.value = focusMinute
-  scheduleSkyView(focusAzimuth)
-  activePage.value = 'sky'
-  window.history.pushState({}, '', '#astronomy-sky')
 }
 
 function formatDistance(distanceAu: number | null) {
@@ -1054,6 +1111,75 @@ function requestLocation() {
   )
 }
 
+function toggleLocationEditor() {
+  showLocationEditor.value = !showLocationEditor.value
+}
+
+function useCoordinates(nextLatitude: number, nextLongitude: number, label?: string) {
+  if (!Number.isFinite(nextLatitude) || nextLatitude < -90 || nextLatitude > 90 || !Number.isFinite(nextLongitude) || nextLongitude < -180 || nextLongitude > 180) {
+    locationFormError.value = '纬度需在 -90～90，经度需在 -180～180。'
+    return
+  }
+  const revision = ++locationRevision
+  locationLookupController?.abort()
+  latitude.value = nextLatitude
+  longitude.value = nextLongitude
+  manualLatitude.value = nextLatitude.toFixed(6)
+  manualLongitude.value = nextLongitude.toFixed(6)
+  locationFormError.value = ''
+  showLocationEditor.value = false
+  if (label) {
+    locationLabel.value = label
+    locationStatus.value = 'located'
+  } else {
+    void resolveLocationName(nextLatitude, nextLongitude, revision)
+  }
+}
+
+function submitManualCoordinates() {
+  useCoordinates(Number(manualLatitude.value), Number(manualLongitude.value))
+}
+
+async function submitLocationSearch() {
+  const query = locationQuery.value.trim()
+  if (query.length < 2) {
+    locationFormError.value = '请输入至少两个字的乡、镇、区县或城市名称。'
+    return
+  }
+  locationSearchController?.abort()
+  const controller = new AbortController()
+  locationSearchController = controller
+  locationSearchStatus.value = 'loading'
+  locationFormError.value = ''
+  try {
+    const response = await searchObserverPlaces(query, controller.signal)
+    if (controller.signal.aborted) return
+    locationSearchResults.value = response.places
+    locationSearchStatus.value = 'ready'
+    if (!response.places.length) locationFormError.value = '没有匹配到行政区划，请补充省市名称后重试。'
+  } catch {
+    if (!controller.signal.aborted) {
+      locationSearchStatus.value = 'error'
+      locationFormError.value = '地点搜索暂不可用，你仍可直接输入经纬度。'
+    }
+  } finally {
+    if (locationSearchController === controller) locationSearchController = undefined
+  }
+}
+
+function selectLocationCandidate(place: ObserverPlaceCandidate) {
+  useCoordinates(place.latitude, place.longitude, place.label)
+  locationSearchResults.value = []
+}
+
+function locateCatalogObject(item: SkyCatalogObject) {
+  const position = catalogPositions.value.get(item.id)
+  if (!position?.visible) return
+  selectedCatalogId.value = item.id
+  skySearchQuery.value = item.name
+  revealSkyDirection(position.azimuth)
+}
+
 async function loadConditions(currentLatitude: number, currentLongitude: number) {
   conditionsController?.abort()
   const controller = new AbortController()
@@ -1080,6 +1206,7 @@ async function loadMoonDay(currentLatitude: number, currentLongitude: number) {
 // 天象事件：后端每日生成/校验，前端只请求 AURORA API。
 // 未定位时返回全球日历（locationVisibility=location_required）。
 const astronomyEvents = ref<AstronomyEvent[]>([])
+const astronomyEventSources = ref<AstronomyEventSourceStatus[]>([])
 let astronomyEventsController: AbortController | undefined
 const astronomyEventsStatus = ref<'idle' | 'loading' | 'ready' | 'error'>('idle')
 
@@ -1096,6 +1223,7 @@ async function loadAstronomyEvents() {
     }, controller.signal)
     if (!controller.signal.aborted) {
       astronomyEvents.value = response.events
+      astronomyEventSources.value = response.sources ?? []
       astronomyEventsStatus.value = 'ready'
     }
   } catch {
@@ -1187,6 +1315,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   locationRevision += 1
   locationLookupController?.abort()
+  locationSearchController?.abort()
   conditionsController?.abort()
   imageWallController?.abort()
   if (homeExitTimer !== undefined) window.clearTimeout(homeExitTimer)
@@ -1205,11 +1334,26 @@ onBeforeUnmount(() => {
       <AuroraBrand class="sky-brand" subtitle="SKY OBSERVATORY" variant="sky" :leaving="skyLeaving" @click="beginHomeExit" />
       <div class="sidebar-divider" aria-hidden="true" />
 
-      <button class="sky-location" type="button" :aria-busy="locationStatus === 'locating' || locationStatus === 'resolving'" @click="requestLocation">
+      <button class="sky-location" type="button" :aria-expanded="showLocationEditor" aria-controls="location-editor" @click="toggleLocationEditor">
         <span class="location-mark" aria-hidden="true" />
         <span aria-live="polite"><strong>{{ locationLabel }}</strong><small>{{ coordinateLabel }}</small></span>
-        <i>{{ locationAction }}</i>
+        <i>更改</i>
       </button>
+      <section v-if="showLocationEditor" id="location-editor" class="location-editor" aria-label="设置观测地点">
+        <button class="location-gps" type="button" :disabled="locationStatus === 'locating' || locationStatus === 'resolving'" @click="requestLocation">{{ locationStatus === 'locating' || locationStatus === 'resolving' ? '正在定位…' : '使用设备定位' }}</button>
+        <form @submit.prevent="submitLocationSearch">
+          <label for="location-query">搜索乡镇、区县或城市</label>
+          <div><input id="location-query" v-model="locationQuery" autocomplete="address-level2" placeholder="例：上海市崇明区" /><button type="submit" :disabled="locationSearchStatus === 'loading'">搜索</button></div>
+        </form>
+        <ul v-if="locationSearchResults.length" class="location-results">
+          <li v-for="place in locationSearchResults" :key="`${place.adcode}-${place.latitude}-${place.longitude}`"><button type="button" @click="selectLocationCandidate(place)"><strong>{{ place.label }}</strong><small>{{ place.latitude.toFixed(4) }}, {{ place.longitude.toFixed(4) }} · WGS84</small></button></li>
+        </ul>
+        <form @submit.prevent="submitManualCoordinates">
+          <label>或直接输入 WGS84 经纬度</label>
+          <div class="coordinate-inputs"><input v-model="manualLatitude" inputmode="decimal" aria-label="纬度" placeholder="纬度" /><input v-model="manualLongitude" inputmode="decimal" aria-label="经度" placeholder="经度" /><button type="submit">使用</button></div>
+        </form>
+        <p v-if="locationFormError" class="location-form-error" role="alert">{{ locationFormError }}</p>
+      </section>
 
       <nav class="sky-menu" aria-label="天文观测页面">
         <button v-for="item in menu" :key="item.id" type="button" :class="{ active: activePage === item.id }" @click="selectPage(item.id)">
@@ -1242,6 +1386,9 @@ onBeforeUnmount(() => {
             <span v-for="part in scoreFactors" :key="part.key" :class="part.kind"><i :style="{ width: factorBarWidth(part) }" /><small>{{ part.label }}</small><strong>{{ part.value.toFixed(1) }}</strong></span>
             <em v-if="!scoreFactors.length">当前没有明显扣分项</em>
           </div>
+          <article class="tomorrow-score" aria-label="明夜观测条件预估">
+            <span>明夜预估</span><strong>{{ tomorrowScore ? `${tomorrowScore.score}/100` : '暂未覆盖' }}</strong><small v-if="tomorrowScore">最佳 {{ tomorrowScore.time.slice(11, 16) }} · {{ tomorrowScore.verdict }}</small><small v-else>只在小时级天气预报覆盖明夜时给出，不延伸到更远日期。</small>
+          </article>
         </section>
 
         <section class="observing-console" aria-label="今晚建议与当前观测环境">
@@ -1253,14 +1400,11 @@ onBeforeUnmount(() => {
               <span v-else-if="!activeCoordinates">允许定位后计算今晚的目标与窗口</span>
               <em v-if="recommendation && !recommendation.weatherAvailable" class="advice-degraded">{{ recommendation.weatherCoverage === 'outside' ? '天气预报暂未覆盖这段天文夜，以下目标来自本地星历' : '天气源不可用，以下目标与窗口来自本地星历' }}</em>
             </div>
-            <div class="advice-equipment" role="group" aria-label="观测器材">
-              <button v-for="option in equipmentOptions" :key="option.id" type="button" :class="{ active: equipment === option.id }" :title="option.note" @click="equipment = option.id">{{ option.label }}</button>
-            </div>
           </div>
           <ul v-if="recommendation?.targets.length" class="observing-targets">
             <li v-for="target in recommendation.targets" :key="target.id"><i :style="{ color: target.tint }">{{ target.glyph }}</i><span><strong>{{ target.name }}</strong><small>{{ target.summary }}</small><em v-if="target.tip">{{ target.tip }}</em></span><button type="button" :disabled="!target.visible" :title="target.visible ? `在星图中定位${target.name}` : '当前在地平线下，无法定位'" @click="locateRecommendedBody(target.id)">定位</button></li>
           </ul>
-          <p v-else-if="recommendation" class="observing-targets-empty">{{ recommendation.weatherAvailable ? '未来 24 小时天气与月光条件有限，建议短时观察亮目标，或改日再安排。' : '天文夜内暂无可观测的亮目标，可切换器材或改日再安排。' }}</p>
+          <p v-else-if="recommendation" class="observing-targets-empty">{{ recommendation.weatherAvailable ? '未来 48 小时天气与月光条件有限，建议短时观察亮目标，或改日再安排。' : '天文夜内暂无可观测的亮目标，可改日再安排。' }}</p>
 
           <div class="current-observation">
             <header><div><p>CONDITION SNAPSHOT / {{ conditionsMomentLabel }}</p><h3>{{ followingRealTime ? '当前' : '预览' }}观测环境</h3></div><span v-if="displayedConditions">{{ displayedConditions.time.slice(11, 16) }} · {{ conditions?.source }}</span><span v-else>等待环境数据</span></header>
@@ -1287,8 +1431,8 @@ onBeforeUnmount(() => {
         </section>
 
         <section class="forecast-section">
-          <div class="forecast-heading"><p>天气预报</p><span>未来 24 小时 · {{ conditions?.source ?? '等待天气源' }} · {{ conditions?.timezone ?? '—' }}</span></div>
-          <div v-if="hourlyForecast.length" class="forecast-matrix" role="table" aria-label="未来24小时观测天气预报">
+          <div class="forecast-heading"><p>天气预报</p><span>今天与明天 · 最多 48 小时 · {{ conditions?.source ?? '等待天气源' }} · {{ conditions?.timezone ?? '—' }}</span></div>
+          <div v-if="hourlyForecast.length" class="forecast-matrix" role="table" aria-label="未来48小时观测天气预报">
             <div class="matrix-labels" aria-hidden="true">
               <span><strong>日期</strong><small>月 / 日</small></span>
               <span><strong>时间</strong><small>HH:mm</small></span>
@@ -1335,24 +1479,33 @@ onBeforeUnmount(() => {
       </section>
 
       <section v-else-if="activePage === 'sky'" class="sky-map-page page-stack">
-        <div class="section-heading"><h2>星图</h2></div>
+        <div class="section-heading"><h2>星图</h2><span>亮星 · 星座骨架 · 银河方向 · 梅西耶精选</span></div>
+        <div class="sky-catalog-search" @pointerdown.stop>
+          <label for="sky-object-search">搜索天体</label><input id="sky-object-search" v-model="skySearchQuery" placeholder="天狼星、M31、猎户座…" autocomplete="off" />
+          <ul v-if="catalogSearchResults.length"><li v-for="item in catalogSearchResults" :key="item.id"><button type="button" :disabled="!catalogPositions.get(item.id)?.visible" @click="locateCatalogObject(item)"><span><strong>{{ item.name }}</strong><small>{{ item.nameEn }} · {{ item.constellation }}</small></span><i>{{ catalogPositions.get(item.id)?.visible ? '定位' : '地平线下' }}</i></button></li></ul>
+        </div>
         <section class="horizon-section">
           <div class="horizon-field" :class="{ 'has-location': activeCoordinates, 'is-dragging': skyViewDragging, 'is-auto-turning': skyViewAutoTurning }" :style="horizonFieldStyle" @pointerdown="beginSkyViewDrag" @pointermove="dragSkyView" @pointerup="endSkyViewDrag" @pointercancel="endSkyViewDrag">
             <div class="sky-night" aria-hidden="true" />
             <div class="star-grain" aria-hidden="true" />
             <svg class="altitude-guides" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true">
+              <g class="milky-way-band"><path v-for="(path, index) in milkyWayPaths" :key="`milky-${index}`" :d="path" vector-effect="non-scaling-stroke" /></g>
+              <g v-for="constellation in constellationGeometry" :key="constellation.name" class="constellation-lines"><path v-for="(path, index) in constellation.paths" :key="`${constellation.name}-${index}`" :d="path" vector-effect="non-scaling-stroke" /></g>
               <path v-for="guide in altitudeGuides" :key="guide.altitude" class="altitude-guide" :d="guide.path" vector-effect="non-scaling-stroke" />
               <g v-if="selectedSkyTrajectory" class="sky-trajectory" :style="{ '--trajectory-tint': selectedSkyTrajectory.tint }">
                 <path v-for="(path, index) in selectedSkyTrajectory.pastPaths" :key="`past-${index}`" class="trajectory-past" :d="path" vector-effect="non-scaling-stroke" />
                 <path v-for="(path, index) in selectedSkyTrajectory.futurePaths" :key="`future-${index}`" class="trajectory-future" :d="path" vector-effect="non-scaling-stroke" />
               </g>
             </svg>
+            <span v-for="constellation in constellationGeometry" :key="`name-${constellation.name}`" v-show="constellation.label" class="constellation-name" :style="{ left: `${(constellation.label?.x ?? 0) * 100}%`, top: `${(constellation.label?.y ?? 0) * 100}%` }">{{ constellation.name }}</span>
+            <button v-for="entry in visibleCatalogStars" :key="entry.item.id" class="catalog-star" :class="{ selected: selectedCatalogId === entry.item.id }" type="button" :style="{ left: `${entry.projection.x * 100}%`, top: `${entry.projection.y * 100}%`, '--star-size': `${Math.max(2, 5.4 - entry.item.magnitude)}px` }" :aria-label="`${entry.item.name}，${entry.item.constellation}`" :title="`${entry.item.name} / ${entry.item.nameEn} · ${entry.item.magnitude.toFixed(1)} 等`" @click="selectedCatalogId = entry.item.id" @pointerdown.stop><i /><span v-if="entry.item.magnitude <= .5 || selectedCatalogId === entry.item.id">{{ entry.item.name }}</span></button>
+            <button v-for="entry in visibleMessierObjects" :key="entry.item.id" class="catalog-messier" :class="{ selected: selectedCatalogId === entry.item.id }" type="button" :style="{ left: `${entry.projection.x * 100}%`, top: `${entry.projection.y * 100}%` }" :title="`${entry.item.name} / ${entry.item.nameEn}`" @click="selectedCatalogId = entry.item.id" @pointerdown.stop><i>◇</i><span>{{ entry.item.nameEn }}</span></button>
             <template v-for="guide in altitudeGuides" :key="`label-${guide.altitude}`"><span v-if="guide.label" class="altitude-label" :style="altitudeLabelStyle(guide.label)">{{ guide.altitude }}°</span></template>
             <div v-for="body in horizonBodies" :key="body.id" class="sky-body" :class="{ 'is-active': expandedBodyId === body.id }" :style="horizonStyle(body)" role="button" tabindex="0" :aria-label="`查看${body.name}详情`" :aria-expanded="expandedBodyId === body.id" @click="revealBody(body.id)" @keydown.enter.prevent="revealBody(body.id)" @keydown.space.prevent="revealBody(body.id)" @pointerdown.stop><i>{{ body.glyph }}</i><span>{{ body.name }}</span></div>
             <div class="horizon-ridge horizon-ridge-far" aria-hidden="true" />
             <div class="horizon-ridge horizon-ridge-near" aria-hidden="true" />
             <div v-if="!activeCoordinates" class="sky-empty"><strong>允许定位后生成本地地平天空</strong><span>星历计算不需要 Key；它只需要你的经纬度与时刻。</span><button type="button" @click="requestLocation">请求位置</button></div>
-            <span v-if="activeCoordinates" class="sky-visible-count"><small>当前视野</small>{{ horizonBodies.length }}<small>天体</small></span>
+            <span v-if="activeCoordinates" class="sky-visible-count"><small>当前视野</small>{{ horizonBodies.length + visibleCatalogStars.length + visibleMessierObjects.length }}<small>目标</small></span>
             <div
               v-if="activeCoordinates"
               class="heading-dial"
@@ -1405,6 +1558,9 @@ onBeforeUnmount(() => {
         </section>
         <section class="curated-events" aria-labelledby="curated-events-title">
           <div class="section-heading"><h2 id="curated-events-title">未来天象事件</h2></div>
+          <div v-if="astronomyEventSources.length" class="event-source-status" aria-label="天象资料源同步状态">
+            <article v-for="source in astronomyEventSources" :key="source.code" :class="{ failed: source.success === false }"><i aria-hidden="true" /><div><strong>{{ source.name }}</strong><small>{{ sourceStatusMessage(source) }}</small></div><span>{{ source.coverageStart && source.coverageEnd ? `${source.coverageStart.slice(0, 10)} → ${source.coverageEnd.slice(0, 10)}` : `${source.recordsWritten} 条` }}</span></article>
+          </div>
           <div v-if="curatedEvents.length" class="curated-event-list" aria-live="polite">
             <article v-for="event in visibleCuratedEvents" :key="event.id" :class="{ expanded: expandedEventId === event.id }">
               <button type="button" :aria-expanded="expandedEventId === event.id" :aria-controls="`event-detail-${event.id}`" @click="toggleEvent(event)">
@@ -1412,7 +1568,7 @@ onBeforeUnmount(() => {
               </button>
               <div v-if="expandedEventId === event.id" :id="`event-detail-${event.id}`" class="curated-event-detail" role="region">
                 <dl><div><dt>最佳时段</dt><dd>{{ formatEventMoment(event.local?.bestAt) }}</dd></div><div><dt>可见窗口</dt><dd>{{ event.local?.windowStart ? `${formatEventMoment(event.local.windowStart)} – ${formatEventMoment(event.local.windowEnd)}` : '—' }}</dd></div><div><dt>方位</dt><dd>{{ event.local?.azimuthDegrees != null ? `${Math.round(event.local.azimuthDegrees)}°` : '—' }}</dd></div><div><dt>高度</dt><dd>{{ event.local?.altitudeDegrees != null ? `${Math.round(event.local.altitudeDegrees)}°` : '—' }}</dd></div><div><dt>精度</dt><dd>{{ eventPrecision(event) }}</dd></div><div><dt>核验</dt><dd>{{ event.verifiedAt }}</dd></div><div><dt>来源</dt><dd>{{ event.sourceName }}</dd></div></dl>
-                <div class="event-detail-actions"><button v-if="event.local?.bestAt && event.local?.azimuthDegrees != null" type="button" @click="openEventInSky(event)">在星图预览</button><a :href="event.sourceUrl" target="_blank" rel="noreferrer">查看 {{ event.sourceName }}</a></div>
+                <div class="event-detail-actions"><a :href="event.sourceUrl" target="_blank" rel="noreferrer">查看 {{ event.sourceName }}</a></div>
               </div>
             </article>
           </div>
@@ -1436,7 +1592,7 @@ onBeforeUnmount(() => {
               <article v-for="window in imageWall.recent" :key="window.id" class="image-window" :class="[`image-window--${window.sourceId}`, { 'is-unavailable': window.status === 'error' }]">
                 <div class="image-window-meta"><span>{{ window.sourceName }}</span></div>
                 <a v-if="window.status === 'ready'" class="image-window-media" :href="window.sourceUrl" target="_blank" rel="noreferrer" :aria-label="`在来源网站打开：${window.title}`">
-                  <img v-if="window.thumbnailUrl || window.imageUrl" :src="window.thumbnailUrl || window.imageUrl" :alt="window.title" loading="eager" />
+                  <img v-if="window.mediaType === 'image' ? window.imageUrl : window.thumbnailUrl" :src="window.mediaType === 'image' ? window.imageUrl : window.thumbnailUrl" :alt="window.title" loading="eager" />
                   <span v-else class="image-window-video">该来源提供视频内容<br />前往官方页面观看</span>
                   <span v-if="window.mediaType === 'video'" class="image-window-play" aria-hidden="true">观看视频</span>
                 </a>
@@ -1457,7 +1613,7 @@ onBeforeUnmount(() => {
               <article v-for="window in imageWall.collection" :key="window.id" class="image-window" :class="[`image-window--${window.sourceId}`, { 'is-unavailable': window.status === 'error' }]">
             <div class="image-window-meta"><span>{{ window.sourceName }}</span></div>
             <a v-if="window.status === 'ready'" class="image-window-media" :href="window.sourceUrl" target="_blank" rel="noreferrer" :aria-label="`在来源网站打开：${window.title}`">
-              <img v-if="window.thumbnailUrl || window.imageUrl" :src="window.thumbnailUrl || window.imageUrl" :alt="window.title" loading="lazy" />
+              <img v-if="window.mediaType === 'image' ? window.imageUrl : window.thumbnailUrl" :src="window.mediaType === 'image' ? window.imageUrl : window.thumbnailUrl" :alt="window.title" loading="lazy" />
               <span v-else class="image-window-video">该来源提供视频内容<br />前往官方页面观看</span>
               <span v-if="window.mediaType === 'video'" class="image-window-play" aria-hidden="true">观看视频</span>
             </a>
@@ -1494,7 +1650,7 @@ onBeforeUnmount(() => {
   display:grid; grid-template-columns:210px minmax(0,1fr); min-height:100dvh;
   color:var(--sky-ink); background:var(--sky-deep); font-family:var(--font-sans,system-ui,sans-serif);
 }
-.sky-sidebar { position:sticky; top:0; display:flex; flex-direction:column; min-height:100dvh; padding:30px 20px 18px; border-right:1px solid var(--sky-line); background:linear-gradient(180deg,var(--sky-panel) 0%,var(--sky-deep) 100%); }
+.sky-sidebar { position:sticky; z-index:30; top:0; display:flex; flex-direction:column; min-height:100dvh; padding:30px 20px 18px; border-right:1px solid var(--sky-line); background:linear-gradient(180deg,var(--sky-panel) 0%,var(--sky-deep) 100%); }
 .sky-brand { margin-left:5px; color:var(--sky-ink); } /* 图标轨道环向左探出约 5px，右移品牌使图标最左端与下方分隔线左端对齐 */
 .sky-location { display:grid; grid-template-columns:22px 1fr auto; gap:10px; align-items:center; width:100%; margin:0 0 28px; padding:0; color:inherit; text-align:left; background:none; border:0; cursor:pointer; }
 .sidebar-divider { margin:24px 0 16px; border-top:1px solid var(--sky-line); }
@@ -1504,6 +1660,24 @@ onBeforeUnmount(() => {
 .sky-location strong { font-size:11px; font-weight:600; }
 .sky-location small { margin-top:4px; color:var(--sky-muted); font:9px var(--font-mono,monospace); }
 .sky-location i { color:var(--sky-cyan); font:8px var(--font-mono,monospace); font-style:normal; letter-spacing:.08em; }
+.location-editor { position:absolute; z-index:20; top:110px; left:18px; width:310px; padding:16px; color:var(--sky-ink); background:rgba(13,24,40,.98); border:1px solid rgba(157,184,232,.34); border-radius:12px; box-shadow:0 18px 60px rgba(0,0,0,.38); }
+.location-editor form + form { margin-top:15px; padding-top:14px; border-top:1px solid var(--sky-line); }
+.location-editor label { display:block; margin-bottom:7px; color:var(--sky-muted); font-size:9px; }
+.location-editor form > div { display:flex; gap:6px; }
+.location-editor input { min-width:0; width:100%; padding:8px 9px; color:var(--sky-ink); background:var(--sky-deep); border:1px solid var(--sky-line); border-radius:5px; outline:0; }
+.location-editor input:focus { border-color:var(--sky-cyan); }
+.location-editor button { flex:none; padding:7px 10px; color:var(--sky-cyan); background:rgba(157,184,232,.05); border:1px solid var(--sky-line); border-radius:5px; cursor:pointer; }
+.location-editor button:hover:not(:disabled),.location-editor button:focus-visible { color:var(--sky-ink); border-color:var(--sky-cyan); outline:0; }
+.location-editor button:disabled { opacity:.5; cursor:wait; }
+.location-gps { width:100%; margin-bottom:15px; }
+.coordinate-inputs input { width:82px; }
+.location-results { max-height:190px; margin:8px 0 0; padding:0; overflow:auto; list-style:none; border:1px solid var(--sky-line); }
+.location-results li + li { border-top:1px solid var(--sky-line); }
+.location-results button { display:flex; justify-content:space-between; gap:12px; width:100%; padding:9px; text-align:left; border:0; border-radius:0; }
+.location-results strong,.location-results small { display:block; }
+.location-results strong { font-size:10px; font-weight:500; }
+.location-results small { color:var(--sky-muted); font:8px var(--font-mono,monospace); }
+.location-form-error { margin:10px 0 0; color:#f28f84; font-size:9px; line-height:1.5; }
 .sky-menu { border-top:1px solid var(--sky-line); }
 .sky-menu button { position:relative; display:grid; grid-template-columns:25px 1fr auto; align-items:center; width:calc(100% + 40px); min-height:60px; margin-left:-20px; padding:0 20px 0 28px; color:var(--sky-muted); text-align:left; background:none; border:0; border-bottom:1px solid var(--sky-line); cursor:pointer; transition:background .2s,color .2s; }
 .sky-menu button::before { position:absolute; top:0; bottom:0; left:0; width:2px; background:var(--sky-amber); content:""; transform:scaleY(0); transform-origin:center; transition:transform .2s; }
@@ -1565,16 +1739,16 @@ onBeforeUnmount(() => {
 .score-factors small { grid-column:1; color:var(--sky-muted); font-size:9px; }
 .score-factors strong { grid-column:2; font:11px var(--font-mono,monospace); }
 .score-factors > em { grid-column:2 / -1; display:flex; align-items:center; min-height:34px; color:var(--sky-muted); font-size:10px; font-style:normal; }
+.tomorrow-score { grid-column:1 / -1; display:grid; grid-template-columns:auto auto 1fr; gap:12px; align-items:baseline; padding-top:14px; border-top:1px solid var(--sky-line); }
+.tomorrow-score span { color:var(--sky-amber); font:9px var(--font-mono,monospace); letter-spacing:.08em; }
+.tomorrow-score strong { font:15px var(--font-mono,monospace); }
+.tomorrow-score small { color:var(--sky-muted); font-size:10px; }
 .observing-console { margin-top:18px; overflow:hidden; border:1px solid var(--sky-line); border-radius:18px; background:rgba(172,193,226,.025); }
 .observing-brief { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:28px; align-items:end; padding:25px 28px 20px; }
 .advice-window p { margin:0; color:var(--sky-muted); font-size:10px; }
 .advice-window h3 { max-width:760px; margin:6px 0 4px; font-size:21px; font-weight:500; letter-spacing:-.02em; }
 .advice-window > span { color:var(--sky-muted); font-size:11px; }
 .advice-degraded { display:block; margin-top:6px; color:var(--sky-amber); font-size:10px; font-style:normal; }
-.advice-equipment { display:flex; gap:6px; align-self:end; }
-.advice-equipment button { padding:6px 12px; color:var(--sky-muted); font-size:10px; border:1px solid var(--sky-line); border-radius:999px; background:transparent; cursor:pointer; }
-.advice-equipment button:hover { border-color:rgba(165,188,222,.4); }
-.advice-equipment button.active { color:var(--sky-amber); border-color:rgba(234,196,120,.5); background:rgba(234,196,120,.08); }
 .observing-targets { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:22px; margin:0; padding:0 28px 24px; list-style:none; }
 .observing-targets li { display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:10px; align-items:start; min-width:0; }
 .observing-targets li i { font-style:normal; font-size:22px; line-height:1; }
@@ -1642,6 +1816,19 @@ onBeforeUnmount(() => {
 .integration-state p { max-width:590px; margin:0; color:var(--sky-muted); font-size:12px; line-height:1.65; }
 
 /* ---------- 星图（天幕） ---------- */
+.sky-catalog-search { position:relative; z-index:8; display:grid; grid-template-columns:auto minmax(180px,320px); gap:10px; align-items:center; width:max-content; max-width:100%; margin:-4px 0 12px auto; }
+.sky-catalog-search label { color:var(--sky-muted); font-size:9px; }
+.sky-catalog-search input { width:100%; padding:8px 10px; color:var(--sky-ink); background:var(--sky-sunken); border:1px solid var(--sky-line); border-radius:6px; outline:0; }
+.sky-catalog-search input:focus { border-color:var(--sky-cyan); }
+.sky-catalog-search ul { position:absolute; z-index:12; top:calc(100% + 6px); right:0; width:320px; max-width:85vw; margin:0; padding:0; overflow:hidden; list-style:none; background:rgba(13,24,40,.98); border:1px solid rgba(157,184,232,.28); border-radius:8px; box-shadow:0 18px 42px rgba(0,0,0,.34); }
+.sky-catalog-search li + li { border-top:1px solid var(--sky-line); }
+.sky-catalog-search li button { display:flex; justify-content:space-between; align-items:center; gap:14px; width:100%; padding:9px 11px; color:inherit; text-align:left; background:transparent; border:0; cursor:pointer; }
+.sky-catalog-search li button:hover:not(:disabled),.sky-catalog-search li button:focus-visible { background:rgba(157,184,232,.08); outline:0; }
+.sky-catalog-search li button:disabled { opacity:.42; cursor:not-allowed; }
+.sky-catalog-search li strong,.sky-catalog-search li small { display:block; }
+.sky-catalog-search li strong { font-size:10px; font-weight:500; }
+.sky-catalog-search li small { margin-top:2px; color:var(--sky-muted); font:8px var(--font-mono,monospace); }
+.sky-catalog-search li i { color:var(--sky-cyan); font:8px var(--font-mono,monospace); font-style:normal; }
 .horizon-section { border:1px solid var(--sky-line); background:var(--sky-panel); border-radius:18px; overflow:hidden; }
 .horizon-field { position:relative; min-height:440px; overflow:hidden; background:linear-gradient(180deg,#2c5074 0%,#4c7295 55%,#9db2c3 100%); }
 .horizon-field::before { position:absolute; inset:0; background:radial-gradient(circle at 18% 13%,rgba(172,193,226,.2) 0 1px,transparent 1.5px),radial-gradient(circle at 76% 24%,rgba(172,193,226,.14) 0 1px,transparent 1.5px),radial-gradient(circle at 61% 9%,rgba(172,193,226,.2) 0 1px,transparent 1.5px); content:""; opacity:calc(.7 * (1 - var(--sky-daylight,0))); }
@@ -1650,6 +1837,16 @@ onBeforeUnmount(() => {
 .altitude-guides { position:absolute; z-index:1; inset:0; width:100%; height:100%; overflow:hidden; pointer-events:none; }
 .altitude-guide,.sky-trajectory path { fill:none; stroke-linecap:round; stroke-linejoin:round; }
 .altitude-guide { stroke:color-mix(in srgb,rgba(10,20,36,.72) calc(var(--sky-daylight,0) * 100%),rgba(165,188,222,.3)); stroke-width:1; stroke-dasharray:3 4; }
+.milky-way-band path { fill:none; stroke:rgba(207,220,238,.11); stroke-width:36; stroke-linecap:round; filter:blur(8px); opacity:calc(1 - var(--sky-daylight,0)); }
+.constellation-lines path { fill:none; stroke:rgba(157,184,232,.3); stroke-width:1; stroke-linecap:round; }
+.constellation-name { position:absolute; z-index:2; padding:2px 5px; color:rgba(199,214,234,.58); font:8px var(--font-mono,monospace); letter-spacing:.12em; background:rgba(7,17,30,.45); transform:translate(-50%,-50%); pointer-events:none; }
+.catalog-star,.catalog-messier { position:absolute; z-index:2; width:0; height:0; padding:0; color:var(--sky-ink); background:transparent; border:0; cursor:pointer; }
+.catalog-star > i { position:absolute; display:block; width:var(--star-size); height:var(--star-size); border-radius:50%; background:#e7eef8; box-shadow:0 0 calc(var(--star-size) * 2) rgba(205,224,248,.75); transform:translate(-50%,-50%); }
+.catalog-star > span,.catalog-messier > span { position:absolute; top:6px; left:5px; padding:2px 4px; color:rgba(224,234,247,.72); font:8px var(--font-mono,monospace); white-space:nowrap; background:rgba(7,17,30,.58); }
+.catalog-star:hover > i,.catalog-star:focus-visible > i,.catalog-star.selected > i { background:#fff; box-shadow:0 0 12px #d8e8ff; transform:translate(-50%,-50%) scale(1.5); }
+.catalog-star:focus-visible,.catalog-messier:focus-visible { outline:1px solid var(--sky-cyan); outline-offset:7px; }
+.catalog-messier > i { position:absolute; color:rgba(200,163,97,.9); font:15px var(--font-mono,monospace); font-style:normal; transform:translate(-50%,-50%); }
+.catalog-messier:hover > i,.catalog-messier.selected > i { color:#f0c777; text-shadow:0 0 12px rgba(240,199,119,.7); }
 .sky-trajectory .trajectory-past { stroke:var(--trajectory-tint); stroke-width:1.35; stroke-dasharray:3 5; opacity:.3; }
 .sky-trajectory .trajectory-future { stroke:var(--trajectory-tint); stroke-width:1.65; opacity:.72; }
 .altitude-label { position:absolute; z-index:2; margin-left:4px; padding:2px 4px; color:color-mix(in srgb,rgba(10,20,36,.88) calc(var(--sky-daylight,0) * 100%),rgba(184,202,227,.78)); font:8px var(--font-mono,monospace); white-space:nowrap; background:color-mix(in srgb,rgba(236,243,249,.72) calc(var(--sky-daylight,0) * 100%),rgba(7,17,30,.62)); border-radius:2px; pointer-events:none; transform:translateY(-50%); }
@@ -1802,6 +1999,14 @@ onBeforeUnmount(() => {
 .curated-event-detail dt { color:var(--sky-muted); font-size:9px; }
 .curated-event-detail dd { margin:5px 0 0; color:var(--sky-ink); font-size:11px; line-height:1.55; }
 .curated-event-detail > p { max-width:70ch; margin:20px 0; color:var(--sky-muted); font-size:11px; line-height:1.7; }
+.event-source-status { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:1px; margin-bottom:18px; overflow:hidden; background:var(--sky-line); border:1px solid var(--sky-line); }
+.event-source-status article { display:grid; grid-template-columns:7px minmax(0,1fr); gap:9px; align-items:start; min-height:76px; padding:13px; background:var(--sky-sunken); }
+.event-source-status article > i { width:6px; height:6px; margin-top:4px; border-radius:50%; background:#63d9a4; }
+.event-source-status article.failed > i { background:#f28f84; }
+.event-source-status strong,.event-source-status small,.event-source-status span { display:block; }
+.event-source-status strong { font-size:10px; font-weight:500; }
+.event-source-status small { margin-top:4px; color:var(--sky-muted); font-size:8px; line-height:1.45; }
+.event-source-status span { grid-column:2; color:var(--sky-cyan); font:8px var(--font-mono,monospace); }
 .event-detail-actions { display:flex; gap:18px; align-items:center; }
 .event-detail-actions button,.event-detail-actions a { padding:0; color:var(--sky-cyan); font-size:10px; text-decoration:none; background:transparent; border:0; cursor:pointer; }
 .event-detail-actions button:hover,.event-detail-actions a:hover,.event-detail-actions button:focus-visible,.event-detail-actions a:focus-visible { color:var(--sky-ink); outline:0; }
@@ -1906,7 +2111,6 @@ onBeforeUnmount(() => {
   .condition-verdict { grid-template-columns:1fr; }
   .condition-verdict > small { grid-column:1; }
   .observing-brief { grid-template-columns:1fr; gap:14px; align-items:start; padding:22px 20px 18px; }
-  .advice-equipment { align-self:start; flex-wrap:wrap; }
   .observing-targets { padding:0 20px 22px; }
   .observing-targets-empty { padding:0 20px 22px; }
   .current-observation > header { align-items:start; flex-direction:column; padding:20px 20px 16px; }

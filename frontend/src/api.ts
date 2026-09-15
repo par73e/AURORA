@@ -63,12 +63,23 @@ export interface ObserverPlace {
   adcode: string
 }
 
+export interface ObserverPlaceCandidate extends ObserverPlace {
+  level: string
+  latitude: number
+  longitude: number
+}
+
 export function fetchObserverPlace(latitude: number, longitude: number, signal?: AbortSignal) {
   const search = new URLSearchParams({
     latitude: latitude.toFixed(6),
     longitude: longitude.toFixed(6),
   })
   return requestJSON<ObserverPlace>(`/api/v1/location/reverse?${search}`, signal)
+}
+
+export function searchObserverPlaces(query: string, signal?: AbortSignal) {
+  const search = new URLSearchParams({ q: query.trim() })
+  return requestJSON<{ places: ObserverPlaceCandidate[] }>(`/api/v1/location/search?${search}`, signal)
 }
 
 export interface ObservingConditions {
@@ -173,6 +184,9 @@ export interface ScoreFactors {
   moonPenalty: number
   precipitationPenalty: number
   aerosolPenalty: number
+  windPenalty: number
+  dewPenalty: number
+  weatherPenalty: number
 }
 
 export interface ObservingScore {
@@ -258,6 +272,21 @@ export interface AstronomyEventsResponse {
   events: AstronomyEvent[]
   range: { from: string; to: string }
   locationVisibility: 'partial' | 'location_required'
+  sources?: AstronomyEventSourceStatus[]
+}
+
+
+export interface AstronomyEventSourceStatus {
+  code: string
+  name: string
+  url: string
+  lastAttemptAt?: string
+  lastSuccessAt?: string
+  success?: boolean
+  recordsWritten: number
+  error?: string
+  coverageStart?: string
+  coverageEnd?: string
 }
 
 /**

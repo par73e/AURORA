@@ -19,6 +19,7 @@ const sourceResponseMaximumBytes = 5 << 20
 type sourceFeed struct {
 	SourceCode string
 	URL        string
+	Year       int
 }
 
 // parsedEvents 是一次外部资料解析的产物。
@@ -68,14 +69,15 @@ func (s *SourceSyncer) SyncOfficialSources(ctx context.Context) error {
 	}
 	year := s.now().UTC().Year()
 	feeds := []sourceFeed{
-		{SourceCode: "usno_astronomy", URL: fmt.Sprintf("https://aa.usno.navy.mil/api/moon/phases/year?year=%d", year)},
-		{SourceCode: "usno_astronomy", URL: fmt.Sprintf("https://aa.usno.navy.mil/api/seasons?year=%d", year)},
+		{SourceCode: "usno_astronomy", URL: fmt.Sprintf("https://aa.usno.navy.mil/api/moon/phases/year?year=%d", year), Year: year},
+		{SourceCode: "usno_astronomy", URL: fmt.Sprintf("https://aa.usno.navy.mil/api/seasons?year=%d", year), Year: year},
 		{SourceCode: "nasa_gsfc_eclipse", URL: "https://eclipse.gsfc.nasa.gov/SEpath/SEpath.html"},
 		{SourceCode: "nasa_gsfc_eclipse", URL: "https://eclipse.gsfc.nasa.gov/LEdecade/LEdecade2021.html"},
-		{SourceCode: "imo_meteor_calendar", URL: fmt.Sprintf("https://www.imo.net/files/meteor-shower/cal%d.pdf", year)},
-		{SourceCode: "imo_meteor_calendar", URL: "https://www.imo.net/feed/"},
-		{SourceCode: "iau_mdc", URL: fmt.Sprintf("https://www.ta3.sk/IAUC22DB/MDC2022/Etc/streamestablisheddata%d.txt", year)},
-		{SourceCode: "jpl_small_bodies", URL: fmt.Sprintf("https://ssd-api.jpl.nasa.gov/cad.api?date-min=%s&date-max=%s&dist-max=0.05&sort=dist", startOfUTCDay(s.now()).Format(time.DateOnly), startOfUTCDay(s.now()).AddDate(0, 18, 0).Format(time.DateOnly))},
+		{SourceCode: "imo_meteor_calendar", URL: fmt.Sprintf("https://www.imo.net/files/meteor-shower/cal%d.pdf", year), Year: year},
+		{SourceCode: "imo_meteor_calendar", URL: fmt.Sprintf("https://www.imo.net/files/meteor-shower/cal%d.pdf", year+1), Year: year + 1},
+		{SourceCode: "imo_meteor_calendar", URL: "https://www.imo.net/feed/", Year: year},
+		{SourceCode: "iau_mdc", URL: fmt.Sprintf("https://www.ta3.sk/IAUC22DB/MDC2022/Etc/streamestablisheddata%d.txt", year), Year: year},
+		{SourceCode: "jpl_small_bodies", URL: fmt.Sprintf("https://ssd-api.jpl.nasa.gov/cad.api?date-min=%s&date-max=%s&dist-max=0.05&sort=dist", startOfUTCDay(s.now()).Format(time.DateOnly), startOfUTCDay(s.now()).AddDate(0, 18, 0).Format(time.DateOnly)), Year: year},
 	}
 	var failures []error
 	for _, feed := range feeds {
@@ -90,6 +92,9 @@ func (s *SourceSyncer) SyncOfficialSources(ctx context.Context) error {
 }
 
 func (s *SourceSyncer) syncFeed(ctx context.Context, feed sourceFeed, year int) (syncErr error) {
+	if feed.Year != 0 {
+		year = feed.Year
+	}
 	runID, err := s.store.StartSourceSync(ctx, feed.SourceCode)
 	if err != nil {
 		return err
@@ -124,6 +129,10 @@ func (s *SourceSyncer) syncFeed(ctx context.Context, feed sourceFeed, year int) 
 		// 仍写快照以便审计，但不替换事件。
 		s.saveSnapshot(ctx, feed, parsed, body, year)
 		return fmt.Errorf("parse %s: %w", feed.SourceCode, parseErr)
+	}
+	if (feed.SourceCode == "nasa_gsfc_eclipse" || strings.HasSuffix(strings.ToLower(feed.URL), ".pdf")) && len(parsed.events) == 0 {
+		s.saveSnapshot(ctx, feed, parsed, body, year)
+		return fmt.Errorf("parse %s: source contained no usable events", feed.SourceCode)
 	}
 	// USNO 是 AURORA 本地月相/季节模型的交叉校验，不是独立的日历主数据。
 	// 因而只保存可审计快照；绝不将其另写为会与 computed 事件重复的 external_forecast。

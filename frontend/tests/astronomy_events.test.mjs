@@ -63,6 +63,19 @@ test('fetchImageWall 只请求 AURORA 聚合接口，浏览器不直连 NASA', a
   }
 })
 
+test('地点搜索只请求 AURORA，并返回可直接计算的 WGS84 坐标', async () => {
+  const api = await import('../src/api.ts')
+  const calls = mockFetch([{ match: e => e.startsWith('/api/v1/location/search'), body: { places: [{ label: '上海市崇明区陈家镇', latitude: 31.5, longitude: 121.81 }] } }])
+  try {
+    const response = await api.searchObserverPlaces('上海市崇明区陈家镇')
+    assert.equal(response.places[0].latitude, 31.5)
+    assert.equal(response.places[0].longitude, 121.81)
+    assert.equal(calls[0].endpoint, '/api/v1/location/search?q=%E4%B8%8A%E6%B5%B7%E5%B8%82%E5%B4%87%E6%98%8E%E5%8C%BA%E9%99%88%E5%AE%B6%E9%95%87')
+  } finally {
+    restoreFetch()
+  }
+})
+
 // 场景 1: 上海（31.2304, 121.4737）——返回带 local 字段的事件，locationVisibility=partial
 test('场景上海：返回带 local 字段的事件，locationVisibility=partial', async () => {
   const api = await import('../src/api.ts')

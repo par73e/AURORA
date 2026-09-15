@@ -158,7 +158,8 @@ func (client *Client) weather(ctx context.Context, latitude, longitude float64) 
 	query.Set("latitude", strconv.FormatFloat(latitude, 'f', 6, 64))
 	query.Set("longitude", strconv.FormatFloat(longitude, 'f', 6, 64))
 	query.Set("timezone", "auto")
-	query.Set("forecast_hours", "24")
+	// 只扩展到未来 48 小时：覆盖今晚与明晚，同时避免把远期天气包装成精确观测结论。
+	query.Set("forecast_hours", "48")
 	query.Set("current", "temperature_2m,dew_point_2m,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,precipitation,wind_speed_10m,wind_gusts_10m,weather_code")
 	query.Set("hourly", "temperature_2m,dew_point_2m,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,precipitation,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl,weather_code")
 	endpoint.RawQuery = query.Encode()
@@ -231,7 +232,7 @@ func (client *Client) airQuality(ctx context.Context, latitude, longitude float6
 	query.Set("latitude", strconv.FormatFloat(latitude, 'f', 6, 64))
 	query.Set("longitude", strconv.FormatFloat(longitude, 'f', 6, 64))
 	query.Set("timezone", "auto")
-	query.Set("forecast_hours", "24")
+	query.Set("forecast_hours", "48")
 	query.Set("hourly", "pm2_5,pm10,aerosol_optical_depth")
 	endpoint.RawQuery = query.Encode()
 	var payload struct {

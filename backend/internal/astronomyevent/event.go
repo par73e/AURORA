@@ -41,9 +41,28 @@ type SourceSnapshot struct {
 	RecordsWritten int
 }
 
+// SourceStatus 汇总外部天象资料源最近一次尝试、最近一次成功和缓存覆盖范围。
+// 它只暴露可用于界面判断新鲜度的信息，不包含原始响应。
+type SourceStatus struct {
+	Code           string     `json:"code"`
+	Name           string     `json:"name"`
+	URL            string     `json:"url"`
+	LastAttemptAt  *time.Time `json:"lastAttemptAt,omitempty"`
+	LastSuccessAt  *time.Time `json:"lastSuccessAt,omitempty"`
+	Success        *bool      `json:"success,omitempty"`
+	RecordsWritten int        `json:"recordsWritten"`
+	Error          string     `json:"error,omitempty"`
+	CoverageStart  *time.Time `json:"coverageStart,omitempty"`
+	CoverageEnd    *time.Time `json:"coverageEnd,omitempty"`
+}
+
 // Store 让 HTTP 层不依赖 PostgreSQL，方便为日期边界和错误处理写单元测试。
 type Store interface {
 	List(context.Context, ListQuery) ([]Event, error)
+}
+
+type SourceStatusStore interface {
+	ListSourceStatuses(context.Context) ([]SourceStatus, error)
 }
 
 // SourceSnapshotStore 是每日外部资料刷新所需的最小存储接口。

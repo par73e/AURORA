@@ -31,6 +31,9 @@ func TestAPODClientDailyMapsImageAndKeepsKeyPrivate(t *testing.T) {
 	if image.Title != "Perseids" || image.MediaType != "image" || image.SourceName == "" {
 		t.Fatalf("image = %#v", image)
 	}
+	if image.SourceURL != "https://apod.nasa.gov/apod/ap260812.html" {
+		t.Fatalf("source URL = %q", image.SourceURL)
+	}
 }
 
 func TestAPODClientDailyRequiresKey(t *testing.T) {

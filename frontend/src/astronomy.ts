@@ -44,6 +44,12 @@ export interface BodyPosition {
   distanceAu: number | null
 }
 
+/** 将恒星或深空天体的 J2000 赤经赤纬转换为观测地点的当前地平坐标。 */
+export function calculateFixedObjectPosition(raHours: number, decDegrees: number, at: Date, latitude: number, longitude: number, elevation = 0) {
+  const horizontal = Horizon(at, observer(latitude, longitude, elevation), raHours, decDegrees, 'normal')
+  return { altitude: horizontal.altitude, azimuth: horizontal.azimuth, visible: horizontal.altitude > 0 }
+}
+
 export interface BodyTrack extends CelestialBody, BodyPosition {
   rise: Date | null
   set: Date | null

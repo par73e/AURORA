@@ -1,14 +1,20 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 
 	observerlocation "aurora/backend/internal/location"
 )
+
+type locationSearchProvider interface {
+	Search(context.Context, string) ([]observerlocation.Candidate, error)
+}
 
 func reverseLocationHandler(geocoder observerlocation.ReverseGeocoder) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -38,6 +44,35 @@ func reverseLocationHandler(geocoder observerlocation.ReverseGeocoder) http.Hand
 			return
 		}
 		writeJSON(w, http.StatusOK, place)
+	}
+}
+
+func searchLocationHandler(geocoder observerlocation.ReverseGeocoder) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		query := strings.TrimSpace(r.URL.Query().Get("q"))
+		if len([]rune(query)) < 2 || len([]rune(query)) > 80 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "地点名称需要 2 到 80 个字符"})
+			return
+		}
+		provider, ok := geocoder.(locationSearchProvider)
+		if !ok || provider == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "地点搜索尚未配置"})
+			return
+		}
+		places, err := provider.Search(r.Context(), query)
+		if err != nil {
+			if errors.Is(err, observerlocation.ErrNotConfigured) {
+				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "地点搜索尚未配置"})
+				return
+			}
+			slog.Warn("search observer location", "error", err)
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "暂时无法搜索地点"})
+			return
+		}
+		if places == nil {
+			places = []observerlocation.Candidate{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"places": places})
 	}
 }
 

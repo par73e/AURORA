@@ -145,5 +145,10 @@ func (payload apodPayload) image() (Image, error) {
 	if payload.Date == "" || payload.Title == "" || payload.URL == "" || (payload.MediaType != "image" && payload.MediaType != "video") {
 		return Image{}, errors.New("daily image response is incomplete")
 	}
-	return Image{Date: payload.Date, Title: payload.Title, Explanation: payload.Explanation, MediaType: payload.MediaType, URL: payload.URL, ThumbnailURL: payload.ThumbnailURL, HDURL: payload.HDURL, Copyright: payload.Copyright, SourceName: "NASA Astronomy Picture of the Day", SourceURL: "https://apod.nasa.gov/apod/astropix.html"}, nil
+	publishedAt, err := time.Parse(time.DateOnly, payload.Date)
+	if err != nil {
+		return Image{}, errors.New("daily image date is invalid")
+	}
+	sourceURL := "https://apod.nasa.gov/apod/ap" + publishedAt.Format("060102") + ".html"
+	return Image{Date: payload.Date, Title: payload.Title, Explanation: payload.Explanation, MediaType: payload.MediaType, URL: payload.URL, ThumbnailURL: payload.ThumbnailURL, HDURL: payload.HDURL, Copyright: payload.Copyright, SourceName: "NASA Astronomy Picture of the Day", SourceURL: sourceURL}, nil
 }

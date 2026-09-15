@@ -1,6 +1,6 @@
 // 观测评分：把会随时刻变化的天气（云层/降水/通透度）与月光结合，为指定时刻生成观测评分。
 // 评分从 100 分向下扣除限制因素；光污染作为地点长期环境数据随结果返回，但不参与动态评分。
-// 但加入时间维度：时刻落在未来 24 小时预报窗口内使用真实天气，窗口外降级为"仅星历"并明示。
+// 但加入时间维度：时刻落在未来 48 小时预报窗口内使用真实天气，窗口外降级为"仅星历"并明示。
 package observatory
 
 import (
@@ -16,6 +16,9 @@ type ScoreFactors struct {
 	MoonPenalty          float64 `json:"moonPenalty"`
 	PrecipitationPenalty float64 `json:"precipitationPenalty"`
 	AerosolPenalty       float64 `json:"aerosolPenalty"`
+	WindPenalty          float64 `json:"windPenalty"`
+	DewPenalty           float64 `json:"dewPenalty"`
+	WeatherPenalty       float64 `json:"weatherPenalty"`
 }
 
 // ObservingScore 是一次观测评分结果。
@@ -103,7 +106,7 @@ func scoreFromReport(report Conditions, moon MoonProvider, lp *LightPollution, l
 	selected, within := weatherSnapshotAt(report, at)
 	result.WithinForecastWindow = within
 	if !within {
-		result.Verdict = "超出未来 24 小时预报窗口，暂无天气评分；本地星历仍可计算"
+		result.Verdict = "超出未来 48 小时预报窗口，暂无天气评分；本地星历仍可计算"
 		return result
 	}
 
@@ -112,12 +115,15 @@ func scoreFromReport(report Conditions, moon MoonProvider, lp *LightPollution, l
 		VisibilityPenalty: visibilityPenaltyFrom(selected.VisibilityMeters),
 		CloudPenalty:      cloudPenaltyFrom(selected),
 		AerosolPenalty:    aerosolPenaltyAt(report.AirQuality, report.Timezone, selected.Time),
+		WindPenalty:       windPenaltyFrom(selected.WindSpeed, selected.WindGusts),
+		DewPenalty:        dewPenaltyFrom(selected.Temperature, selected.DewPoint, selected.Humidity),
+		WeatherPenalty:    weatherPenaltyFrom(selected.WeatherCode, selected.Precipitation),
 	}
 	if result.MoonAboveHorizon {
 		factors.MoonPenalty = moonPenaltyFrom(result.Moon.Illumination, moonAltitude)
 	}
 	factors.PrecipitationPenalty = precipitationPenaltyFrom(selected.Precipitation)
-	raw := 100 - factors.VisibilityPenalty - factors.CloudPenalty - factors.MoonPenalty - factors.PrecipitationPenalty - factors.AerosolPenalty
+	raw := 100 - factors.VisibilityPenalty - factors.CloudPenalty - factors.MoonPenalty - factors.PrecipitationPenalty - factors.AerosolPenalty - factors.WindPenalty - factors.DewPenalty - factors.WeatherPenalty
 	score := int(math.Round(math.Max(0, math.Min(100, raw))))
 	result.Score = &score
 	result.Factors = factors
@@ -156,7 +162,10 @@ func cloudPenaltyFrom(weather Hourly) float64 {
 	if !layersAvailable {
 		return math.Min(80, math.Max(0, weather.CloudCover*0.7))
 	}
-	value := weather.CloudCoverLow*0.75 + weather.CloudCoverMid*0.5 + weather.CloudCoverHigh*0.25
+	// 总云量承担主要遮挡，最不利的一层作为修正；不再把三层简单相加，
+	// 避免同一片多层云被重复扣分。低云与雾的修正最高，高云仍会限制暗弱目标。
+	layerCorrection := math.Max(weather.CloudCoverLow*0.30, math.Max(weather.CloudCoverMid*0.20, weather.CloudCoverHigh*0.10))
+	value := weather.CloudCover*0.45 + layerCorrection
 	return math.Min(80, math.Max(0, value))
 }
 
@@ -171,7 +180,51 @@ func precipitationPenaltyFrom(precipitationMM float64) float64 {
 	if precipitationMM <= 0 {
 		return 0
 	}
-	return math.Min(30, 10+10*math.Sqrt(precipitationMM))
+	// 一旦出现可测降水，就不能仍给出“条件良好/出色”；其余天气因素会继续扣分。
+	return math.Min(75, 60+10*math.Sqrt(precipitationMM))
+}
+
+// weatherPenaltyFrom 处理仅靠降水量无法表达的雾、冻雨、降雪和雷暴。
+// 当降水量已经非零时，普通雨雪不重复扣；雷暴与雾仍保留独立风险。
+func weatherPenaltyFrom(code int, precipitationMM float64) float64 {
+	switch {
+	case code >= 95 && code <= 99:
+		return 75
+	case code == 45 || code == 48:
+		return 50
+	case precipitationMM > 0:
+		return 0
+	case (code >= 51 && code <= 67) || (code >= 71 && code <= 77) || (code >= 80 && code <= 86):
+		return 60
+	default:
+		return 0
+	}
+}
+
+// windPenaltyFrom 是通用目视观测的轻量稳定性修正，不按器材隐藏目标。
+func windPenaltyFrom(speedKMH, gustKMH float64) float64 {
+	steady := math.Max(0, speedKMH-12) * 0.35
+	gust := math.Max(0, gustKMH-20) * 0.40
+	return math.Min(15, steady+gust)
+}
+
+// dewPenaltyFrom 以气温与露点差判断结露风险。humidity=0 视为来源未提供，
+// 避免把结构体缺省零值误判成“气温等于露点”。
+func dewPenaltyFrom(temperature, dewPoint, humidity float64) float64 {
+	if humidity <= 0 {
+		return 0
+	}
+	spread := temperature - dewPoint
+	switch {
+	case spread <= 0.5:
+		return 12
+	case spread <= 2:
+		return 8
+	case spread <= 4:
+		return 4
+	default:
+		return 0
+	}
 }
 
 // aerosolPenaltyAt 以 AOD 作为透明度的小幅修正。PM2.5 是人体空气质量指标，因此不直接计入。

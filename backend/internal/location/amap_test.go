@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -53,6 +54,38 @@ func TestAMapClientReverseRequiresKey(t *testing.T) {
 	_, err := NewAMapClient("  ").Reverse(context.Background(), 31.2, 121.4)
 	if !errors.Is(err, ErrNotConfigured) {
 		t.Fatalf("error = %v, want ErrNotConfigured", err)
+	}
+}
+
+func TestAMapClientSearchReturnsWGS84Candidate(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v3/geocode/geo" {
+			http.NotFound(w, r)
+			return
+		}
+		if got := r.URL.Query().Get("address"); got != "上海市崇明区陈家镇" {
+			t.Errorf("address = %q", got)
+		}
+		_, _ = io.WriteString(w, `{"status":"1","info":"OK","infocode":"10000","geocodes":[{"formatted_address":"上海市崇明区陈家镇","province":"上海市","city":[],"district":"崇明区","adcode":"310151","location":"121.817240,31.503750","level":"乡镇"}]}`)
+	}))
+	defer server.Close()
+
+	client := NewAMapClient("test-key")
+	client.baseURL = server.URL
+	client.httpClient = server.Client()
+	places, err := client.Search(context.Background(), "上海市崇明区陈家镇")
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+	if len(places) != 1 || places[0].Label != "上海市崇明区陈家镇" || places[0].Level != "乡镇" {
+		t.Fatalf("places = %#v", places)
+	}
+	if places[0].Longitude == 121.817240 || places[0].Latitude == 31.503750 {
+		t.Fatalf("candidate coordinates were not converted to WGS84: %#v", places[0])
+	}
+	convertedLongitude, convertedLatitude := wgs84ToGCJ02(places[0].Longitude, places[0].Latitude)
+	if math.Abs(convertedLongitude-121.817240) > 1e-6 || math.Abs(convertedLatitude-31.503750) > 1e-6 {
+		t.Fatalf("coordinate round trip = %.6f,%.6f", convertedLongitude, convertedLatitude)
 	}
 }
 
