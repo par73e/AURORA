@@ -74,18 +74,22 @@ func (service *WallService) apodWindows(ctx context.Context, at time.Time, count
 		if err == nil {
 			windows := make([]ImageWindow, 0, len(images))
 			for _, image := range images {
-				windows = append(windows, imageWindow(image))
+				if image.MediaType == "image" {
+					windows = append(windows, imageWindow(image))
+				}
 			}
-			return windows
+			if len(windows) > 0 {
+				return windows
+			}
 		}
 	}
 	// APOD can lag the local calendar by a day or two. Request a small lookback
 	// buffer, then keep the newest actual publications instead of rendering
 	// empty future slots as if they were daily content.
-	candidates := service.parallelWindows(ctx, at, count+3, service.apodWindow)
+	candidates := service.parallelWindows(ctx, at, count+5, service.apodWindow)
 	windows := make([]ImageWindow, 0, count)
 	for _, candidate := range candidates {
-		if candidate.Status == "ready" {
+		if candidate.Status == "ready" && candidate.MediaType == "image" {
 			windows = append(windows, candidate)
 			if len(windows) == count {
 				return windows

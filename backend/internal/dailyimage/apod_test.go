@@ -48,14 +48,14 @@ func TestAPODClientRecentMapsNewestPublishedImages(t *testing.T) {
 		if got := r.URL.Query().Get("start_date"); got != "2026-08-03" {
 			t.Fatalf("start_date = %q", got)
 		}
-		_, _ = w.Write([]byte(`[{"date":"2026-08-10","title":"Older","explanation":"x","media_type":"image","url":"https://example.test/older.jpg"},{"date":"2026-08-12","title":"Newest","explanation":"x","media_type":"image","url":"https://example.test/newest.jpg"}]`))
+		_, _ = w.Write([]byte(`[{"date":"2026-08-10","title":"Older","explanation":"x","media_type":"image","url":"https://example.test/older.jpg"},{"date":"2026-08-11","title":"Video","explanation":"x","media_type":"video","url":"https://example.test/video.mp4"},{"date":"2026-08-12","title":"Newest","explanation":"x","media_type":"image","url":"https://example.test/newest.jpg"}]`))
 	}))
 	defer server.Close()
 	client := NewAPODClient("private-key")
 	client.baseURL = server.URL
 	client.httpClient = server.Client()
 	images, err := client.Recent(context.Background(), time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC), 2)
-	if err != nil || len(images) != 2 || images[0].Title != "Newest" {
+	if err != nil || len(images) != 2 || images[0].Title != "Newest" || images[1].Title != "Older" {
 		t.Fatalf("images=%#v err=%v", images, err)
 	}
 }

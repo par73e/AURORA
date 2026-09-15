@@ -35,9 +35,9 @@ type Provider interface {
 	Daily(context.Context, time.Time) (Image, error)
 }
 
-// RecentProvider is implemented by sources that can return a short release
-// history in one request. It keeps the image-wall timeline stable without
-// multiplying upstream requests.
+// RecentProvider is implemented by sources that can return a short image-only
+// release history in one request. APOD may publish video entries, but AURORA's
+// image wall deliberately skips them instead of rendering video as a picture.
 type RecentProvider interface {
 	Recent(context.Context, time.Time, int) ([]Image, error)
 }
@@ -120,7 +120,7 @@ func (client *APODClient) Recent(ctx context.Context, end time.Time, count int) 
 	images := make([]Image, 0, count)
 	for index := len(payloads) - 1; index >= 0 && len(images) < count; index-- {
 		image, err := payloads[index].image()
-		if err == nil {
+		if err == nil && image.MediaType == "image" {
 			images = append(images, image)
 		}
 	}

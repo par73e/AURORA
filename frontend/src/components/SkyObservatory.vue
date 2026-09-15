@@ -52,6 +52,8 @@ const locationStatus = ref<'idle' | 'locating' | 'resolving' | 'located' | 'part
 const showLocationEditor = ref(false)
 const locationControl = ref<HTMLElement | null>(null)
 const locationTrigger = ref<HTMLButtonElement | null>(null)
+const skySearchControl = ref<HTMLElement | null>(null)
+const showSkySearchResults = ref(false)
 const locationQuery = ref('')
 const manualLatitude = ref('')
 const manualLongitude = ref('')
@@ -68,6 +70,7 @@ const expandedEventId = ref<string | null>(null)
 const showAllCuratedEvents = ref(false)
 const imageWall = ref<ImageWall | null>(null)
 const imageWallStatus = ref<'idle' | 'loading' | 'ready' | 'error'>('idle')
+const recentImageWindows = computed(() => imageWall.value?.recent.filter((window) => window.mediaType === 'image') ?? [])
 const skyLeaving = ref(false)
 const moonCanvas = ref<HTMLCanvasElement | null>(null)
 let minuteClock: number | undefined
@@ -1153,14 +1156,20 @@ function closeLocationEditor(returnFocus = false) {
 
 function onLocationOutsidePointerDown(event: PointerEvent) {
   const target = event.target
-  if (target instanceof Node && !locationControl.value?.contains(target)) closeLocationEditor()
+  if (!(target instanceof Node)) return
+  if (!locationControl.value?.contains(target)) closeLocationEditor()
+  if (!skySearchControl.value?.contains(target)) showSkySearchResults.value = false
 }
 
 function onLocationEditorKeydown(event: KeyboardEvent) {
-  if (event.key !== 'Escape' || !showLocationEditor.value) return
+  if (event.key !== 'Escape') return
+  const handledLocation = showLocationEditor.value
+  const handledSearch = showSkySearchResults.value
+  if (!handledLocation && !handledSearch) return
   event.preventDefault()
   event.stopPropagation()
-  closeLocationEditor(true)
+  if (handledLocation) closeLocationEditor(true)
+  showSkySearchResults.value = false
 }
 
 function useCoordinates(nextLatitude: number, nextLongitude: number, label?: string) {
@@ -1225,6 +1234,7 @@ function locateCatalogObject(item: SkyCatalogObject) {
   if (!position?.visible) return
   selectedCatalogId.value = item.id
   skySearchQuery.value = item.name
+  showSkySearchResults.value = false
   revealCatalogDirection(position.azimuth)
 }
 
@@ -1236,6 +1246,7 @@ function locateSkySearchResult(result: SkySearchResult) {
     expandedBodyId.value = result.bodyId
     selectedCatalogId.value = null
     skySearchQuery.value = result.name
+    showSkySearchResults.value = false
     revealCatalogDirection(track.azimuth)
     return
   }
@@ -1554,9 +1565,9 @@ onBeforeUnmount(() => {
 
       <section v-else-if="activePage === 'sky'" class="sky-map-page page-stack">
         <div class="section-heading"><h2>星图</h2></div>
-        <div class="sky-catalog-search" @pointerdown.stop>
-          <label for="sky-object-search">搜索天体</label><input id="sky-object-search" v-model="skySearchQuery" placeholder="木星、天狼星、M31…" autocomplete="off" @keydown.enter.prevent="locateFirstSkySearchMatch" />
-          <ul v-if="skySearchResults.length"><li v-for="result in skySearchResults" :key="result.key"><button type="button" :disabled="!result.visible" @click="locateSkySearchResult(result)"><span><strong>{{ result.name }}</strong><small>{{ result.nameEn }} · {{ result.group }}</small></span><i>{{ result.visible ? '定位' : '地平线下' }}</i></button></li></ul>
+        <div ref="skySearchControl" class="sky-catalog-search">
+          <label for="sky-object-search">搜索天体</label><input id="sky-object-search" v-model="skySearchQuery" role="combobox" aria-autocomplete="list" aria-controls="sky-object-results" :aria-expanded="showSkySearchResults && skySearchResults.length > 0" placeholder="木星、天狼星、M31…" autocomplete="off" @focus="showSkySearchResults = true" @input="showSkySearchResults = true" @keydown.enter.prevent="locateFirstSkySearchMatch" />
+          <ul v-if="showSkySearchResults && skySearchResults.length" id="sky-object-results" role="listbox"><li v-for="result in skySearchResults" :key="result.key"><button type="button" role="option" :aria-disabled="!result.visible" :disabled="!result.visible" @click="locateSkySearchResult(result)"><span><strong>{{ result.name }}</strong><small>{{ result.nameEn }} · {{ result.group }}</small></span><i>{{ result.visible ? '定位' : '地平线下' }}</i></button></li></ul>
         </div>
         <section class="horizon-section">
           <div class="horizon-field" :class="{ 'has-location': activeCoordinates, 'is-dragging': skyViewDragging, 'is-auto-turning': skyViewAutoTurning }" :style="horizonFieldStyle" @pointerdown="beginSkyViewDrag" @pointermove="dragSkyView" @pointerup="endSkyViewDrag" @pointercancel="endSkyViewDrag">
@@ -1599,7 +1610,7 @@ onBeforeUnmount(() => {
               @keydown.right.prevent="rotateSkyView(1)"
             >
               <div class="heading-scale" aria-hidden="true">
-                <svg class="heading-arc" viewBox="0 0 1000 48" preserveAspectRatio="none" aria-hidden="true"><path d="M 0 45 C 205 24 346 3 500 3 C 654 3 795 24 1000 45" fill="none" stroke="currentColor" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linecap="round" /></svg>
+                <svg class="heading-arc" viewBox="0 0 1000 48" preserveAspectRatio="none" shape-rendering="geometricPrecision" aria-hidden="true"><path d="M 0 45 C 205 24 346 3 500 3 C 654 3 795 24 1000 45" fill="none" stroke="currentColor" stroke-width="1" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round" /></svg>
                 <i v-for="tick in skyHeadingTicks" :key="tick.key" class="heading-tick" :class="{ major: tick.major, direction: tick.direction }" :style="{ left: `${tick.position}%`, bottom: `${tick.lift}px` }"><span v-if="tick.label">{{ tick.label }}</span></i>
               </div>
               <div class="heading-readout"><span>{{ skyViewDirection }}</span><strong>{{ skyViewAzimuth.toFixed(2) }}°</strong></div>
@@ -1663,7 +1674,7 @@ onBeforeUnmount(() => {
           <section class="image-stream-section" aria-labelledby="recent-images-title">
             <header class="image-stream-heading"><h2 id="recent-images-title">NASA每日一图</h2><p>NASA APOD每日更新</p></header>
             <div class="image-wall">
-              <article v-for="window in imageWall.recent" :key="window.id" class="image-window" :class="[`image-window--${window.sourceId}`, { 'is-unavailable': window.status === 'error' }]">
+              <article v-for="window in recentImageWindows" :key="window.id" class="image-window" :class="[`image-window--${window.sourceId}`, { 'is-unavailable': window.status === 'error' }]">
                 <div class="image-window-meta"><span>{{ window.sourceName }}</span></div>
                 <a v-if="window.status === 'ready'" class="image-window-media" :href="window.sourceUrl" target="_blank" rel="noreferrer" :aria-label="`在来源网站打开：${window.title}`">
                   <img v-if="window.mediaType === 'image' ? window.imageUrl : window.thumbnailUrl" :src="window.mediaType === 'image' ? window.imageUrl : window.thumbnailUrl" :alt="window.title" loading="eager" />
@@ -1953,16 +1964,16 @@ onBeforeUnmount(() => {
 .heading-dial:focus-visible .heading-readout { outline:1px solid var(--sky-cyan); outline-offset:3px; }
 .horizon-field.is-dragging .heading-dial { cursor:grabbing; }
 .heading-scale { position:absolute; z-index:5; inset:0 0 11px; overflow:visible; }
-.heading-arc { position:absolute; inset:0; width:100%; height:100%; color:color-mix(in srgb,#0b1322 calc(var(--sky-daylight,0) * 100%),rgba(165,188,222,.32)); pointer-events:none; }
-.heading-tick { position:absolute; width:1px; height:5px; background:color-mix(in srgb,rgba(10,20,36,.6) calc(var(--sky-daylight,0) * 100%),rgba(165,188,222,.32)); transform:translateX(-50%); }
-.heading-tick.major { height:10px; background:color-mix(in srgb,rgba(10,20,36,.85) calc(var(--sky-daylight,0) * 100%),rgba(165,188,222,.68)); }
+.heading-arc { position:absolute; inset:0; width:100%; height:100%; color:color-mix(in srgb,rgba(214,228,240,.58) calc(var(--sky-daylight,0) * 100%),rgba(165,188,222,.32)); pointer-events:none; }
+.heading-tick { position:absolute; width:1px; height:5px; background:color-mix(in srgb,rgba(207,223,237,.44) calc(var(--sky-daylight,0) * 100%),rgba(165,188,222,.32)); transform:translateX(-50%); }
+.heading-tick.major { height:10px; background:color-mix(in srgb,rgba(218,232,243,.66) calc(var(--sky-daylight,0) * 100%),rgba(165,188,222,.68)); }
 .heading-tick span { position:absolute; z-index:7; top:calc(100% + 3px); left:50%; padding:0 2px; color:color-mix(in srgb,#0a1422 calc(var(--sky-daylight,0) * 100%),rgba(184,202,227,.72)); font:7px var(--font-mono,monospace); white-space:nowrap; background:color-mix(in srgb,rgba(244,248,252,.9) calc(var(--sky-daylight,0) * 100%),rgba(7,17,30,.52)); border-radius:2px; text-shadow:color-mix(in srgb,rgba(255,255,255,.55) calc(var(--sky-daylight,0) * 100%),rgba(0,0,0,.9)); transform:translateX(-50%); }
 .heading-tick.direction span { color:var(--sky-amber); font-size:9px; font-weight:600; letter-spacing:.08em; background:color-mix(in srgb,rgba(244,248,252,.95) calc(var(--sky-daylight,0) * 100%),rgba(7,17,30,.86)); }
 .heading-readout { position:absolute; top:11px; left:50%; z-index:5; display:flex; gap:5px; align-items:baseline; justify-content:center; color:color-mix(in srgb,#0a1422 calc(var(--sky-daylight,0) * 100%),var(--sky-ink)); white-space:nowrap; text-shadow:color-mix(in srgb,rgba(255,255,255,.5) calc(var(--sky-daylight,0) * 100%),rgba(0,0,0,.72)); transform:translateX(-50%); }
 .heading-readout span { color:var(--sky-amber); font-size:9px; font-weight:600; }
 .heading-readout strong { font:12px var(--font-mono,monospace); font-weight:500; }
 .heading-lubber { position:absolute; top:-1px; left:50%; z-index:6; width:8px; height:7px; background:var(--sky-amber); clip-path:polygon(0 0,100% 0,50% 100%); transform:translateX(-50%); }
-.heading-dial:hover .heading-arc,.horizon-field.is-dragging .heading-arc { color:color-mix(in srgb,rgba(10,20,36,.9) calc(var(--sky-daylight,0) * 100%),rgba(165,188,222,.42)); }
+.heading-dial:hover .heading-arc,.horizon-field.is-dragging .heading-arc { color:color-mix(in srgb,rgba(229,238,246,.72) calc(var(--sky-daylight,0) * 100%),rgba(165,188,222,.42)); }
 
 /* ---------- 时间条（时刻 · 现在 · 进度条） ---------- */
 .time-scrubber { margin-top:16px; border:1px solid var(--sky-line); border-radius:18px; background:var(--sky-sunken); }.time-scrubber-inner { display:grid; grid-template-columns:88px minmax(0,1fr) 66px; column-gap:3px; row-gap:0; align-items:center; width:100%; margin:0; padding:14px 28px 11px 24px; }

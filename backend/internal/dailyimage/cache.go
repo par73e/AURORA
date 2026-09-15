@@ -34,7 +34,7 @@ func (service *CachedWallService) Wall(ctx context.Context, at time.Time) (Image
 		if err != nil {
 			return ImageWall{}, fmt.Errorf("load daily image wall cache: %w", err)
 		}
-		if ok {
+		if ok && wallCacheable(wall) {
 			return wall, nil
 		}
 	}
@@ -46,7 +46,7 @@ func (service *CachedWallService) Wall(ctx context.Context, at time.Time) (Image
 		if err != nil {
 			return ImageWall{}, fmt.Errorf("load daily image wall cache: %w", err)
 		}
-		if ok {
+		if ok && wallCacheable(wall) {
 			return wall, nil
 		}
 	}
@@ -83,7 +83,7 @@ func (service *CachedWallService) Refresh(ctx context.Context, at time.Time) err
 		return err
 	}
 	if !wallCacheable(wall) {
-		return errors.New("daily image wall response has no ready recent APOD windows")
+		return errors.New("daily image wall response has no valid image-only APOD windows")
 	}
 	return service.store.SaveWallCache(ctx, wallCacheDate(at), wall)
 }
@@ -93,7 +93,7 @@ func (service *CachedWallService) latestCachedWall(ctx context.Context) (ImageWa
 		return ImageWall{}, false
 	}
 	wall, ok, err := service.store.LatestWallCache(ctx)
-	if err != nil || !ok {
+	if err != nil || !ok || !wallCacheable(wall) {
 		return ImageWall{}, false
 	}
 	return wall, true
@@ -105,10 +105,13 @@ func wallCacheDate(at time.Time) time.Time {
 }
 
 func wallCacheable(wall ImageWall) bool {
+	if len(wall.Recent) == 0 {
+		return false
+	}
 	for _, window := range wall.Recent {
-		if window.Status == "ready" {
-			return true
+		if window.Status != "ready" || window.MediaType != "image" {
+			return false
 		}
 	}
-	return false
+	return true
 }

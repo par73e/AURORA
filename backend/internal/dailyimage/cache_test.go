@@ -52,7 +52,7 @@ func (store *memoryWallCacheStore) SaveWallCache(_ context.Context, date time.Ti
 func TestCachedWallServiceUsesDatabaseCacheForSameDay(t *testing.T) {
 	at := time.Date(2026, 8, 12, 10, 0, 0, 0, time.UTC)
 	upstream := &cacheWallUpstreamStub{wall: ImageWall{
-		Recent:      []ImageWindow{{ID: "apod-2026-08-12", Status: "ready"}},
+		Recent:      []ImageWindow{{ID: "apod-2026-08-12", Status: "ready", MediaType: "image"}},
 		Collection:  []ImageWindow{{ID: "eso", Status: "ready"}},
 		GeneratedAt: at.Format(time.RFC3339),
 	}}
@@ -77,7 +77,7 @@ func TestCachedWallServiceFallsBackToLatestCacheWhenRefreshFails(t *testing.T) {
 	store := newMemoryWallCacheStore()
 	cachedAt := time.Date(2026, 8, 11, 9, 0, 0, 0, time.UTC)
 	if err := store.SaveWallCache(context.Background(), cachedAt, ImageWall{
-		Recent:      []ImageWindow{{ID: "apod-2026-08-11", Status: "ready"}},
+		Recent:      []ImageWindow{{ID: "apod-2026-08-11", Status: "ready", MediaType: "image"}},
 		GeneratedAt: cachedAt.Format(time.RFC3339),
 	}); err != nil {
 		t.Fatal(err)
@@ -90,5 +90,26 @@ func TestCachedWallServiceFallsBackToLatestCacheWhenRefreshFails(t *testing.T) {
 	}
 	if wall.Recent[0].ID != "apod-2026-08-11" {
 		t.Fatalf("fallback wall=%#v", wall)
+	}
+}
+
+func TestCachedWallServiceReplacesVideoCacheWithImageOnlyWall(t *testing.T) {
+	at := time.Date(2026, 9, 15, 10, 0, 0, 0, time.UTC)
+	store := newMemoryWallCacheStore()
+	if err := store.SaveWallCache(context.Background(), at, ImageWall{
+		Recent: []ImageWindow{{ID: "apod-video", Status: "ready", MediaType: "video"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	upstream := &cacheWallUpstreamStub{wall: ImageWall{
+		Recent: []ImageWindow{{ID: "apod-image", Status: "ready", MediaType: "image"}},
+	}}
+	service := NewCachedWallService(upstream, store)
+	wall, err := service.Wall(context.Background(), at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if upstream.calls != 1 || wall.Recent[0].ID != "apod-image" {
+		t.Fatalf("calls=%d wall=%#v", upstream.calls, wall)
 	}
 }
