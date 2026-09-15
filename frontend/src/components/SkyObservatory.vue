@@ -1508,7 +1508,7 @@ onBeforeUnmount(() => {
       </section>
 
       <section v-else-if="activePage === 'sky'" class="sky-map-page page-stack">
-        <div class="section-heading"><h2>星图</h2><span>亮星 · 星座骨架 · 银河方向 · 梅西耶精选</span></div>
+        <div class="section-heading"><h2>星图</h2></div>
         <div class="sky-catalog-search" @pointerdown.stop>
           <label for="sky-object-search">搜索天体</label><input id="sky-object-search" v-model="skySearchQuery" placeholder="天狼星、M31、猎户座…" autocomplete="off" />
           <ul v-if="catalogSearchResults.length"><li v-for="item in catalogSearchResults" :key="item.id"><button type="button" :disabled="!catalogPositions.get(item.id)?.visible" @click="locateCatalogObject(item)"><span><strong>{{ item.name }}</strong><small>{{ item.nameEn }} · {{ item.constellation }}</small></span><i>{{ catalogPositions.get(item.id)?.visible ? '定位' : '地平线下' }}</i></button></li></ul>
@@ -1816,9 +1816,8 @@ onBeforeUnmount(() => {
 .night-grid span { display:block; color:var(--sky-amber); font:9px var(--font-mono,monospace); letter-spacing:.1em; }
 .night-grid strong { display:block; margin:10px 0 8px; font:15px var(--font-mono,monospace); line-height:1.45; }
 .night-grid small { display:block; color:var(--sky-muted); font-size:10px; line-height:1.55; }
-.section-heading { display:flex; align-items:end; justify-content:space-between; gap:18px; margin-bottom:18px; }
+.section-heading { display:flex; align-items:end; margin-bottom:18px; }
 .section-heading h2 { margin:6px 0 0; font-size:25px; font-weight:500; letter-spacing:-.04em; }
-.section-heading > span { color:var(--sky-muted); font-size:10px; text-align:right; }
 .forecast-heading { display:flex; justify-content:space-between; align-items:baseline; gap:16px; margin-bottom:16px; }
 .forecast-heading p { margin:0; color:var(--sky-amber); font:9px var(--font-mono,monospace); letter-spacing:.12em; }
 .forecast-heading span { color:var(--sky-muted); font-size:10px; }
