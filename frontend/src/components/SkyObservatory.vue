@@ -12,7 +12,7 @@ import { analyzeNight, bearing, bodies, calculateFixedObjectPosition, calculateP
 import { conditionDescription, forecastHoursThroughTomorrow, weatherGlyph } from '../observatoryWeather'
 import { projectAltitudeGuide, projectHorizontalDirection, type SkyCamera } from '../skyProjection'
 import { easeOutExpo, normalizeAzimuth, shortestAzimuthDelta, skyTurnDuration } from '../skyMotion'
-import { constellationLines, milkyWayCenterline, skyCatalog, type SkyCatalogObject } from '../skyCatalog'
+import { constellationLines, skyCatalog, type SkyCatalogObject } from '../skyCatalog'
 import moonNearsideTexture from '../assets/solar/2k_moon.jpg'
 import AuroraBrand from './AuroraBrand.vue'
 import ObservatoryClock from './ObservatoryClock.vue'
@@ -230,47 +230,6 @@ const constellationGeometry = computed(() => constellationLines.map((constellati
   const label = points.length ? { x: points.reduce((sum, point) => sum + point.x, 0) / points.length, y: points.reduce((sum, point) => sum + point.y, 0) / points.length } : null
   return { ...constellation, paths, label }
 }).filter((item) => item.paths.length))
-const milkyWayGeometry = computed(() => {
-  const coords = activeCoordinates.value
-  if (!coords) return { segments: [] as Array<{ path: string; strength: number; width: number; rift: number }>, label: null as { x: number; y: number } | null }
-  const segments: Array<{ path: string; strength: number; width: number; rift: number }> = []
-  const labelCandidates: Array<{ x: number; y: number; strength: number }> = []
-  let previous: { x: number; y: number; strength: number } | null = null
-  for (const point of milkyWayCenterline) {
-    if (point.visualStrength <= 0) {
-      previous = null
-      continue
-    }
-    const position = calculateFixedObjectPosition(point.raHours % 24, point.decDegrees, simulatedTime.value, coords.latitude, coords.longitude, elevation.value)
-    const projection = projectHorizontalDirection(position.azimuth, position.altitude, skyCamera.value)
-    if (!position.visible || !projection.inViewport || (previous && Math.abs(projection.x - previous.x) > .3)) {
-      previous = null
-      if (!position.visible || !projection.inViewport) continue
-    }
-    // 靠近地平线时，即使几何上已升起，摄影中的银河也会被大气消光迅速淹没。
-    const altitudeVisibility = Math.max(0, Math.min(1, (position.altitude - 3) / 17))
-    const strength = point.visualStrength * altitudeVisibility
-    const current = { ...projection, strength }
-    if (strength > .025) {
-      labelCandidates.push(current)
-      if (previous) {
-        const segmentStrength = (previous.strength + strength) / 2
-        segments.push({
-          path: `M ${(previous.x * 1000).toFixed(2)} ${(previous.y * 1000).toFixed(2)} L ${(current.x * 1000).toFixed(2)} ${(current.y * 1000).toFixed(2)}`,
-          strength: segmentStrength,
-          width: 24 + segmentStrength * 54,
-          rift: Math.max(0, (segmentStrength - .4) * 1.15),
-        })
-      }
-      previous = current
-    } else {
-      previous = null
-    }
-  }
-  const label = labelCandidates.filter((point) => point.x >= .12 && point.x <= .88 && point.y >= .1 && point.y <= .76)
-    .reduce<{ x: number; y: number; strength: number } | null>((strongest, point) => !strongest || point.strength > strongest.strength ? point : strongest, null)
-  return { segments, label }
-})
 const altitudeGuides = computed(() => [30, 60].map((altitude) => projectAltitudeGuide(altitude, skyCamera.value, .75)))
 const horizonFieldStyle = computed(() => ({
   '--sky-daylight': String(daylight.value),
@@ -1595,11 +1554,6 @@ onBeforeUnmount(() => {
             <div class="sky-night" aria-hidden="true" />
             <div class="star-grain" aria-hidden="true" />
             <svg class="altitude-guides" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true">
-              <g class="milky-way-band">
-                <path v-for="(segment, index) in milkyWayGeometry.segments" :key="`milky-haze-${index}`" class="milky-way-haze" :d="segment.path" :style="{ strokeWidth: `${segment.width}px`, opacity: segment.strength * (1 - daylight) }" vector-effect="non-scaling-stroke" />
-                <path v-for="(segment, index) in milkyWayGeometry.segments" :key="`milky-core-${index}`" class="milky-way-core" :d="segment.path" :style="{ strokeWidth: `${segment.width * .34}px`, opacity: segment.strength * (1 - daylight) }" vector-effect="non-scaling-stroke" />
-                <path v-for="(segment, index) in milkyWayGeometry.segments" :key="`milky-rift-${index}`" class="milky-way-rift" :d="segment.path" :style="{ strokeWidth: `${segment.width * .09}px`, opacity: segment.rift * (1 - daylight) }" vector-effect="non-scaling-stroke" />
-              </g>
               <g v-for="constellation in constellationGeometry" :key="constellation.name" class="constellation-lines"><path v-for="(path, index) in constellation.paths" :key="`${constellation.name}-${index}`" :d="path" vector-effect="non-scaling-stroke" /></g>
               <path v-for="guide in altitudeGuides" :key="guide.altitude" class="altitude-guide" :d="guide.path" vector-effect="non-scaling-stroke" />
               <g v-if="selectedSkyTrajectory" class="sky-trajectory" :style="{ '--trajectory-tint': selectedSkyTrajectory.tint }">
@@ -1607,7 +1561,6 @@ onBeforeUnmount(() => {
                 <path v-for="(path, index) in selectedSkyTrajectory.futurePaths" :key="`future-${index}`" class="trajectory-future" :d="path" vector-effect="non-scaling-stroke" />
               </g>
             </svg>
-            <span v-if="milkyWayGeometry.label" class="milky-way-name" :style="{ left: `${milkyWayGeometry.label.x * 100}%`, top: `${milkyWayGeometry.label.y * 100}%` }">银河</span>
             <span v-for="constellation in constellationGeometry" :key="`name-${constellation.name}`" v-show="constellation.label" class="constellation-name" :style="{ left: `${(constellation.label?.x ?? 0) * 100}%`, top: `${(constellation.label?.y ?? 0) * 100}%` }">{{ constellation.name }}</span>
             <button v-for="entry in visibleCatalogStars" :key="entry.item.id" class="catalog-star" :class="{ selected: selectedCatalogId === entry.item.id }" type="button" :style="{ left: `${entry.projection.x * 100}%`, top: `${entry.projection.y * 100}%`, '--star-size': `${Math.max(2, 5.4 - entry.item.magnitude)}px` }" :aria-label="`${entry.item.name}，${entry.item.constellation}`" :title="`${entry.item.name} / ${entry.item.nameEn} · ${entry.item.magnitude.toFixed(1)} 等`" @click="selectedCatalogId = entry.item.id" @pointerdown.stop><i /><span>{{ entry.item.name }}</span></button>
             <button v-for="entry in visibleMessierObjects" :key="entry.item.id" class="catalog-messier" :class="{ selected: selectedCatalogId === entry.item.id }" type="button" :style="{ left: `${entry.projection.x * 100}%`, top: `${entry.projection.y * 100}%` }" :title="`${entry.item.name} / ${entry.item.nameEn}`" @click="selectedCatalogId = entry.item.id" @pointerdown.stop><i>◇</i><span>{{ entry.item.nameEn }}</span></button>
@@ -1951,11 +1904,6 @@ onBeforeUnmount(() => {
 .altitude-guides { position:absolute; z-index:1; inset:0; width:100%; height:100%; overflow:hidden; pointer-events:none; }
 .altitude-guide,.sky-trajectory path { fill:none; stroke-linecap:round; stroke-linejoin:round; }
 .altitude-guide { stroke:color-mix(in srgb,rgba(10,20,36,.72) calc(var(--sky-daylight,0) * 100%),rgba(165,188,222,.3)); stroke-width:1; stroke-dasharray:3 4; }
-.milky-way-band path { fill:none; stroke-linecap:round; stroke-linejoin:round; pointer-events:none; }
-.milky-way-haze { stroke:rgba(213,220,229,.1); filter:blur(16px); }
-.milky-way-core { stroke:rgba(233,230,218,.115); filter:blur(5px); }
-.milky-way-rift { stroke:rgba(6,17,30,.24); filter:blur(2px); }
-.milky-way-name { position:absolute; z-index:2; padding:2px 5px; color:rgba(199,214,234,.62); font:8px var(--font-mono,monospace); letter-spacing:.12em; background:rgba(7,17,30,.46); border-radius:2px; transform:translate(-50%,-50%); pointer-events:none; }
 .constellation-lines path { fill:none; stroke:rgba(157,184,232,.3); stroke-width:1; stroke-linecap:round; }
 .constellation-name { position:absolute; z-index:2; padding:2px 5px; color:rgba(199,214,234,.58); font:8px var(--font-mono,monospace); letter-spacing:.12em; background:rgba(7,17,30,.45); transform:translate(-50%,-50%); pointer-events:none; }
 .catalog-star,.catalog-messier { position:absolute; z-index:2; width:0; height:0; padding:0; color:var(--sky-ink); background:transparent; border:0; cursor:pointer; }
