@@ -8,7 +8,7 @@ FORM: desktop field observatory; four focused workspaces share one clock, one lo
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { fetchObserverPlace, searchObserverPlaces, fetchObservingConditions, fetchMoonDay, fetchLightPollution, fetchAstronomyEvents, fetchImageWall, type ObservingConditions, type MoonDay, type LightPollution, type AstronomyEvent, type AstronomyEventSourceStatus, type ImageWall, type ObserverPlaceCandidate } from '../api'
-import { analyzeNight, bearing, bodies, calculateFixedObjectPosition, calculatePosition, calculateTrack, calculateTwilight, dateFromZonedLocalTime, daylightFactor, moonPhase, observeTips, observingStatus, upcomingMoonPhases, zonedDateAtMinute, zonedDateKey, zonedMinuteOfDay, type BodyId, type BodyTrack, type NightAnalysis } from '../astronomy'
+import { analyzeNight, bearing, bodies, calculateFixedObjectPosition, calculatePosition, calculateTrack, calculateTwilight, dateFromZonedLocalTime, daylightFactor, moonPhase, observeTips, observingStatus, upcomingMoonPhases, zonedDateAtMinute, zonedDateKey, zonedDateKeyAfterDays, zonedMinuteOfDay, type BodyId, type BodyTrack, type NightAnalysis } from '../astronomy'
 import { conditionDescription, weatherGlyph } from '../observatoryWeather'
 import { projectAltitudeGuide, projectHorizontalDirection, type SkyCamera } from '../skyProjection'
 import { easeOutExpo, normalizeAzimuth, shortestAzimuthDelta, skyTurnDuration } from '../skyMotion'
@@ -102,6 +102,8 @@ const observatoryTimezone = computed(() => conditions.value?.timezone || fallbac
 const simulatedTime = computed(() => zonedDateAtMinute(now.value, minuteOfDay.value, observatoryTimezone.value))
 const simulatedDateKey = computed(() => zonedDateKey(simulatedTime.value, observatoryTimezone.value))
 const simulatedDayAnchor = computed(() => dateFromZonedLocalTime(`${simulatedDateKey.value}T12:00`, observatoryTimezone.value))
+const tomorrowDateKey = computed(() => zonedDateKeyAfterDays(now.value, observatoryTimezone.value, 1))
+const tomorrowDayAnchor = computed(() => dateFromZonedLocalTime(`${tomorrowDateKey.value}T12:00`, observatoryTimezone.value))
 const timeLabel = computed(() => formatTime(simulatedTime.value))
 const scrubFraction = computed(() => (minuteOfDay.value / 1439).toFixed(4))
 const coordinateLabel = computed(() => activeCoordinates.value
@@ -170,7 +172,7 @@ const railCurrentMarkers = computed(() => new Map(
 const twilight = computed(() => activeCoordinates.value ? calculateTwilight(simulatedDayAnchor.value, activeCoordinates.value.latitude, activeCoordinates.value.longitude, elevation.value, observatoryTimezone.value) : null)
 // 今夜夜空分析：天文夜窗口、无月黑夜与银河核心可见时段（纯本地星历）。
 const nightAnalysis = computed<NightAnalysis | null>(() => activeCoordinates.value ? analyzeNight(now.value, activeCoordinates.value.latitude, activeCoordinates.value.longitude, elevation.value, observatoryTimezone.value) : null)
-const tomorrowNightAnalysis = computed<NightAnalysis | null>(() => activeCoordinates.value ? analyzeNight(new Date(now.value.getTime() + 24 * 60 * 60_000), activeCoordinates.value.latitude, activeCoordinates.value.longitude, elevation.value, observatoryTimezone.value) : null)
+const tomorrowNightAnalysis = computed<NightAnalysis | null>(() => activeCoordinates.value ? analyzeNight(tomorrowDayAnchor.value, activeCoordinates.value.latitude, activeCoordinates.value.longitude, elevation.value, observatoryTimezone.value) : null)
 function windowRange(window: NightAnalysis['astronomicalNight']) {
   return window ? `${formatTime(window.start)} – ${formatTime(window.end)}` : '—'
 }
@@ -289,16 +291,18 @@ const tonightScore = computed<TonightScore | null>(() => {
   if (!candidates.length) return null
   return candidates.reduce((best, item) => item.score > best.score ? item : best)
 })
-function bestScoreForNight(night: NightAnalysis['astronomicalNight'] | undefined) {
+function bestScoreForNight(night: NightAnalysis['astronomicalNight'] | undefined, localDateKey?: string) {
   const scores = conditions.value?.scores ?? []
   if (!night || !scores.length) return null
   const candidates = scores.filter((item) => {
+    if (localDateKey && item.time.slice(0, 10) !== localDateKey) return false
     const at = dateFromZonedLocalTime(item.time, observatoryTimezone.value).getTime()
     return at >= night.start.getTime() && at <= night.end.getTime()
   })
   return candidates.reduce<TonightScore | null>((best, item) => !best || item.score > best.score ? item : best, null)
 }
-const tomorrowScore = computed(() => bestScoreForNight(tomorrowNightAnalysis.value?.astronomicalNight))
+// “明日夜间”只使用明天当地自然日内的夜间小时，不把后天凌晨并入明日评分。
+const tomorrowScore = computed(() => bestScoreForNight(tomorrowNightAnalysis.value?.astronomicalNight, tomorrowDateKey.value))
 const hasTonightScoreDetails = computed(() => Boolean(tonightScore.value?.factors && tonightScore.value?.weather))
 const scoreWeather = computed(() => hasTonightScoreDetails.value ? tonightScore.value?.weather ?? null : null)
 const displayedConditions = computed<ObservingConditions['current'] | ObservingConditions['hourly'][number] | null>(() => {
@@ -388,9 +392,9 @@ const recommendation = computed(() => {
     const bestScore = Math.max(...darkHours.map((item) => item.score))
     if (bestScore >= 40) {
       bestHour = darkHours.find((item) => item.score === bestScore) ?? null
-      windowLabel = bestHour ? `最佳窗口 ${bestHour.time.slice(11, 16)} · 评分 ${bestScore}` : '未来 48 小时未见理想窗口'
+      windowLabel = bestHour ? `最佳窗口 ${bestHour.time.slice(11, 16)} · 评分 ${bestScore}` : '今夜未见理想窗口'
     } else {
-      windowLabel = '未来 48 小时天气与月光条件有限'
+      windowLabel = '今夜天气与月光条件有限'
     }
   } else {
     windowLabel = hourly.length ? `今夜天文夜暂未进入天气预报范围 · ${formatTime(nightStart)} – ${formatTime(nightEnd)}` : `天气源暂不可用，天文夜 ${formatTime(nightStart)} – ${formatTime(nightEnd)}`
@@ -437,7 +441,10 @@ const recommendation = computed(() => {
     })
   return { window: bestHour, windowLabel, targets, weatherAvailable, weatherCoverage }
 })
-const hourlyForecast = computed(() => conditions.value?.hourly.slice(0, 48) ?? [])
+// 预报矩阵只展示明天当地时间 00:00–23:00，不再暴露滚动 48 小时窗口。
+const hourlyForecast = computed(() => (conditions.value?.hourly ?? [])
+  .filter((hour) => hour.time.slice(0, 10) === tomorrowDateKey.value)
+  .slice(0, 24))
 const forecastDateGroups = computed(() => {
   const groups: Array<{ date: string; hours: number }> = []
   for (const hour of hourlyForecast.value) {
@@ -1415,8 +1422,8 @@ onBeforeUnmount(() => {
             <span v-for="part in scoreFactors" :key="part.key" :class="part.kind"><i :style="{ width: factorBarWidth(part) }" /><small>{{ part.label }}</small><strong>{{ part.value.toFixed(1) }}</strong></span>
             <em v-if="!scoreFactors.length">当前没有明显扣分项</em>
           </div>
-          <article class="tomorrow-score" aria-label="明夜观测条件预估">
-            <span>明夜预估</span><strong>{{ tomorrowScore ? `${tomorrowScore.score}/100` : '暂未覆盖' }}</strong><small v-if="tomorrowScore">最佳 {{ tomorrowScore.time.slice(11, 16) }} · {{ tomorrowScore.verdict }}</small><small v-else>只在小时级天气预报覆盖明夜时给出，不延伸到更远日期。</small>
+          <article class="tomorrow-score" aria-label="明日夜间观测条件预估">
+            <span>明日夜间</span><strong>{{ tomorrowScore ? `${tomorrowScore.score}/100` : '暂未覆盖' }}</strong><small v-if="tomorrowScore">最佳 {{ tomorrowScore.time.slice(11, 16) }} · {{ tomorrowScore.verdict }}</small><small v-else>明日 00:00–23:00 内暂无可用于夜间评分的天气数据。</small>
           </article>
         </section>
 
@@ -1433,7 +1440,7 @@ onBeforeUnmount(() => {
           <ul v-if="recommendation?.targets.length" class="observing-targets">
             <li v-for="target in recommendation.targets" :key="target.id"><i :style="{ color: target.tint }">{{ target.glyph }}</i><span><strong>{{ target.name }}</strong><small>{{ target.summary }}</small><em v-if="target.tip">{{ target.tip }}</em></span><button type="button" :disabled="!target.visible" :title="target.visible ? `在星图中定位${target.name}` : '当前在地平线下，无法定位'" @click="locateRecommendedBody(target.id)">定位</button></li>
           </ul>
-          <p v-else-if="recommendation" class="observing-targets-empty">{{ recommendation.weatherAvailable ? '未来 48 小时天气与月光条件有限，建议短时观察亮目标，或改日再安排。' : '天文夜内暂无可观测的亮目标，可改日再安排。' }}</p>
+          <p v-else-if="recommendation" class="observing-targets-empty">{{ recommendation.weatherAvailable ? '今夜天气与月光条件有限，建议短时观察亮目标，或改日再安排。' : '天文夜内暂无可观测的亮目标，可改日再安排。' }}</p>
 
           <div class="current-observation">
             <header><div><p>CONDITION SNAPSHOT / {{ conditionsMomentLabel }}</p><h3>{{ followingRealTime ? '当前' : '预览' }}观测环境</h3></div><span v-if="displayedConditions">{{ displayedConditions.time.slice(11, 16) }} · {{ conditions?.source }}</span><span v-else>等待环境数据</span></header>
@@ -1460,8 +1467,8 @@ onBeforeUnmount(() => {
         </section>
 
         <section class="forecast-section">
-          <div class="forecast-heading"><p>天气预报</p><span>今天与明天 · 最多 48 小时 · {{ conditions?.source ?? '等待天气源' }} · {{ conditions?.timezone ?? '—' }}</span></div>
-          <div v-if="hourlyForecast.length" class="forecast-matrix" role="table" aria-label="未来48小时观测天气预报">
+          <div class="forecast-heading"><p>明日天气预报</p><span>完整一天 · 00:00–23:00 · {{ conditions?.source ?? '等待天气源' }} · {{ conditions?.timezone ?? '—' }}</span></div>
+          <div v-if="hourlyForecast.length" class="forecast-matrix" role="table" aria-label="明日逐小时观测天气预报">
             <div class="matrix-labels" aria-hidden="true">
               <span><strong>日期</strong><small>月 / 日</small></span>
               <span><strong>时间</strong><small>HH:mm</small></span>
@@ -1503,7 +1510,7 @@ onBeforeUnmount(() => {
               </div>
             </div></div>
           </div>
-          <div v-else class="integration-state"><span>01</span><div><h3>{{ conditionsStatus === 'error' ? '天气预报暂不可用' : '正在连接天气预报' }}</h3><p>当前页保留小时级原始节奏：上海等地区不会被伪装成半小时气象预报。</p></div></div>
+          <div v-else class="integration-state"><span>01</span><div><h3>{{ conditionsStatus === 'error' ? '明日天气预报暂不可用' : '正在连接明日天气预报' }}</h3><p>明日逐小时预报将在天气数据加载后显示。</p></div></div>
         </section>
       </section>
 

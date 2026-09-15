@@ -1,6 +1,6 @@
 // 观测评分：把会随时刻变化的天气（云层/降水/通透度）与月光结合，为指定时刻生成观测评分。
 // 评分从 100 分向下扣除限制因素；光污染作为地点长期环境数据随结果返回，但不参与动态评分。
-// 但加入时间维度：时刻落在未来 48 小时预报窗口内使用真实天气，窗口外降级为"仅星历"并明示。
+// 但加入时间维度：时刻落在天气源返回的今天与明天范围内使用真实天气，范围外降级为"仅星历"并明示。
 package observatory
 
 import (
@@ -106,7 +106,7 @@ func scoreFromReport(report Conditions, moon MoonProvider, lp *LightPollution, l
 	selected, within := weatherSnapshotAt(report, at)
 	result.WithinForecastWindow = within
 	if !within {
-		result.Verdict = "超出未来 48 小时预报窗口，暂无天气评分；本地星历仍可计算"
+		result.Verdict = "超出今天与明天的天气预报范围，暂无天气评分；本地星历仍可计算"
 		return result
 	}
 

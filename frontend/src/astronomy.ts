@@ -151,6 +151,13 @@ export function zonedDateKey(at: Date, timezone: string) {
   return `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`
 }
 
+/** 返回 at 在指定地点时区中的日期偏移，按日历日跨月和跨年。 */
+export function zonedDateKeyAfterDays(at: Date, timezone: string, days: number) {
+  const parts = zonedDateParts(at, timezone)
+  const shifted = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + days))
+  return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, '0')}-${String(shifted.getUTCDate()).padStart(2, '0')}`
+}
+
 /** 保留 at 在指定地点时区中的日期，并替换为该日的目标分钟。 */
 export function zonedDateAtMinute(at: Date, minute: number, timezone: string) {
   const parts = zonedDateParts(at, timezone)
