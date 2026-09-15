@@ -682,28 +682,25 @@ export class SolarSystemScene {
       const material = new THREE.MeshBasicMaterial({
         color: 0xd8c9a3,
         transparent: true,
-        opacity: 0.9,
+        // 贴图未就绪时保持完全透明，避免首帧把材质底色画成实心圆盘。
+        opacity: 0,
         side: THREE.DoubleSide,
         depthWrite: false,
       })
       const ring = new THREE.Mesh(geometry, material)
       ring.userData = { id: spec.id }
       const ringTexture = solarTexture(SATURN_RING_TEXTURE_URL, (texture) => {
-        if (this.disposed) {
-          texture.dispose()
-          return
-        }
+        if (this.disposed) return
         material.map = texture
+        material.opacity = 0.9
         material.needsUpdate = true
       })
       ringTexture.colorSpace = THREE.SRGBColorSpace
       ringTexture.anisotropy = 4
       this.textures.push(ringTexture)
-      // 预热已就绪：同步挂上贴图，让构造器预编译直接覆盖带贴图程序
-      if (ringTexture.image) {
-        material.map = ringTexture
-        material.needsUpdate = true
-      }
+      // 从构造时就绑定同一个 Texture 实例以预编译最终 shader；透明度由 onReady 原子揭示。
+      material.map = ringTexture
+      material.needsUpdate = true
       this.disposables.push(material, geometry)
       return ring
     }

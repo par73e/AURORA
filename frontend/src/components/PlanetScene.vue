@@ -788,7 +788,10 @@ onMounted(() => {
     const ringMaterial = new THREE.MeshBasicMaterial({
       color: props.planet.ring.color ?? 0xd8c9a3,
       transparent: true,
-      opacity: props.planet.ring.opacity ?? 0.9,
+      // 土星环贴图未就绪时不显示材质底色，避免直达页面首帧出现实心圆盘。
+      opacity: props.planet.ring.kind === 'saturn' && props.planet.ring.textureUrl
+        ? 0
+        : (props.planet.ring.opacity ?? 0.9),
       side: THREE.DoubleSide,
       depthWrite: false,
     })
@@ -803,6 +806,7 @@ onMounted(() => {
       const ringTexture = solarTexture(props.planet.ring.textureUrl, (t: THREE.Texture) => {
         if (!ringMesh.material) return
         ringMaterial.map = t
+        ringMaterial.opacity = props.planet.ring?.opacity ?? 0.9
         ringMaterial.needsUpdate = true
       })
       ringTexture.colorSpace = THREE.SRGBColorSpace
