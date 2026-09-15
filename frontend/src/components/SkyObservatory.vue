@@ -195,10 +195,25 @@ const projectedCatalog = computed(() => skyCatalog.flatMap((item) => {
 }))
 const visibleCatalogStars = computed(() => projectedCatalog.value.filter(({ item }) => item.kind === 'star'))
 const visibleMessierObjects = computed(() => projectedCatalog.value.filter(({ item }) => item.kind === 'messier'))
-const catalogSearchResults = computed(() => {
+interface SkySearchResult {
+  key: string
+  name: string
+  nameEn: string
+  group: string
+  visible: boolean
+  bodyId?: BodyId
+  catalogObject?: SkyCatalogObject
+}
+const skySearchResults = computed<SkySearchResult[]>(() => {
   const query = skySearchQuery.value.trim().toLocaleLowerCase()
   if (!query) return []
-  return skyCatalog.filter((item) => `${item.name} ${item.nameEn} ${item.constellation}`.toLocaleLowerCase().includes(query)).slice(0, 8)
+  const bodyResults = tracks.value
+    .filter((item) => `${item.name} ${item.nameEn}`.toLocaleLowerCase().includes(query))
+    .map((item) => ({ key: `body-${item.id}`, name: item.name, nameEn: item.nameEn, group: '太阳系天体', visible: item.visible, bodyId: item.id }))
+  const catalogResults = skyCatalog
+    .filter((item) => `${item.name} ${item.nameEn} ${item.constellation}`.toLocaleLowerCase().includes(query))
+    .map((item) => ({ key: `catalog-${item.id}`, name: item.name, nameEn: item.nameEn, group: item.constellation, visible: catalogPositions.value.get(item.id)?.visible ?? false, catalogObject: item }))
+  return [...bodyResults, ...catalogResults].slice(0, 8)
 })
 const constellationGeometry = computed(() => constellationLines.map((constellation) => {
   const paths = constellation.segments.flatMap(([fromId, toId]) => {
@@ -510,6 +525,7 @@ function formatSourceDate(value?: string) {
 
 function sourceStatusMessage(source: AstronomyEventSourceStatus) {
   if (source.success !== false) return `最近同步 ${formatSourceDate(source.lastSuccessAt)}`
+  if (source.code === 'imo_meteor_calendar' && source.error?.includes('not a PDF')) return 'IMO 年度 PDF 当前返回网页；继续使用上次缓存'
   if (source.code === 'imo_meteor_calendar') return 'IMO 年度日历当前不可用；继续使用上次缓存'
   return '部分资料同步失败；继续使用上次缓存'
 }
@@ -946,6 +962,11 @@ function revealSkyDirection(targetAzimuth: number) {
   }, 0)
 }
 
+// 搜索结果定位只旋转星图，不改变页面的纵向滚动位置。
+function revealCatalogDirection(targetAzimuth: number) {
+  requestAnimationFrame(() => animateSkyViewTo(targetAzimuth))
+}
+
 function rotateSkyView(change: number) {
   cancelSkyViewTurn()
   scheduleSkyView((pendingSkyViewAzimuth ?? skyViewAzimuth.value) + change)
@@ -1025,6 +1046,8 @@ function cancelPendingTimeScrub() {
 // 原生 range 可能在一帧内派发多次 input；星历与 SVG 投影最多每帧更新一次。
 function scheduleMinuteOfDay(event: Event) {
   const target = event.currentTarget as HTMLInputElement
+  stopMinuteAnimation()
+  followingRealTime.value = false
   pendingMinuteOfDay = Number(target.value)
   if (timeScrubAnimationFrame !== undefined) return
   timeScrubAnimationFrame = requestAnimationFrame(() => {
@@ -1036,13 +1059,8 @@ function scheduleMinuteOfDay(event: Event) {
 
 function commitMinuteOfDay(event: Event) {
   cancelPendingTimeScrub()
-  minuteOfDay.value = Number((event.currentTarget as HTMLInputElement).value)
-}
-
-// 用户开始拖动/键盘调整进度条：暂停跟随真实时间，避免自动推进打断预览。
-function pauseFollowing() {
-  stopMinuteAnimation()
   followingRealTime.value = false
+  minuteOfDay.value = Number((event.currentTarget as HTMLInputElement).value)
 }
 
 function jumpToNow() {
@@ -1207,7 +1225,26 @@ function locateCatalogObject(item: SkyCatalogObject) {
   if (!position?.visible) return
   selectedCatalogId.value = item.id
   skySearchQuery.value = item.name
-  revealSkyDirection(position.azimuth)
+  revealCatalogDirection(position.azimuth)
+}
+
+function locateSkySearchResult(result: SkySearchResult) {
+  if (!result.visible) return
+  if (result.bodyId) {
+    const track = tracks.value.find((item) => item.id === result.bodyId)
+    if (!track?.visible) return
+    expandedBodyId.value = result.bodyId
+    selectedCatalogId.value = null
+    skySearchQuery.value = result.name
+    revealCatalogDirection(track.azimuth)
+    return
+  }
+  if (result.catalogObject) locateCatalogObject(result.catalogObject)
+}
+
+function locateFirstSkySearchMatch() {
+  const firstVisible = skySearchResults.value.find((item) => item.visible)
+  if (firstVisible) locateSkySearchResult(firstVisible)
 }
 
 async function loadConditions(currentLatitude: number, currentLongitude: number) {
@@ -1329,7 +1366,7 @@ onMounted(() => {
   window.addEventListener('popstate', onPopState)
   document.addEventListener('pointerdown', onLocationOutsidePointerDown)
   document.addEventListener('keydown', onLocationEditorKeydown)
-  // 秒钟在独立的小组件内更新；星历只需按分钟检查一次。
+  // 与左下角秒钟共用真实时间节奏；星历仅在当地分钟变化时更新。
   minuteClock = window.setInterval(() => {
     const real = new Date()
     if (followingRealTime.value) {
@@ -1339,7 +1376,7 @@ onMounted(() => {
         minuteOfDay.value = localMinute
       }
     }
-  }, 10_000)
+  }, 1_000)
   loadMoonTexture()
   requestLocation()
 })
@@ -1469,7 +1506,6 @@ onBeforeUnmount(() => {
         </section>
 
         <section class="forecast-section">
-          <div class="forecast-heading"><p>逐小时天气预报</p><span>当前整点–明日 24:00 · {{ hourlyForecast.length || '—' }} 小时 · {{ conditions?.source ?? '等待天气源' }} · {{ conditions?.timezone ?? '—' }}</span></div>
           <div v-if="hourlyForecast.length" class="forecast-matrix" role="table" aria-label="当前整点至明日24点的逐小时观测天气预报">
             <div class="matrix-labels" aria-hidden="true">
               <span><strong>日期</strong><small>月 / 日</small></span>
@@ -1519,8 +1555,8 @@ onBeforeUnmount(() => {
       <section v-else-if="activePage === 'sky'" class="sky-map-page page-stack">
         <div class="section-heading"><h2>星图</h2></div>
         <div class="sky-catalog-search" @pointerdown.stop>
-          <label for="sky-object-search">搜索天体</label><input id="sky-object-search" v-model="skySearchQuery" placeholder="天狼星、M31、猎户座…" autocomplete="off" />
-          <ul v-if="catalogSearchResults.length"><li v-for="item in catalogSearchResults" :key="item.id"><button type="button" :disabled="!catalogPositions.get(item.id)?.visible" @click="locateCatalogObject(item)"><span><strong>{{ item.name }}</strong><small>{{ item.nameEn }} · {{ item.constellation }}</small></span><i>{{ catalogPositions.get(item.id)?.visible ? '定位' : '地平线下' }}</i></button></li></ul>
+          <label for="sky-object-search">搜索天体</label><input id="sky-object-search" v-model="skySearchQuery" placeholder="木星、天狼星、M31…" autocomplete="off" @keydown.enter.prevent="locateFirstSkySearchMatch" />
+          <ul v-if="skySearchResults.length"><li v-for="result in skySearchResults" :key="result.key"><button type="button" :disabled="!result.visible" @click="locateSkySearchResult(result)"><span><strong>{{ result.name }}</strong><small>{{ result.nameEn }} · {{ result.group }}</small></span><i>{{ result.visible ? '定位' : '地平线下' }}</i></button></li></ul>
         </div>
         <section class="horizon-section">
           <div class="horizon-field" :class="{ 'has-location': activeCoordinates, 'is-dragging': skyViewDragging, 'is-auto-turning': skyViewAutoTurning }" :style="horizonFieldStyle" @pointerdown="beginSkyViewDrag" @pointermove="dragSkyView" @pointerup="endSkyViewDrag" @pointercancel="endSkyViewDrag">
@@ -1536,7 +1572,7 @@ onBeforeUnmount(() => {
               </g>
             </svg>
             <span v-for="constellation in constellationGeometry" :key="`name-${constellation.name}`" v-show="constellation.label" class="constellation-name" :style="{ left: `${(constellation.label?.x ?? 0) * 100}%`, top: `${(constellation.label?.y ?? 0) * 100}%` }">{{ constellation.name }}</span>
-            <button v-for="entry in visibleCatalogStars" :key="entry.item.id" class="catalog-star" :class="{ selected: selectedCatalogId === entry.item.id }" type="button" :style="{ left: `${entry.projection.x * 100}%`, top: `${entry.projection.y * 100}%`, '--star-size': `${Math.max(2, 5.4 - entry.item.magnitude)}px` }" :aria-label="`${entry.item.name}，${entry.item.constellation}`" :title="`${entry.item.name} / ${entry.item.nameEn} · ${entry.item.magnitude.toFixed(1)} 等`" @click="selectedCatalogId = entry.item.id" @pointerdown.stop><i /><span v-if="entry.item.magnitude <= .5 || selectedCatalogId === entry.item.id">{{ entry.item.name }}</span></button>
+            <button v-for="entry in visibleCatalogStars" :key="entry.item.id" class="catalog-star" :class="{ selected: selectedCatalogId === entry.item.id }" type="button" :style="{ left: `${entry.projection.x * 100}%`, top: `${entry.projection.y * 100}%`, '--star-size': `${Math.max(2, 5.4 - entry.item.magnitude)}px` }" :aria-label="`${entry.item.name}，${entry.item.constellation}`" :title="`${entry.item.name} / ${entry.item.nameEn} · ${entry.item.magnitude.toFixed(1)} 等`" @click="selectedCatalogId = entry.item.id" @pointerdown.stop><i /><span>{{ entry.item.name }}</span></button>
             <button v-for="entry in visibleMessierObjects" :key="entry.item.id" class="catalog-messier" :class="{ selected: selectedCatalogId === entry.item.id }" type="button" :style="{ left: `${entry.projection.x * 100}%`, top: `${entry.projection.y * 100}%` }" :title="`${entry.item.name} / ${entry.item.nameEn}`" @click="selectedCatalogId = entry.item.id" @pointerdown.stop><i>◇</i><span>{{ entry.item.nameEn }}</span></button>
             <template v-for="guide in altitudeGuides" :key="`label-${guide.altitude}`"><span v-if="guide.label" class="altitude-label" :style="altitudeLabelStyle(guide.label)">{{ guide.altitude }}°</span></template>
             <div v-for="body in horizonBodies" :key="body.id" class="sky-body" :class="{ 'is-active': expandedBodyId === body.id }" :style="horizonStyle(body)" role="button" tabindex="0" :aria-label="`查看${body.name}详情`" :aria-expanded="expandedBodyId === body.id" @click="revealBody(body.id)" @keydown.enter.prevent="revealBody(body.id)" @keydown.space.prevent="revealBody(body.id)" @pointerdown.stop><i>{{ body.glyph }}</i><span>{{ body.name }}</span></div>
@@ -1571,7 +1607,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
         </section>
-        <div class="time-scrubber"><div class="time-scrubber-inner"><div><span>时刻</span><strong>{{ timeLabel }}</strong></div><div class="time-scrubber-track"><output class="time-scrubber-bubble" :style="{ '--scrub-f': scrubFraction }">{{ timeLabel }}</output><input :value="minuteOfDay" type="range" min="0" max="1439" step="1" aria-label="时刻" @input="scheduleMinuteOfDay" @change="commitMinuteOfDay" @pointerdown="pauseFollowing" @keydown="pauseFollowing" /></div><button class="time-scrubber-now" type="button" @click="jumpToNow">现在</button><div><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div></div></div>
+        <div class="time-scrubber"><div class="time-scrubber-inner"><div><span>时刻</span><strong>{{ timeLabel }}</strong></div><div class="time-scrubber-track"><output class="time-scrubber-bubble" :style="{ '--scrub-f': scrubFraction }">{{ timeLabel }}</output><input :value="minuteOfDay" type="range" min="0" max="1439" step="1" aria-label="时刻" @input="scheduleMinuteOfDay" @change="commitMinuteOfDay" /></div><button class="time-scrubber-now" type="button" @click="jumpToNow">现在</button><div><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div></div></div>
 
         <section class="window-section">
           <div class="section-heading"><h2>行星升落</h2></div>
@@ -1827,9 +1863,6 @@ onBeforeUnmount(() => {
 .night-grid small { display:block; color:var(--sky-muted); font-size:10px; line-height:1.55; }
 .section-heading { display:flex; align-items:end; margin-bottom:18px; }
 .section-heading h2 { margin:6px 0 0; font-size:25px; font-weight:500; letter-spacing:-.04em; }
-.forecast-heading { display:flex; justify-content:space-between; align-items:baseline; gap:16px; margin-bottom:16px; }
-.forecast-heading p { margin:0; color:var(--sky-amber); font:9px var(--font-mono,monospace); letter-spacing:.12em; }
-.forecast-heading span { color:var(--sky-muted); font-size:10px; }
 .forecast-matrix { display:grid; grid-template-columns:102px minmax(0,1fr); overflow:hidden; border:1px solid var(--sky-line); background:var(--sky-sunken); }
 .matrix-labels { display:grid; grid-template-rows:34px 38px 58px repeat(12,44px); background:var(--sky-panel); border-right:1px solid var(--sky-line); }
 .matrix-labels span { display:grid; place-content:center; justify-items:center; gap:2px; padding:0 8px; color:var(--sky-muted); text-align:center; border-bottom:1px solid rgba(165,188,222,.1); }
