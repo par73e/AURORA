@@ -97,7 +97,7 @@ withDefaults(defineProps<{
 .aurora-brand:hover .aurora-brand-mark i:nth-child(2),
 .aurora-brand:focus-visible .aurora-brand-mark i:nth-child(2) { background: rgba(114, 215, 255, .95); }
 .aurora-brand:hover .aurora-brand-mark i:nth-child(3),
-.aurora-brand:focus-visible .aurora-brand-mark i:nth-child(3) { border-color: rgba(114, 215, 255, .72); background: none; }
+.aurora-brand:focus-visible .aurora-brand-mark i:nth-child(3) { border-color: rgba(114, 215, 255, .72); background: var(--blue, #72d7ff); }
 .aurora-brand:hover strong,
 .aurora-brand:focus-visible strong { color: #edf7fb; text-shadow: 0 2px 14px rgba(0, 8, 18, .72); }
 .aurora-brand:hover small,
