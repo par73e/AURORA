@@ -567,6 +567,7 @@ watch(
     }
     toolbarAnim = requestAnimationFrame(tick)
   },
+  { immediate: true },
 )
 
 let renderer: THREE.WebGLRenderer | undefined
@@ -841,7 +842,15 @@ onMounted(() => {
     swingPivot.add(line)
     const dot = new THREE.Mesh(
       new THREE.SphereGeometry(Math.max(0.045, props.planet.radius * 0.018), 12, 12),
-      new THREE.MeshBasicMaterial({ color: craft.status === '运行中' ? props.planet.sceneAccent : 0xd7e4ea, transparent: true, opacity: 0.96, depthTest: true, depthWrite: false }),
+      new THREE.MeshBasicMaterial({
+        color: props.planet.star ? 0xfff0c2 : (craft.status === '运行中' ? props.planet.sceneAccent : 0xd7e4ea),
+        transparent: true,
+        opacity: 0.96,
+        // 太阳页的轨道是压缩示意图：自发光太阳盘会遮掉全部近太阳标记，故以 HUD 标记置顶；
+        // 普通行星仍保持真实深度遮挡，背面飞行器不可见。
+        depthTest: !props.planet.star,
+        depthWrite: false,
+      }),
     )
     dot.userData = { kind: 'planet-craft', craftId: craft.id }
     const displayProgress = THREE.MathUtils.clamp(
@@ -987,7 +996,8 @@ onMounted(() => {
     const bounds = renderer.domElement.getBoundingClientRect()
     craftLabels.value = Array.from(craftRuntimes.values()).map((runtime) => {
       runtime.dot.getWorldPosition(labelTmp)
-      const notOccluded = isNotOccluded(labelTmp)
+      // 太阳页与圆点采用同一 HUD 语义，标签不被自发光球体吞掉；其他行星继续做球体遮挡判断。
+      const notOccluded = props.planet.star || isNotOccluded(labelTmp)
       labelTmp.project(cam)
       const x = bounds.left + (labelTmp.x * 0.5 + 0.5) * bounds.width
       const y = bounds.top + (-labelTmp.y * 0.5 + 0.5) * bounds.height

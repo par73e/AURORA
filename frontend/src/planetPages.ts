@@ -166,21 +166,23 @@ const SUN_SPACECRAFT: PlanetSpacecraft = {
       id: 'parker-solar-probe', name: '帕克太阳探测器', nameEn: 'Parker Solar Probe', operator: 'NASA',
       status: '运行中', type: '日心轨道器', date: '2018-08-12', endpoint: '近日点 6.1M km · 0.04 AU',
       description: '目前仍在运行的太阳探测器，2024-12-24 抵达距太阳约 6.1M km 的历史最近点。',
-      trajectory: { kind: 'orbit', radius: 2.3, eccentricity: 0.5, inclinationDeg: 8, phaseDeg: 18, periodDays: 88 },
+      // 默认相位放在太阳右下侧的近端轨道，进入页面即可看到运行标记与标签。
+      trajectory: { kind: 'orbit', radius: 2.3, eccentricity: 0.5, inclinationDeg: 8, phaseDeg: 18, displayProgress: 0.76, periodDays: 88 },
       verifiedAt: '2026-08-06', source: 'NASA Parker Solar Probe',
     },
     {
       id: 'helios-b', name: '太阳神 B 号', nameEn: 'Helios-B', operator: 'NASA / DLR',
       status: '已结束', type: '日心轨道器', date: '1976-01-15', endpoint: '近日点 0.29 AU',
       description: '1976 年进入高偏心日心轨道，创下长期保持的近太阳探测距离纪录。',
-      trajectory: { kind: 'orbit', radius: 2.45, eccentricity: 0.55, inclinationDeg: 3, phaseDeg: 156, periodDays: 190 },
+      trajectory: { kind: 'orbit', radius: 2.45, eccentricity: 0.55, inclinationDeg: 3, phaseDeg: 156, displayProgress: 0.1, periodDays: 190 },
       verifiedAt: '2026-08-06', source: 'NASA / DLR mission archive',
     },
     {
       id: 'ulysses', name: '尤利西斯号', nameEn: 'Ulysses', operator: 'ESA / NASA',
       status: '已结束', type: '太阳极区探测器', date: '1990-10-06', endpoint: '高倾角太阳极轨',
       description: '首个系统研究太阳南北极区的探测器，2009 年结束任务。',
-      trajectory: { kind: 'orbit', radius: 2.9, eccentricity: 0.18, inclinationDeg: 66, phaseDeg: 235, periodDays: 2260 },
+      // 高倾角轨道做视觉压缩，避免默认标记落到首屏外；仍保留显著的太阳极轨形态。
+      trajectory: { kind: 'orbit', radius: 2.2, eccentricity: 0.18, inclinationDeg: 66, phaseDeg: 235, displayProgress: 0.76, periodDays: 2260 },
       verifiedAt: '2026-08-06', source: 'ESA Ulysses archive',
     },
   ],
