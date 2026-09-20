@@ -8,7 +8,7 @@ const STORAGE_KEY = 'aurora.solar.realPositions'
 // 这样所有场景首次进入都默认显示，用户之后的主动切换仍能跨页面、刷新保留。
 const SPACECRAFT_VISIBILITY_STORAGE_KEY = 'aurora.solar.spacecraftVisible.v4'
 const SPACECRAFT_VISIBILITY_VERSION_KEY = 'aurora.solar.spacecraftVisibilityVersion'
-const SPACECRAFT_VISIBILITY_VERSION = '2'
+const SPACECRAFT_VISIBILITY_VERSION = '3'
 
 export const solarSession = {
   get realPositions(): boolean {

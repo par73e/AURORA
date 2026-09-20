@@ -2,14 +2,14 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { solarSession } from '../src/solar/session.ts'
 
-test('飞行器偏好升级后默认显示，并继续记忆用户的新选择', () => {
+test('所有天体的飞行器偏好升级后默认显示，并继续记忆用户的新选择', () => {
   const originalLocalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
   const values = new Map([
     ['aurora.solar.spacecraftVisible', '0'],
     ['aurora.solar.spacecraftVisible.v2', '0'],
     ['aurora.solar.spacecraftVisible.v3', '0'],
     ['aurora.solar.spacecraftVisible.v4', '0'],
-    ['aurora.solar.spacecraftVisibilityVersion', '1'],
+    ['aurora.solar.spacecraftVisibilityVersion', '2'],
   ])
   Object.defineProperty(globalThis, 'localStorage', {
     configurable: true,
@@ -28,7 +28,7 @@ test('飞行器偏好升级后默认显示，并继续记忆用户的新选择',
 
     solarSession.spacecraftVisible = false
     assert.equal(values.get('aurora.solar.spacecraftVisible.v4'), '0')
-    assert.equal(values.get('aurora.solar.spacecraftVisibilityVersion'), '2')
+    assert.equal(values.get('aurora.solar.spacecraftVisibilityVersion'), '3')
     assert.equal(solarSession.spacecraftVisible, false)
 
     solarSession.spacecraftVisible = true
