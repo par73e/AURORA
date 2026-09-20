@@ -4,11 +4,9 @@
  * 组件卸载/重挂载、页面刷新后都保留；首次访问（无记录）为默认一字排布。
  */
 const STORAGE_KEY = 'aurora.solar.realPositions'
-// 只有同时存在当前版本标记的值才视为用户主动选择；旧键或迁移期间误写的隐藏值一律忽略。
-// 这样所有场景首次进入都默认显示，用户之后的主动切换仍能跨页面、刷新保留。
-const SPACECRAFT_VISIBILITY_STORAGE_KEY = 'aurora.solar.spacecraftVisible.v4'
-const SPACECRAFT_VISIBILITY_VERSION_KEY = 'aurora.solar.spacecraftVisibilityVersion'
-const SPACECRAFT_VISIBILITY_VERSION = '3'
+// v5 是完全独立的用户偏好：旧版本在初始化和迁移期间写入的隐藏状态不再参与判断。
+// 键不存在时默认显示；只有用户主动切换后才写入，并在跨天体、刷新时保留。
+const SPACECRAFT_VISIBILITY_STORAGE_KEY = 'aurora.solar.spacecraftVisible.v5'
 
 export const solarSession = {
   get realPositions(): boolean {
@@ -27,7 +25,6 @@ export const solarSession = {
   },
   get spacecraftVisible(): boolean {
     try {
-      if (localStorage.getItem(SPACECRAFT_VISIBILITY_VERSION_KEY) !== SPACECRAFT_VISIBILITY_VERSION) return true
       return localStorage.getItem(SPACECRAFT_VISIBILITY_STORAGE_KEY) !== '0'
     } catch {
       return true
@@ -36,9 +33,8 @@ export const solarSession = {
   set spacecraftVisible(value: boolean) {
     try {
       localStorage.setItem(SPACECRAFT_VISIBILITY_STORAGE_KEY, value ? '1' : '0')
-      localStorage.setItem(SPACECRAFT_VISIBILITY_VERSION_KEY, SPACECRAFT_VISIBILITY_VERSION)
     } catch {
-      // 本次会话继续可用；未写入版本标记时，下次仍安全回退为默认显示
+      // 本次会话继续可用；下次无有效记录时仍安全回退为默认显示
     }
   },
 }
