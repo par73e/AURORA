@@ -19,6 +19,7 @@ import { marsHdReady, moonHdReady, orbitTexturesReady, preloadMarsHdTexture, pre
 import { solarTexturesReady } from './solar/textures'
 import type { LaunchEvent, LaunchSite, OrbitOverview, SceneLayers, Selection, SpacecraftCatalogPage } from './types'
 import { primaryOperator } from './operators'
+import { createDefaultSceneLayers } from './sceneLayers'
 
 // 大型 Three.js 场景按路径加载。导入动作总是在原有的黑幕/推镜预热阶段启动，
 // 因而不改变用户已经调校过的入场节奏，只减少封面首次下载的负担。
@@ -50,7 +51,7 @@ const loading = ref(false)
 const error = ref('')
 const now = ref(new Date())
 const selection = ref<Selection | null>(null)
-const layers = reactive<SceneLayers>({ spacecraft: true, orbits: true, sites: true })
+const layers = reactive<SceneLayers>(createDefaultSceneLayers())
 const objectQuery = ref('')
 const operatorFilter = ref('all')
 const objectSort = ref<'name' | 'norad' | 'operator'>('name')
@@ -1965,12 +1966,13 @@ onBeforeUnmount(() => {
         </div>
       </header>
 
-      <MoonScene v-if="surface === 'moon'" :reveal-tick="moonRevealTick" :enter-from-solar="moonEnterFromSolar" :leaving="moonLeaving" :header-expanded="headerExpanded" @blank-click="collapseHeaderFromScene" @textures-ready="onMoonSceneReady" />
+      <MoonScene v-if="surface === 'moon'" v-model:spacecraft-visible="layers.spacecraft" :reveal-tick="moonRevealTick" :enter-from-solar="moonEnterFromSolar" :leaving="moonLeaving" :header-expanded="headerExpanded" @blank-click="collapseHeaderFromScene" @textures-ready="onMoonSceneReady" />
 
-      <MarsScene v-if="surface === 'mars'" :reveal-tick="marsRevealTick" :enter-from-solar="marsEnterFromSolar" :leaving="marsLeaving" :header-expanded="headerExpanded" @blank-click="collapseHeaderFromScene" @textures-ready="onMarsSceneReady" />
+      <MarsScene v-if="surface === 'mars'" v-model:spacecraft-visible="layers.spacecraft" :reveal-tick="marsRevealTick" :enter-from-solar="marsEnterFromSolar" :leaving="marsLeaving" :header-expanded="headerExpanded" @blank-click="collapseHeaderFromScene" @textures-ready="onMarsSceneReady" />
 
       <PlanetScene
         v-if="surface === 'venus'"
+        v-model:spacecraft-visible="layers.spacecraft"
         :planet="VENUS_PAGE"
         :reveal-tick="venusRevealTick"
         :enter-from-solar="venusEnterFromSolar"
@@ -1982,6 +1984,7 @@ onBeforeUnmount(() => {
 
       <PlanetScene
         v-if="surface === 'saturn'"
+        v-model:spacecraft-visible="layers.spacecraft"
         :planet="SATURN_PAGE"
         :reveal-tick="saturnRevealTick"
         :enter-from-solar="saturnEnterFromSolar"
@@ -1993,6 +1996,7 @@ onBeforeUnmount(() => {
 
       <PlanetScene
         v-if="surface === 'jupiter'"
+        v-model:spacecraft-visible="layers.spacecraft"
         :planet="JUPITER_PAGE"
         :reveal-tick="jupiterRevealTick"
         :enter-from-solar="jupiterEnterFromSolar"
@@ -2004,6 +2008,7 @@ onBeforeUnmount(() => {
 
       <PlanetScene
         v-if="surface === 'mercury'"
+        v-model:spacecraft-visible="layers.spacecraft"
         :planet="MERCURY_PAGE"
         :reveal-tick="mercuryRevealTick"
         :enter-from-solar="mercuryEnterFromSolar"
@@ -2015,6 +2020,7 @@ onBeforeUnmount(() => {
 
       <PlanetScene
         v-if="surface === 'uranus'"
+        v-model:spacecraft-visible="layers.spacecraft"
         :planet="URANUS_PAGE"
         :reveal-tick="uranusRevealTick"
         :enter-from-solar="uranusEnterFromSolar"
@@ -2026,6 +2032,7 @@ onBeforeUnmount(() => {
 
       <PlanetScene
         v-if="surface === 'neptune'"
+        v-model:spacecraft-visible="layers.spacecraft"
         :planet="NEPTUNE_PAGE"
         :reveal-tick="neptuneRevealTick"
         :enter-from-solar="neptuneEnterFromSolar"
@@ -2037,6 +2044,7 @@ onBeforeUnmount(() => {
 
       <PlanetScene
         v-if="surface === 'sun'"
+        v-model:spacecraft-visible="layers.spacecraft"
         :planet="SUN_PAGE"
         :reveal-tick="sunRevealTick"
         :enter-from-solar="sunEnterFromSolar"
@@ -2049,6 +2057,7 @@ onBeforeUnmount(() => {
       <SolarSystem
         ref="solarSystemRef"
         v-if="surface === 'solar-system'"
+        v-model:spacecraft-visible="layers.spacecraft"
         :enter-from-orbit="solarEnterFromOrbit"
         :enter-from-moon="solarEnterFromMoon"
         :enter-from-mars="solarEnterFromMars"

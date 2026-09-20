@@ -5,7 +5,7 @@
         <!-- 工具栏：行星页统一图层控制；只为确实存在的数据提供开关 -->
         <div ref="sceneToolbarRef" class="scene-toolbar" :class="{ 'leaving-fade': leaving }" aria-label="场景图层">
           <span>图层</span>
-          <label v-if="planet.spacecraft"><input v-model="spacecraftEnabled" type="checkbox" @change="rememberSpacecraftVisibility"><i />飞行器</label>
+          <label v-if="planet.spacecraft"><input v-model="spacecraftEnabled" type="checkbox"><i />飞行器</label>
           <label v-if="planet.spacecraft"><input v-model="orbitsEnabled" type="checkbox"><i class="orbits" />轨道</label>
           <label v-if="planet.exploration"><input v-model="sitesEnabled" type="checkbox"><i class="sites" />{{ planet.exploration.title }}</label>
           <label v-if="!planet.star"><input v-model="terminatorEnabled" type="checkbox"><i class="terminator" />晨昏线</label>
@@ -191,11 +191,11 @@ import MissionDetailPanel from './MissionDetailPanel.vue'
 import MissionSceneLabel from './MissionSceneLabel.vue'
 import type { MissionDetail } from '../missionPresentation'
 import { ENDPOINT_SCENE_NOTE, missionMarkerScale, spacecraftFields, spacecraftFocusDistance, surfaceFocusDistance, surfaceMissionFields } from '../missionPresentation'
-import { solarSession } from '../solar/session'
 
-const props = defineProps<{ planet: PlanetPageConfig; revealTick?: number; enterFromSolar?: boolean; leaving?: boolean; headerExpanded?: boolean }>()
+const props = defineProps<{ planet: PlanetPageConfig; spacecraftVisible?: boolean; revealTick?: number; enterFromSolar?: boolean; leaving?: boolean; headerExpanded?: boolean }>()
 const emit = defineEmits<{
   'blank-click': []
+  'update:spacecraft-visible': [visible: boolean]
   /** 场景首帧贴图渲染完成（解码 + GPU 上传后）——过渡遮罩等待此信号再揭示 */
   'textures-ready': []
 }>()
@@ -214,10 +214,10 @@ function emitTexturesReady() {
 
 const canvasHost = ref<HTMLDivElement | null>(null)
 const terminatorEnabled = ref(false)
-const spacecraftEnabled = ref(solarSession.spacecraftVisible)
-function rememberSpacecraftVisibility(event: Event) {
-  solarSession.spacecraftVisible = (event.currentTarget as HTMLInputElement).checked
-}
+const spacecraftEnabled = computed({
+  get: () => props.spacecraftVisible ?? true,
+  set: (visible: boolean) => emit('update:spacecraft-visible', visible),
+})
 const orbitsEnabled = ref(true)
 /** 着陆点/任务终点开关；大气坠毁仅在有官方发布或可靠复算坐标时绘制标记。 */
 const sitesEnabled = ref(true)

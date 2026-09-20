@@ -1,40 +1,25 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { solarSession } from '../src/solar/session.ts'
+import { readFile } from 'node:fs/promises'
+import { createDefaultSceneLayers } from '../src/sceneLayers.ts'
 
-test('所有天体首次进入默认显示飞行器，只记忆用户在新版中的主动选择', () => {
-  const originalLocalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
-  const values = new Map([
-    ['aurora.solar.spacecraftVisible', '0'],
-    ['aurora.solar.spacecraftVisible.v2', '0'],
-    ['aurora.solar.spacecraftVisible.v3', '0'],
-    ['aurora.solar.spacecraftVisible.v4', '0'],
-    ['aurora.solar.spacecraftVisibilityVersion', '3'],
-  ])
-  Object.defineProperty(globalThis, 'localStorage', {
-    configurable: true,
-    value: {
-      getItem(key) {
-        return values.get(key) ?? null
-      },
-      setItem(key, value) {
-        values.set(key, String(value))
-      },
-    },
-  })
+test('所有天体共用地球图层状态，应用首次进入默认显示飞行器', () => {
+  const layers = createDefaultSceneLayers()
+  assert.deepEqual(layers, { spacecraft: true, orbits: true, sites: true })
 
-  try {
-    assert.equal(solarSession.spacecraftVisible, true, '所有旧键和旧版本记录都不应覆盖新的默认展示方式')
+  layers.spacecraft = false
+  assert.equal(layers.spacecraft, false, '用户的选择由同一个 App 图层对象跟随进入和退出其他天体')
+})
 
-    solarSession.spacecraftVisible = false
-    assert.equal(values.get('aurora.solar.spacecraftVisible.v5'), '0')
-    assert.equal(solarSession.spacecraftVisible, false)
+test('太阳系、月球、火星和所有其他天体都绑定地球的飞行器图层状态', async () => {
+  const appSource = await readFile(new URL('../src/App.vue', import.meta.url), 'utf8')
+  const sharedBindings = appSource.match(/v-model:spacecraft-visible="layers\.spacecraft"/g) ?? []
 
-    solarSession.spacecraftVisible = true
-    assert.equal(values.get('aurora.solar.spacecraftVisible.v5'), '1')
-    assert.equal(solarSession.spacecraftVisible, true)
-  } finally {
-    if (originalLocalStorage === undefined) delete globalThis.localStorage
-    else Object.defineProperty(globalThis, 'localStorage', originalLocalStorage)
+  assert.equal(sharedBindings.length, 10, '月球、火星、七个共用天体页与太阳系都应共用地球图层状态')
+  assert.match(appSource, /<input v-model="layers\.spacecraft" type="checkbox">/)
+
+  for (const component of ['SolarSystem.vue', 'MoonScene.vue', 'MarsScene.vue', 'PlanetScene.vue']) {
+    const source = await readFile(new URL(`../src/components/${component}`, import.meta.url), 'utf8')
+    assert.doesNotMatch(source, /solarSession\.spacecraftVisible|spacecraftVisible\.v\d|spacecraftVisibilityVersion/)
   }
 })

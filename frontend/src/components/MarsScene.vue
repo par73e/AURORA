@@ -5,7 +5,7 @@
         <!-- 工具栏：与地球页同一套 scene-toolbar 结构（仅颜色走陶土红覆盖） -->
         <div ref="sceneToolbarRef" class="scene-toolbar" :class="{ 'leaving-fade': leaving }" aria-label="场景图层">
           <span>图层</span>
-          <label><input v-model="spacecraftEnabled" type="checkbox" @change="rememberSpacecraftVisibility"><i />飞行器</label>
+          <label><input v-model="spacecraftEnabled" type="checkbox"><i />飞行器</label>
           <label><input v-model="orbitsEnabled" type="checkbox"><i />轨道</label>
           <label><input v-model="sitesEnabled" type="checkbox"><i class="sites" />着陆点</label>
           <label><input v-model="terminatorEnabled" type="checkbox"><i class="terminator" />晨昏线</label>
@@ -196,13 +196,13 @@ import MissionDetailPanel from './MissionDetailPanel.vue'
 import MissionSceneLabel from './MissionSceneLabel.vue'
 import type { MissionDetail } from '../missionPresentation'
 import { missionMarkerScale, spacecraftFields, spacecraftFocusDistance, surfaceMissionFields } from '../missionPresentation'
-import { solarSession } from '../solar/session'
 
 const marsProfile = MARS_PAGE.profile
 
-const props = defineProps<{ revealTick?: number; enterFromSolar?: boolean; leaving?: boolean; headerExpanded?: boolean }>()
+const props = defineProps<{ spacecraftVisible?: boolean; revealTick?: number; enterFromSolar?: boolean; leaving?: boolean; headerExpanded?: boolean }>()
 const emit = defineEmits<{
   'blank-click': []
+  'update:spacecraft-visible': [visible: boolean]
   /** 场景首帧贴图渲染完成（16k 解码 + GPU 上传后）——过渡遮罩等待此信号再揭示 */
   'textures-ready': []
 }>()
@@ -220,10 +220,10 @@ function emitTexturesReady() {
 }
 
 const canvasHost = ref<HTMLDivElement | null>(null)
-const spacecraftEnabled = ref(solarSession.spacecraftVisible)
-function rememberSpacecraftVisibility(event: Event) {
-  solarSession.spacecraftVisible = (event.currentTarget as HTMLInputElement).checked
-}
+const spacecraftEnabled = computed({
+  get: () => props.spacecraftVisible ?? true,
+  set: (visible: boolean) => emit('update:spacecraft-visible', visible),
+})
 const orbitsEnabled = ref(true)
 const sitesEnabled = ref(true)
 const selectedCraft = ref<string | null>(null)

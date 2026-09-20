@@ -13,9 +13,10 @@ import MissionSceneLabel from './MissionSceneLabel.vue'
 import type { MissionDetail } from '../missionPresentation'
 import { spacecraftFields } from '../missionPresentation'
 
-const props = defineProps<{ enterFromOrbit?: boolean; enterFromMoon?: boolean; enterFromMars?: boolean; enterFromVenus?: boolean; enterFromSaturn?: boolean; enterFromJupiter?: boolean; enterFromMercury?: boolean; enterFromUranus?: boolean; enterFromNeptune?: boolean; enterFromSun?: boolean; flyDelay?: number; playEntryFly?: boolean }>()
+const props = defineProps<{ spacecraftVisible?: boolean; enterFromOrbit?: boolean; enterFromMoon?: boolean; enterFromMars?: boolean; enterFromVenus?: boolean; enterFromSaturn?: boolean; enterFromJupiter?: boolean; enterFromMercury?: boolean; enterFromUranus?: boolean; enterFromNeptune?: boolean; enterFromSun?: boolean; flyDelay?: number; playEntryFly?: boolean }>()
 
 const emit = defineEmits<{
+  'update:spacecraft-visible': [visible: boolean]
   'select-earth': []
   'earth-fly-start': []
   'earth-fly-zoom': []
@@ -65,7 +66,10 @@ let unmounted = false
 let probesRequest: AbortController | undefined
 /** 深空探测器（JPL Horizons 日同步，/api/v1/voyage/probes） */
 const probes = ref<DeepSpaceProbe[]>([])
-const spacecraftEnabled = ref(solarSession.spacecraftVisible)
+const spacecraftEnabled = computed({
+  get: () => props.spacecraftVisible ?? true,
+  set: (visible: boolean) => emit('update:spacecraft-visible', visible),
+})
 /** 点击选中的探测器（信息面板） */
 const selectedProbe = ref<DeepSpaceProbe | null>(null)
 /** 选中探测器当前距日（AU，打开面板时读取一次） */
@@ -432,7 +436,6 @@ watch(spacecraftEnabled, (enabled) => {
 
 function toggleSpacecraftVisibility() {
   spacecraftEnabled.value = !spacecraftEnabled.value
-  solarSession.spacecraftVisible = spacecraftEnabled.value
 }
 
 defineExpose({ resetView })
