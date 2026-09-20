@@ -1857,7 +1857,7 @@ onBeforeUnmount(() => {
 .section-heading { display:flex; align-items:end; margin-bottom:18px; }
 .section-heading h2 { margin:6px 0 0; font-size:25px; font-weight:500; letter-spacing:-.04em; }
 .forecast-attribution { margin:0 0 12px; color:var(--sky-muted); font-size:10px; line-height:1.4; text-align:right; }
-.forecast-matrix { display:grid; grid-template-columns:102px minmax(0,1fr); overflow:hidden; border:1px solid var(--sky-line); border-radius:18px; background:var(--sky-sunken); }
+.forecast-matrix { display:grid; grid-template-columns:84px minmax(0,1fr); overflow:hidden; border:1px solid var(--sky-line); border-radius:18px; background:var(--sky-sunken); }
 .matrix-labels { display:grid; grid-template-rows:34px 38px 58px repeat(12,44px); background:var(--sky-panel); border-right:1px solid var(--sky-line); }
 .matrix-labels span { display:grid; place-content:center; justify-items:center; gap:2px; padding:0 8px; color:var(--sky-muted); text-align:center; border-bottom:1px solid rgba(165,188,222,.1); }
 .matrix-labels strong { font-size:10px; font-weight:500; line-height:1.1; }
