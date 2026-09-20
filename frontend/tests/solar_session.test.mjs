@@ -8,6 +8,8 @@ test('飞行器偏好升级后默认显示，并继续记忆用户的新选择',
     ['aurora.solar.spacecraftVisible', '0'],
     ['aurora.solar.spacecraftVisible.v2', '0'],
     ['aurora.solar.spacecraftVisible.v3', '0'],
+    ['aurora.solar.spacecraftVisible.v4', '0'],
+    ['aurora.solar.spacecraftVisibilityVersion', '1'],
   ])
   Object.defineProperty(globalThis, 'localStorage', {
     configurable: true,
@@ -26,7 +28,7 @@ test('飞行器偏好升级后默认显示，并继续记忆用户的新选择',
 
     solarSession.spacecraftVisible = false
     assert.equal(values.get('aurora.solar.spacecraftVisible.v4'), '0')
-    assert.equal(values.get('aurora.solar.spacecraftVisibilityVersion'), '1')
+    assert.equal(values.get('aurora.solar.spacecraftVisibilityVersion'), '2')
     assert.equal(solarSession.spacecraftVisible, false)
 
     solarSession.spacecraftVisible = true
