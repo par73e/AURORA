@@ -5,7 +5,7 @@
         <!-- 工具栏：与地球页同一套 scene-toolbar 结构（仅颜色走银灰覆盖） -->
         <div ref="sceneToolbarRef" class="scene-toolbar" :class="{ 'leaving-fade': leaving }" aria-label="场景图层">
           <span>图层</span>
-          <label><input v-model="spacecraftEnabled" type="checkbox"><i />飞行器</label>
+          <label><input v-model="spacecraftEnabled" type="checkbox" @change="rememberSpacecraftVisibility"><i />飞行器</label>
           <label><input v-model="orbitsEnabled" type="checkbox"><i />轨道</label>
           <label><input v-model="sitesEnabled" type="checkbox"><i class="sites" />着陆点</label>
           <label><input v-model="terminatorEnabled" type="checkbox"><i class="terminator" />晨昏线</label>
@@ -234,7 +234,9 @@ function emitTexturesReady() {
 const canvasHost = ref<HTMLDivElement | null>(null)
 const terminatorEnabled = ref(false)
 const spacecraftEnabled = ref(solarSession.spacecraftVisible)
-watch(spacecraftEnabled, (enabled) => { solarSession.spacecraftVisible = enabled })
+function rememberSpacecraftVisibility(event: Event) {
+  solarSession.spacecraftVisible = (event.currentTarget as HTMLInputElement).checked
+}
 const orbitsEnabled = ref(true)
 const sitesEnabled = ref(true)
 const selectedCraft = ref<string | null>(null)

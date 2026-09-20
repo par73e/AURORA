@@ -4,9 +4,9 @@
  * 组件卸载/重挂载、页面刷新后都保留；首次访问（无记录）为默认一字排布。
  */
 const STORAGE_KEY = 'aurora.solar.realPositions'
-// v2 将既有用户统一迁移到新的默认展示方式：首次进入太阳系或任一星球时显示飞行器。
-// 用户在新版中主动切换后，仍由同一偏好在各场景之间保持状态。
-const SPACECRAFT_VISIBILITY_STORAGE_KEY = 'aurora.solar.spacecraftVisible.v2'
+// v3 将所有场景统一迁移到“默认显示飞行器”。只有用户主动操作开关时才写入此偏好，
+// 避免组件重载或开发热更新把旧的隐藏状态误保存为新版默认值。
+const SPACECRAFT_VISIBILITY_STORAGE_KEY = 'aurora.solar.spacecraftVisible.v3'
 
 export const solarSession = {
   get realPositions(): boolean {
