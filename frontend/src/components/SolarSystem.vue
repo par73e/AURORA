@@ -526,7 +526,7 @@ defineExpose({ resetView })
     <MissionDetailPanel v-if="selectedProbeDetail" :detail="selectedProbeDetail" @close="closeProbePanel" />
 
     <button class="reset-view" type="button" @click="resetView">重置</button>
-    <button class="spacecraft-toggle" :class="{ off: !spacecraftEnabled }" type="button" :aria-pressed="spacecraftEnabled" @click="spacecraftEnabled = !spacecraftEnabled"><i aria-hidden="true" />{{ spacecraftEnabled ? '隐藏飞行器' : '显示飞行器' }}</button>
+    <button class="spacecraft-toggle" :class="{ off: !spacecraftEnabled }" type="button" :aria-pressed="spacecraftEnabled" @click="spacecraftEnabled = !spacecraftEnabled"><i aria-hidden="true" />显示飞行器</button>
     <button class="position-toggle" type="button" @click="togglePositions">
       <i :class="{ real: !alignedPositions }" aria-hidden="true" />
       显示行星当前位置
