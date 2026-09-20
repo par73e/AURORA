@@ -35,3 +35,15 @@ test('通用行星的轨道、飞行器与表面标记使用同一退出透明�
   assert.match(source, /lineMat\.opacity = \(activeId === runtime\.spec\.id \? LINE_ACTIVE_OPACITY : LINE_BASE_OPACITY\) \* elementsOpacity/)
   assert.match(source, /markerMat\.opacity = 0\.95 \* elementsOpacity/)
 })
+
+test('地球直接进入时仍优先执行飞行器退出淡出', async () => {
+  const orbitSource = await readFile(new URL('../src/components/OrbitScene.vue', import.meta.url), 'utf8')
+  const styleSource = await readFile(new URL('../src/style.css', import.meta.url), 'utf8')
+  const fadeFunction = orbitSource.match(/function elementsFadeNow[\s\S]*?\n}/)?.[0] ?? ''
+  const leavingGuard = fadeFunction.indexOf('if (props.leaving)')
+  const directLoadGuard = fadeFunction.indexOf('if (spinReduced || revealTickAt === 0) return 1')
+
+  assert.ok(leavingGuard >= 0 && leavingGuard < directLoadGuard, '退出透明度必须优先于直接加载的入场短路')
+  assert.match(orbitSource, /class="scene-spacecraft-label"/)
+  assert.match(styleSource, /\.orbit-section\.leaving \.scene-spacecraft-label,[\s\S]*?opacity: 0;/)
+})

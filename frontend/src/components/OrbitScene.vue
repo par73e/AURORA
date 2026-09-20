@@ -236,10 +236,13 @@ let elementsShown = true
 let elementsLeavingAt = 0
 /** 元素整体可见度（0..1）：observerMarker 每帧强制应用，任何重建都无法绕过隐藏。
  *  进入：revealTickAt 起延迟 1500ms 后 300ms 淡入到 1；退出：250ms 淡出到 0；
- *  直接加载（revealTickAt=0）/reduced：恒 1 */
+ *  直接加载（revealTickAt=0）只跳过入场，不得跳过退出；reduced 退出压缩为 1ms。 */
 function elementsFadeNow(now = performance.now()): number {
+  if (props.leaving) {
+    const duration = spinReduced ? 1 : 250
+    return THREE.MathUtils.clamp(1 - (now - elementsLeavingAt) / duration, 0, 1)
+  }
   if (spinReduced || revealTickAt === 0) return 1
-  if (props.leaving) return THREE.MathUtils.clamp(1 - (now - elementsLeavingAt) / 250, 0, 1)
   return THREE.MathUtils.clamp((now - revealTickAt - ELEMENTS_REVEAL_DELAY_MS) / 300, 0, 1)
 }
 let axisGuide: THREE.Line | undefined
@@ -1255,6 +1258,7 @@ onBeforeUnmount(() => {
       <MissionSceneLabel
         v-if="label.kind === 'spacecraft'"
         v-show="label.visible && elementsShown"
+        class="scene-spacecraft-label"
         kind="spacecraft"
         :name-zh="bName(props.spacecraft.find((item) => item.id === label.id)?.nameZh ?? label.name, props.spacecraft.find((item) => item.id === label.id)?.nameEn ?? '').primary"
         :name-en="bName(props.spacecraft.find((item) => item.id === label.id)?.nameZh ?? label.name, props.spacecraft.find((item) => item.id === label.id)?.nameEn ?? '').secondary"
