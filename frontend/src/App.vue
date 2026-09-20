@@ -52,6 +52,8 @@ const error = ref('')
 const now = ref(new Date())
 const selection = ref<Selection | null>(null)
 const layers = reactive<SceneLayers>(createDefaultSceneLayers())
+/** 太阳系总览的深空探测器独立于天体特写页；关闭总览标记不应影响进入行星后的飞行器图层。 */
+const solarSpacecraftVisible = ref(true)
 const objectQuery = ref('')
 const operatorFilter = ref('all')
 const objectSort = ref<'name' | 'norad' | 'operator'>('name')
@@ -2057,7 +2059,7 @@ onBeforeUnmount(() => {
       <SolarSystem
         ref="solarSystemRef"
         v-if="surface === 'solar-system'"
-        v-model:spacecraft-visible="layers.spacecraft"
+        v-model:spacecraft-visible="solarSpacecraftVisible"
         :enter-from-orbit="solarEnterFromOrbit"
         :enter-from-moon="solarEnterFromMoon"
         :enter-from-mars="solarEnterFromMars"
