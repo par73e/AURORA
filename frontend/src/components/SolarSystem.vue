@@ -526,12 +526,11 @@ defineExpose({ resetView })
     <MissionDetailPanel v-if="selectedProbeDetail" :detail="selectedProbeDetail" @close="closeProbePanel" />
 
     <button class="reset-view" type="button" @click="resetView">重置</button>
-
+    <button class="spacecraft-toggle" :class="{ off: !spacecraftEnabled }" type="button" :aria-pressed="spacecraftEnabled" @click="spacecraftEnabled = !spacecraftEnabled"><i aria-hidden="true" />{{ spacecraftEnabled ? '隐藏飞行器' : '显示飞行器' }}</button>
     <button class="position-toggle" type="button" @click="togglePositions">
       <i :class="{ real: !alignedPositions }" aria-hidden="true" />
       显示行星当前位置
     </button>
-    <button class="spacecraft-toggle" :class="{ off: !spacecraftEnabled }" type="button" :aria-pressed="spacecraftEnabled" @click="spacecraftEnabled = !spacecraftEnabled"><i aria-hidden="true" />{{ spacecraftEnabled ? '隐藏飞行器' : '显示飞行器' }}</button>
 
     <div class="solar-credits" aria-hidden="true">
       <span>Solar System Scope · CC BY 4.0</span>
@@ -740,9 +739,9 @@ defineExpose({ resetView })
   backdrop-filter: blur(12px);
 }
 .reset-view {
-  bottom: 118px; /* 位于"显示行星当前位置"上方 */
+  bottom: 162px;
 }
-.spacecraft-toggle { bottom: 162px; }
+.spacecraft-toggle { bottom: 118px; }
 .position-toggle:hover,
 .spacecraft-toggle:hover,
 .reset-view:hover {
@@ -761,8 +760,8 @@ defineExpose({ resetView })
   background: var(--blue);
   box-shadow: 0 0 8px rgba(114, 215, 255, .6);
 }
-.spacecraft-toggle i { width: 7px; height: 7px; border-radius: 50%; background: var(--blue); box-shadow: 0 0 8px rgba(114, 215, 255, .55); }
-.spacecraft-toggle.off i { background: rgba(132, 157, 170, .62); box-shadow: none; }
+.spacecraft-toggle i { width: 6px; height: 6px; border-radius: 50%; background: #355161; transition: background .2s, box-shadow .2s; }
+.spacecraft-toggle:not(.off) i { background: var(--blue); box-shadow: 0 0 8px rgba(114, 215, 255, .6); }
 .spacecraft-toggle:focus-visible { outline: 1px solid rgba(114, 215, 255, .9); outline-offset: 3px; }
 
 .solar-credits {
