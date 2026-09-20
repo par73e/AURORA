@@ -1,7 +1,7 @@
 <template>
   <section class="planet-section" :class="planet.themeKey" :aria-labelledby="`${planet.key}-title`">
     <div :id="`${planet.key}-scene`" class="planet-scene-frame">
-      <div ref="canvasHost" class="planet-scene-host" :class="{ revealed: sceneRevealed }" role="group" :aria-label="`${planet.name}三维视图，左上角可返回太阳系`">
+      <div ref="canvasHost" class="planet-scene-host" :class="{ revealed: sceneRevealed, 'leaving-body': leaving }" role="group" :aria-label="`${planet.name}三维视图，左上角可返回太阳系`">
         <!-- 工具栏：行星页统一图层控制；只为确实存在的数据提供开关 -->
         <div ref="sceneToolbarRef" class="scene-toolbar" :class="{ 'leaving-fade': leaving }" aria-label="场景图层">
           <span>图层</span>
@@ -50,6 +50,7 @@
         <!-- 选中探测器的信息卡：与月球/火星场景保持同一互斥选择逻辑 -->
         <MissionDetailPanel
           v-if="selectedCraftDetail"
+          :class="{ 'leaving-fade': leaving }"
           :detail="selectedCraftDetail"
           :style="panelHeaderOffset"
           @close="selectedCraft = null"
@@ -58,6 +59,7 @@
         <!-- 选中着陆点/撞击点的信息卡 -->
         <MissionDetailPanel
           v-if="selectedSiteDetail"
+          :class="{ 'leaving-fade': leaving }"
           :detail="selectedSiteDetail"
           :style="panelHeaderOffset"
           @close="selectedSite = null"
@@ -486,6 +488,14 @@ let focusTimer: number | undefined
 /** 入场渐亮：从太阳系进入（enterFromSolar）时等待 revealTick 递增；直接加载默认已亮。
  *  不能用 revealTick 判初始态——它只增不减，第二次进入时非 0 会误判为"直接加载" */
 const sceneRevealed = ref(!props.enterFromSolar)
+const EXIT_ELEMENTS_MS = 300
+let leavingStartedAt = 0
+
+/** 第一拍只清退轨道、飞行器与表面标记；天体本体由 host 的延迟 opacity 接力。 */
+function exitElementsOpacity(now = performance.now()) {
+  if (!props.leaving || leavingStartedAt === 0) return 1
+  return THREE.MathUtils.clamp(1 - (now - leavingStartedAt) / EXIT_ELEMENTS_MS, 0, 1)
+}
 
 /** 入场自转（镜像火星 8014e13）：
  *  转速 14.4°/s（≈1.45s 转正），渐入开始时从 ±18° 偏角匀速转，
@@ -1053,6 +1063,7 @@ onMounted(() => {
     if (!renderer || !scene || !camera) return
     const now = performance.now()
     lastTime = now
+    const elementsOpacity = exitElementsOpacity(now)
 
     // 入场自转（按行星真实自转方向，停稳后静止）
     updateSpin(now)
@@ -1118,12 +1129,20 @@ onMounted(() => {
       const activeId = hoveredCraft.value ?? selectedCraft.value
       const world = runtime.dot.getWorldPosition(focusTmp4)
       runtime.dot.scale.setScalar(missionMarkerScale(world.distanceTo(camera.position), props.planet.defaultDistance, activeId === runtime.spec.id))
-      runtime.dot.visible = spacecraftEnabled.value
+      const dotMat = runtime.dot.material as THREE.MeshBasicMaterial
+      dotMat.opacity = 0.96 * elementsOpacity
+      const lineMat = runtime.line?.material as THREE.LineBasicMaterial | undefined
+      if (lineMat) lineMat.opacity = (activeId === runtime.spec.id ? LINE_ACTIVE_OPACITY : LINE_BASE_OPACITY) * elementsOpacity
+      runtime.dot.visible = spacecraftEnabled.value && elementsOpacity > 0.001
+      if (runtime.line) runtime.line.visible = orbitsEnabled.value && elementsOpacity > 0.001
     }
 
     for (const [id, marker] of siteMarkers) {
       const world = marker.getWorldPosition(focusTmp4)
       marker.scale.setScalar(missionMarkerScale(world.distanceTo(camera.position), props.planet.defaultDistance, selectedSite.value === id))
+      const markerMat = marker.material as THREE.MeshBasicMaterial
+      markerMat.opacity = 0.95 * elementsOpacity
+      marker.visible = sitesEnabled.value && elementsOpacity > 0.001
     }
 
     controls?.update()
@@ -1177,12 +1196,17 @@ watch(terminatorEnabled, (enabled) => {
   }
 })
 
-// 返回太阳系：工具栏/读数/署名由 .leaving-fade 300ms 一次性淡出（CSS），只留裸行星——
-// 随后由 App 遮罩完成星球渐暗切页；离开被中止（hash 守卫失败）时 leaving 回 false → 恢复显示
+// 返回太阳系：第一拍清退轨道、飞行器、足迹与界面信息，第二拍由 host 延迟渐隐天体本身。
+// 离开被中止时 leaving 回 false，透明度计算和 host class 都会恢复。
 watch(
   () => props.leaving,
   (leaving) => {
-    if (!leaving) return
+    if (!leaving) {
+      leavingStartedAt = 0
+      return
+    }
+    leavingStartedAt = performance.now()
+    hoveredCraft.value = null
     spinPhase = 'done' // 退出时若入场自转仍在进行，立即停住（避免返回过渡期间继续转）
   },
 )
@@ -1584,6 +1608,11 @@ onBeforeUnmount(() => {
 .planet-scene-host.revealed {
   opacity: 1;
 }
+.planet-scene-host.revealed.leaving-body {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .32s cubic-bezier(.4, 0, 1, 1) .3s;
+}
 .planet-scene-host canvas { display: block; }
 
 /* 档案板块：延续月球/火星板块框架（背景/边框/文字走行星主题色） */
@@ -1645,6 +1674,16 @@ onBeforeUnmount(() => {
 .planet-craft-label.leaving-fade { opacity: 0; pointer-events: none; transition: opacity .3s ease; }
 .planet-readout.leaving-fade,
 .planet-credits.leaving-fade { opacity: 0; transition: opacity .3s ease; }
+.mission-detail-panel.leaving-fade {
+  animation: none !important;
+  opacity: 0 !important;
+  pointer-events: none;
+  transition: opacity .3s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .planet-scene-host.revealed.leaving-body { transition: opacity .1s linear .04s; }
+}
 
 /* 页脚：仅品牌（署名在场景右下角） */
 .planet-page-footer { padding: 10px 0 56px; }

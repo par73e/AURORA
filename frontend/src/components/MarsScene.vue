@@ -1,7 +1,7 @@
 <template>
   <section class="mars-section" aria-labelledby="mars-title">
     <div id="mars-scene" class="mars-scene-frame">
-      <div ref="canvasHost" class="mars-scene-host" :class="{ revealed: sceneRevealed }" role="group" aria-label="火星三维视图，左上角可返回太阳系">
+      <div ref="canvasHost" class="mars-scene-host" :class="{ revealed: sceneRevealed, 'leaving-body': leaving }" role="group" aria-label="火星三维视图，左上角可返回太阳系">
         <!-- 工具栏：与地球页同一套 scene-toolbar 结构（仅颜色走陶土红覆盖） -->
         <div ref="sceneToolbarRef" class="scene-toolbar" :class="{ 'leaving-fade': leaving }" aria-label="场景图层">
           <span>图层</span>
@@ -55,6 +55,7 @@
         <!-- 选中着陆点的信息卡 -->
         <MissionDetailPanel
           v-if="selectedSiteDetail"
+          :class="{ 'leaving-fade': leaving }"
           :detail="selectedSiteDetail"
           :style="headerExpanded ? { '--header-overlay-offset': '76px' } : undefined"
           @close="selectedSite = null"
@@ -72,6 +73,7 @@
         <!-- 右侧信息面板：与地球 context-panel 同结构，内容详尽 -->
         <MissionDetailPanel
           v-if="selectedCraftDetail"
+          :class="{ 'leaving-fade': leaving }"
           :detail="selectedCraftDetail"
           :style="headerExpanded ? { '--header-overlay-offset': '76px' } : undefined"
           @close="selectedCraft = null"
@@ -1055,8 +1057,8 @@ watch(spacecraftEnabled, (enabled) => {
 watch(orbitsEnabled, (enabled) => {
   for (const runtime of craftRuntimes) if (runtime.line) runtime.line.visible = enabled
 })
-// 返回太阳系：全部多余元素 300ms 一次性淡出（统一 elementsFade），只留裸火星——
-// 随后由 App 遮罩完成星球渐暗切页；离开被中止（hash 守卫失败）时 leaving 回 false → 恢复显示
+// 返回太阳系：全部多余元素 300ms 一次性淡出（统一 elementsFade），只留裸火星；
+// host 随后接力渐隐火星本体；离开被中止时 leaving 回 false → 恢复显示
 watch(
   () => props.leaving,
   (leaving) => {
@@ -1074,8 +1076,6 @@ watch(
     }
     elementsVisible.value = false
     animateElements(0, reduced ? 1 : 300)
-    selectedSite.value = null
-    selectedCraft.value = null
   },
 )
 
@@ -1499,6 +1499,11 @@ onBeforeUnmount(() => {
 .mars-scene-host.revealed {
   opacity: 1;
 }
+.mars-scene-host.revealed.leaving-body {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .32s cubic-bezier(.4, 0, 1, 1) .3s;
+}
 .mars-scene-host canvas { display: block; }
 .scene-data-state {
   position: absolute;
@@ -1583,11 +1588,21 @@ onBeforeUnmount(() => {
 /* 返回渐隐：标签 300ms 淡出 */
 .craft-label.leaving-fade { opacity: 0 !important; pointer-events: none; }
 
-/* 返回渐隐：工具栏与标签同节奏淡出（只留裸火星，随后由遮罩完成球体渐暗） */
+/* 返回渐隐：工具栏与标签同节奏淡出，随后 host 接力渐隐火星本体 */
 .scene-toolbar.leaving-fade { opacity: 0; pointer-events: none; transition: opacity .3s ease; }
 /* 返回渐隐：左下角读数/右下角署名随元素一起淡出 */
 .mars-readout.leaving-fade,
 .mars-credits.leaving-fade { opacity: 0; transition: opacity .3s ease; }
+.mission-detail-panel.leaving-fade {
+  animation: none !important;
+  opacity: 0 !important;
+  pointer-events: none;
+  transition: opacity .3s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mars-scene-host.revealed.leaving-body { transition: opacity .1s linear .04s; }
+}
 
 /* 着陆点标签：图标着色 + 银灰主题 */
 .site-label { gap: 5px !important; }

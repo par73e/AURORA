@@ -312,6 +312,14 @@ interface TransitionTiming {
   veilSeconds?: string
 }
 
+/**
+ * 天体特写退出使用两段式节奏：前 300ms 清退轨道、标记与界面信息，
+ * 后 320ms 让天体本身退入黑场；保留少量缓冲后才由遮罩接管切页。
+ */
+const CELESTIAL_EXIT_SEQUENCE_MS = 640
+const CELESTIAL_EXIT_REDUCED_MS = 160
+const CELESTIAL_EXIT_VEIL_SECONDS = '0.16s'
+
 /** 预取目标场景组件，不等待它完成；原有纹理预热、黑幕与 reveal 时钟仍是唯一节奏来源。 */
 function preloadSurfaceComponent(target: AppSurface) {
   if (target === 'sky') void loadSkyObservatory()
@@ -948,7 +956,7 @@ function enterSky() {
 }
 
 
-/** ORBIT → 太阳系：滚回主地球视图 → 信息淡出只留地球 → 变暗 → 切页，
+/** ORBIT → 太阳系：滚回主地球视图 → 信息淡出只留地球 → 地球渐隐 → 切页，
  *  太阳系场景从地球近景开始拉回（地球缩回轨道位置，遮罩淡出时可见） */
 function returnToSolarSystem(skipPush = false) {
   if (surface.value === 'orbit') enterSolarSystemFromOrbit(skipPush)
@@ -982,13 +990,13 @@ function enterSolarSystemFromOrbit(skipPush = false) {
   solarEnterFromVenus.value = false // 清空金星来源遗留（同理）
   solarEnterFromSaturn.value = false // 清空土星来源遗留（同理）
   solarEnterFromJupiter.value = false // 清空木星来源遗留（同理）
-  // 阶段 2：变暗，盖住地球界面
+  // 阶段 2：附属元素清空后，地球本体继续渐隐；完全退入黑场再由遮罩接管
   transitionTimer = window.setTimeout(() => {
     if (surfaceFromHash() !== 'solar-system') {
       cancelPendingTransition()
       return
     }
-    veilDuration.value = reduced ? '0.01s' : '0.3s' // 渐暗 300ms（原 400ms——加速，卡顿窗口缩短）
+    veilDuration.value = reduced ? '0.01s' : CELESTIAL_EXIT_VEIL_SECONDS
     veilActive.value = true
     // 阶段 3：等 veil 真正全黑（rAF 完成 + 60ms 缓冲）再切页——切页是重操作，
     // 若在渐暗进行中切页：a) 其 JS 卡顿会被感知在渐暗过程；b) veil 未到 opacity 1 时
@@ -1006,7 +1014,7 @@ function enterSolarSystemFromOrbit(skipPush = false) {
       })
       transitionTimer = undefined
     })
-  }, reduced ? 20 : 420)
+  }, reduced ? CELESTIAL_EXIT_REDUCED_MS : CELESTIAL_EXIT_SEQUENCE_MS)
 }
 
 function enterOrbit() {
@@ -1047,8 +1055,8 @@ function exitSkyToCover(skipPush = false) {
   }, revealMs)
 }
 
-/** 行星界面 → 首页：完全复刻"返回太阳系"的退出动画——
- *  页头/栏目/元素先上滑淡出，只留裸星球，再渐暗切到封面 */
+/** 行星界面 → 首页：复用"返回太阳系"的退出动画——
+ *  页头/栏目/元素先上滑淡出，天体本体随后渐隐，再切到封面 */
 function exitPlanetToCover(skipPush = false) {
   if (!skipPush && window.location.hash !== '#home') window.history.pushState(null, '', '#home')
   cancelPendingTransition()
@@ -1076,13 +1084,13 @@ function exitPlanetToCover(skipPush = false) {
   else orbitSectionLeaving.value = true
   headerExpanded.value = false
   suppressHeaderReveal = true
-  // 阶段 2：元素淡出完成后 veil 渐暗
+  // 阶段 2：附属元素与天体本体依次淡出完成后，veil 接管最后的切页黑场
   transitionTimer = window.setTimeout(() => {
     if (surfaceFromHash() !== 'cover') {
       cancelPendingTransition()
       return
     }
-    veilDuration.value = reduced ? '0.01s' : '0.3s'
+    veilDuration.value = reduced ? '0.01s' : CELESTIAL_EXIT_VEIL_SECONDS
     veilActive.value = true
     // 阶段 3：等 veil 真正全黑再切页（与返回太阳系同款，避免新旧画面叠影）
     waitUntilFullBlack(() => {
@@ -1107,7 +1115,7 @@ function exitPlanetToCover(skipPush = false) {
       })
       transitionTimer = undefined
     })
-  }, reduced ? 20 : ((fromMoon || fromMars || fromVenus || fromSaturn || fromJupiter || fromMercury || fromUranus || fromNeptune || fromSun) ? 450 : 420))
+  }, reduced ? CELESTIAL_EXIT_REDUCED_MS : CELESTIAL_EXIT_SEQUENCE_MS)
 }
 
 // ---- 太阳系 → 地球：镜头在太阳系内放大地球 → 变暗 → 切页 ----
@@ -1423,9 +1431,9 @@ function enterSolarSystemFromMars(skipPush = false) {
   marsLeaving.value = true
   headerExpanded.value = false
   suppressHeaderReveal = true
-  // 阶段 2（清空效果可见后才变暗）：变暗 300ms
+  // 阶段 2：附属元素退场后让火星本体渐隐，再以短黑场完成场景切换
   transitionTimer = window.setTimeout(() => {
-    veilDuration.value = reduced ? '0.01s' : '0.3s'
+    veilDuration.value = reduced ? '0.01s' : CELESTIAL_EXIT_VEIL_SECONDS
     veilActive.value = true
     // 阶段 3：等 veil 真正全黑再切页（同地球/月球返回——避免新旧场景首帧透过遮罩叠影）
     waitUntilFullBlack(() => {
@@ -1440,7 +1448,7 @@ function enterSolarSystemFromMars(skipPush = false) {
       })
       transitionTimer = undefined
     })
-  }, reduced ? 20 : 450)
+  }, reduced ? CELESTIAL_EXIT_REDUCED_MS : CELESTIAL_EXIT_SEQUENCE_MS)
 }
 
 /** 外行星页（金星/土星/木星/水星/天王星/海王星）→ 太阳系（skipPush = 浏览器返回路径） */
@@ -1464,7 +1472,7 @@ function enterSolarSystemFromOuterPlanet(key: 'venus' | 'saturn' | 'jupiter' | '
   headerExpanded.value = false
   suppressHeaderReveal = true
   transitionTimer = window.setTimeout(() => {
-    veilDuration.value = reduced ? '0.01s' : '0.3s'
+    veilDuration.value = reduced ? '0.01s' : CELESTIAL_EXIT_VEIL_SECONDS
     veilActive.value = true
     waitUntilFullBlack(() => {
       if (surfaceFromHash() !== 'solar-system') {
@@ -1478,7 +1486,7 @@ function enterSolarSystemFromOuterPlanet(key: 'venus' | 'saturn' | 'jupiter' | '
       })
       transitionTimer = undefined
     })
-  }, reduced ? 20 : 450)
+  }, reduced ? CELESTIAL_EXIT_REDUCED_MS : CELESTIAL_EXIT_SEQUENCE_MS)
 }
 
 /** 金星 → 太阳系（skipPush = 浏览器返回路径） */
@@ -1536,9 +1544,9 @@ function enterSolarSystemFromMoon(skipPush = false) {
   moonLeaving.value = true
   headerExpanded.value = false
   suppressHeaderReveal = true
-  // 阶段 2（清空效果可见后才变暗——与地球返回"信息淡出只留地球"同节奏）：变暗 300ms（原 400ms——加速，卡顿窗口缩短）
+  // 阶段 2：附属元素退场后让月球本体渐隐，再以短黑场完成场景切换
   transitionTimer = window.setTimeout(() => {
-    veilDuration.value = reduced ? '0.01s' : '0.3s'
+    veilDuration.value = reduced ? '0.01s' : CELESTIAL_EXIT_VEIL_SECONDS
     veilActive.value = true
     // 阶段 3：等 veil 真正全黑再切页（同地球返回——避免新旧场景首帧透过遮罩叠影）
     waitUntilFullBlack(() => {
@@ -1553,7 +1561,7 @@ function enterSolarSystemFromMoon(skipPush = false) {
       })
       transitionTimer = undefined
     })
-  }, reduced ? 20 : 450)
+  }, reduced ? CELESTIAL_EXIT_REDUCED_MS : CELESTIAL_EXIT_SEQUENCE_MS)
 }
 
 // （已移除）syncSurfaceFromHash：hashchange 会在浏览器返回时与 popstate 竞争——

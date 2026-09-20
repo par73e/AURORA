@@ -571,7 +571,7 @@ button { cursor: pointer; }
   .orbit-section .scene-location, .orbit-section .scene-readout { transition: none; }
 }
 
-/* ORBIT 离开动画：页面信息淡出，只保留地球 */
+/* ORBIT 离开第一拍：页面信息淡出；第二拍由 OrbitScene host 渐隐地球本体 */
 .orbit-section.leaving .scene-label,
 .orbit-section.leaving .scene-observer-label,
 .orbit-section.leaving .scene-toolbar,
@@ -581,7 +581,7 @@ button { cursor: pointer; }
 .orbit-section.leaving .page-frame > *:not(.scene-frame) {
   animation: none !important; /* 解除入场动画的 fill 压制 */
   opacity: 0;
-  transition: opacity .35s ease;
+  transition: opacity .3s ease;
 }
 @media (prefers-reduced-motion: reduce) {
   .orbit-section.leaving .scene-label,

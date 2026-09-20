@@ -90,7 +90,7 @@ watch(
     }
   },
 )
-/** 离开：全部多余元素 250ms 一次性淡出，只留裸地球（随后由 App 遮罩渐暗切页）；
+/** 离开：全部多余元素 250ms 一次性淡出，只留裸地球；host 随后接力渐隐地球本体；
  *  离开被中止（hash 守卫失败）时 leaving 回 false → 恢复到淡出前状态 */
 watch(
   () => props.leaving,
@@ -1250,7 +1250,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="canvasHost" class="scene-host" :class="{ revealed: sceneRevealed, 'pointer-near-earth': pointerNearEarth }" aria-label="可拖动的三维地球轨道场景">
+  <div ref="canvasHost" class="scene-host" :class="{ revealed: sceneRevealed, 'pointer-near-earth': pointerNearEarth, 'leaving-body': leaving }" aria-label="可拖动的三维地球轨道场景">
     <template v-for="label in labels" :key="`${label.kind}:${label.id}`">
       <MissionSceneLabel
         v-if="label.kind === 'spacecraft'"
@@ -1375,6 +1375,11 @@ onBeforeUnmount(() => {
 /* 地球场景入场：进入边界触发 0.3s 渐亮（裸星球先出现；默认隐藏，revealed 时过渡显现） */
 .scene-host { opacity: 0; transition: opacity 0.3s ease; }
 .scene-host.revealed { opacity: 1; }
+.scene-host.revealed.leaving-body {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .32s cubic-bezier(.4, 0, 1, 1) .3s;
+}
 .scene-host.pointer-near-earth { cursor: grab; }
 .scene-host.pointer-near-earth:active { cursor: grabbing; }
 .scene-host::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(circle at 50% 48%, transparent 26%, rgba(3, 7, 12, .13) 58%, rgba(3, 7, 12, .68) 100%); }
@@ -1391,4 +1396,7 @@ onBeforeUnmount(() => {
 .scene-observer-label.inactive { opacity: .34; }
 .scene-observer-label.inactive i { box-shadow: none; }
 .texture-warning { position: absolute; z-index: 4; top: 82px; left: 50%; transform: translateX(-50%); color: #e6b985; font: 11px var(--font-mono); }
+@media (prefers-reduced-motion: reduce) {
+  .scene-host.revealed.leaving-body { transition: opacity .1s linear .04s; }
+}
 </style>
