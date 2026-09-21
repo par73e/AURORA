@@ -611,7 +611,7 @@ defineExpose({ resetView })
 }
 
 .solar-system.home-leaving .solar-scene-host {
-  animation: solar-home-scene-leave .62s cubic-bezier(.4, 0, .2, 1) both;
+  animation: solar-home-scene-leave .5s cubic-bezier(.4, 0, .2, 1) both;
   transform-origin: 54% 44%;
 }
 

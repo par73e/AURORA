@@ -205,7 +205,9 @@ function animateVeilOpacity(active: boolean, durationMs: number) {
   const start = performance.now()
   const tick = (now: number) => {
     const t = Math.min(1, (now - start) / Math.max(1, durationMs))
-    veilOpacity = from + (target - from) * t
+    // 收暗使用 smoothstep，揭示使用快速离黑、柔和收尾的 ease-out，避免线性淡入淡出的僵硬感。
+    const eased = active ? t * t * (3 - 2 * t) : 1 - Math.pow(1 - t, 3)
+    veilOpacity = from + (target - from) * eased
     if (surfaceVeilRef.value) surfaceVeilRef.value.style.opacity = String(veilOpacity)
     veilAnim = t < 1 ? requestAnimationFrame(tick) : undefined
   }
@@ -223,12 +225,12 @@ watch(veilActive, (active) => {
  *  渐暗时长与 rAF 完成时刻存在竞态（主线程繁忙会推迟 rAF tick）：
  *  若 veil 未到 opacity 1 就切页，新旧场景的首帧会透过遮罩叠影（残影）；
  *  缓冲 60ms 让合成器呈现几帧纯黑，确保旧 canvas 最后一帧已被替换。 */
-function waitUntilFullBlack(cb: () => void) {
+function waitUntilFullBlack(cb: () => void, holdMs = 60) {
   const maxTries = Math.ceil((veilDurationMs() + 240) / 16)
   const poll = (triesLeft: number) => {
     // 0.999 而非 1：rAF 收尾 `from + (1-from)*t` 浮点可能停在 0.9999...，视觉上已全黑
     if (veilOpacity >= 0.999) {
-      transitionTimer = window.setTimeout(cb, 60)
+      transitionTimer = window.setTimeout(cb, holdMs)
       return
     }
     if (triesLeft <= 0) {
@@ -250,6 +252,7 @@ const coverStandby = ref(false)
 /** 首页 ↔ 太阳系以纯黑为唯一交接点：当前页面完全收暗后，目标页面才开始显现。 */
 const solarHomeEntering = ref(false)
 const solarHomeLeaving = ref(false)
+const coverHomeRevealing = ref(false)
 /** 太阳系入场推镜延迟；首页交接时与后方场景挂载同步起飞。 */
 const solarFlyDelay = ref(0)
 /** OrbitScene/MoonScene/MarsScene 首帧贴图上传完成信号（textures-ready） */
@@ -357,6 +360,7 @@ function cancelPendingTransition() {
   coverStandby.value = false
   solarHomeEntering.value = false
   solarHomeLeaving.value = false
+  coverHomeRevealing.value = false
   // 离开标志复位：过渡中止时页面不切换，若 leaving 仍为 true 会触发场景元素永久隐藏
   orbitSectionLeaving.value = false
   moonLeaving.value = false
@@ -888,11 +892,11 @@ function enterSolarSystem() {
   coverLingering.value = true
   solarHomeEntering.value = true
   veilTarget.value = 'solar-system'
-  veilDuration.value = reduced ? '0.04s' : '0.72s'
+  veilDuration.value = reduced ? '0.04s' : '0.48s'
   veilActive.value = true
 
   void (async () => {
-    const fullBlack = new Promise<void>((resolve) => waitUntilFullBlack(resolve))
+    const fullBlack = new Promise<void>((resolve) => waitUntilFullBlack(resolve, reduced ? 0 : 24))
     try {
       await Promise.all([loadSolarSystem(), fullBlack])
     } catch {
@@ -1055,17 +1059,21 @@ function exitSolarSystemToCover(skipPush = false) {
     if (!isCurrentNavigation(generation)) return
     solarHomeLeaving.value = true
     veilTarget.value = 'cover'
-    veilDuration.value = reduced ? '0.04s' : '0.72s'
+    veilDuration.value = reduced ? '0.04s' : '0.56s'
     veilActive.value = true
-    await new Promise<void>((resolve) => waitUntilFullBlack(resolve))
+    await new Promise<void>((resolve) => waitUntilFullBlack(resolve, reduced ? 0 : 32))
     if (!isCurrentNavigation(generation)) return
     await setSurface('cover')
     coverStandby.value = false
     solarHomeLeaving.value = false
+    coverHomeRevealing.value = true
     transitionFrame = requestAnimationFrame(() => {
       transitionFrame = undefined
       veilActive.value = false
-      transitionTimer = undefined
+      transitionTimer = scheduleForNavigation(generation, () => {
+        coverHomeRevealing.value = false
+        transitionTimer = undefined
+      }, reduced ? 40 : 760)
     })
   })()
 }
@@ -1918,6 +1926,7 @@ onBeforeUnmount(() => {
         standby: coverStandby,
         'sky-transitioning': skyCoverTransitioning,
         'sky-returning': skyCoverReturning,
+        'home-revealing': coverHomeRevealing,
       }"
       :active-home="surface === 'cover'"
       @explore="enterSolarSystem"

@@ -196,6 +196,20 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
+/* 从太阳系返回时，黑幕退去只唤醒三个主要视觉层。
+   地球先恢复清晰度，标题与坐标轻微错峰跟进，避免整页像重新加载一样同时弹出。 */
+.aurora-cover.home-revealing .cover-earth {
+  animation: cover-home-earth-return .72s cubic-bezier(.16, 1, .3, 1) both;
+}
+
+.aurora-cover.home-revealing .cover-content {
+  animation: cover-home-content-return .58s .04s cubic-bezier(.16, 1, .3, 1) both;
+}
+
+.aurora-cover.home-revealing .cover-coordinate {
+  animation: cover-home-coordinate-return .52s .1s cubic-bezier(.16, 1, .3, 1) both;
+}
+
 .cover-earth {
   position: absolute;
   z-index: -4;
@@ -438,10 +452,10 @@ onBeforeUnmount(() => {
 
 .aurora-cover.is-launching .cover-earth {
   /* 移除入场动画的填充值（fill 模式会压制过渡，导致地球卡在原地不变暗）；
-     与遮罩（0.72s）同步淡出到全暗，不再放大，避免"放大+卡一下" */
+     与遮罩（0.48s）同步淡出到全暗，不再放大，避免"放大+卡一下" */
   animation: none;
   opacity: 0;
-  transition: opacity .72s ease;
+  transition: opacity .48s ease;
 }
 
 .aurora-cover.is-launching::after {
@@ -451,7 +465,7 @@ onBeforeUnmount(() => {
   inset: 0;
   background: #02070d;
   opacity: 1;
-  animation: cover-exit-veil .72s cubic-bezier(.16, 1, .3, 1) both;
+  animation: cover-exit-veil .48s cubic-bezier(.16, 1, .3, 1) both;
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -500,6 +514,21 @@ onBeforeUnmount(() => {
   from { opacity: .2; filter: brightness(.55) blur(5px); transform: scale(1.065); }
 }
 
+@keyframes cover-home-earth-return {
+  from { opacity: .58; filter: brightness(.64) blur(3px); }
+  to { opacity: 1; filter: brightness(1) blur(0); }
+}
+
+@keyframes cover-home-content-return {
+  from { opacity: 0; filter: blur(6px); transform: translateY(-50%) translateX(-14px); }
+  to { opacity: 1; filter: blur(0); transform: translateY(-50%) translateX(0); }
+}
+
+@keyframes cover-home-coordinate-return {
+  from { opacity: 0; filter: blur(4px); transform: translateX(14px); }
+  to { opacity: 1; filter: blur(0); transform: translateX(0); }
+}
+
 @keyframes logo-wordmark-arrive {
   from { opacity: 0; filter: blur(6px); clip-path: inset(0 100% 0 0); transform: translateX(-8px); }
   to { opacity: 1; filter: blur(0); clip-path: inset(0 0 0 0); transform: translateX(0); }
@@ -524,5 +553,11 @@ onBeforeUnmount(() => {
 
 @media (prefers-reduced-motion: reduce) {
   .cover-earth { transform: none; transition: none; }
+  .aurora-cover.home-revealing .cover-earth,
+  .aurora-cover.home-revealing .cover-content,
+  .aurora-cover.home-revealing .cover-coordinate {
+    animation-duration: .04s;
+    animation-delay: 0s;
+  }
 }
 </style>
