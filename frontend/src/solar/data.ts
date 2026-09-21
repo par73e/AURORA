@@ -155,8 +155,8 @@ export const VIEW = {
   azimuthDeg: -35,
   /** 滚轮缩放近限：可贴近到行星表面之上，仅保留防穿模下限 */
   minDistance: 0.15,
-  /** 构图距离下限：尽量贴近以拉大太阳-海王星跨度（相机仍保持在柯伊伯带之外） */
-  composeMinDistance: 115,
+  /** 默认总览再靠近约 13%，放大行星主体；仍保留太阳到外行星的整体空间关系。 */
+  composeMinDistance: 100,
   composeMaxDistance: 900,
   /** 视角中心（小行星带）锚定位置：水平居中、垂直略偏上（整体上移） */
   anchorScreenX: 0.5,

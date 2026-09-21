@@ -53,3 +53,13 @@ test('首页与太阳系各自完成收暗和渐亮，并提供 reduced-motion �
   assert.match(solarSource, /@keyframes solar-home-scene-leave[\s\S]*?to \{ opacity: 0;/)
   assert.match(solarSource, /prefers-reduced-motion: reduce[\s\S]*?\.solar-system\.home-entering/)
 })
+
+test('太阳系默认与重置视角共用更靠近的总览构图', async () => {
+  const dataSource = await readFile(new URL('../src/solar/data.ts', import.meta.url), 'utf8')
+  const sceneSource = await readFile(new URL('../src/solar/scene.ts', import.meta.url), 'utf8')
+
+  assert.match(dataSource, /composeMinDistance: 100/)
+  assert.match(sceneSource, /private computeModeComposition[\s\S]*?return \{ target, distance: VIEW\.composeMinDistance \}/)
+  assert.match(sceneSource, /private refit\(\)[\s\S]*?computeModeComposition\(aspect\)/)
+  assert.match(sceneSource, /resetView\(\)[\s\S]*?computeModeComposition\(aspect\)/)
+})
