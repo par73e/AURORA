@@ -182,6 +182,7 @@ const sunRevealTick = ref(0)
 const sunEnterFromSolar = ref(false)
 const sunLeaving = ref(false)
 const siteHeader = ref<HTMLElement | null>(null)
+const auroraCoverRef = ref<InstanceType<typeof AuroraCover> | null>(null)
 const orbitSection = ref<HTMLElement | null>(null)
 const orbitSceneFrame = ref<HTMLElement | null>(null)
 let clock: number | undefined
@@ -1087,6 +1088,11 @@ function exitSolarSystemToCover(skipPush = false) {
   deepCoverPreparing.value = true
   void (async () => {
     await nextTick()
+    // 封面在 standby 隐藏期间先清掉上次进入太阳系遗留的 is-launching。
+    // 若等到 setSurface('cover') 才由 activeHome watcher 复位，撤下 deep-returning 的瞬间
+    // 会短暂重新启用旧的黑色退出遮罩，形成“首页已出现 → 突然变暗 → 再亮起”。
+    auroraCoverRef.value?.resetLaunchState()
+    await nextTick()
     await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
     if (!isCurrentNavigation(generation)) return
     solarHomeLeaving.value = true
@@ -1948,6 +1954,7 @@ onBeforeUnmount(() => {
     </div>
 
     <AuroraCover
+      ref="auroraCoverRef"
       v-if="surface === 'cover' || coverLingering || skyCoverReturning || deepCoverReturning || coverStandby"
       class="desktop-cover"
       :class="{

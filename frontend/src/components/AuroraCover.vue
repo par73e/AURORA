@@ -23,7 +23,9 @@ const emit = defineEmits<{
 
 const props = withDefaults(defineProps<{ activeHome?: boolean }>(), { activeHome: false })
 
-const settled = ref(coverEntrancePlayed)
+// 只有真正从首页首次打开时播放品牌入场。若封面是在太阳系后方以 standby 挂载，
+// 或当前实例已经离开过首页，都必须保持 settled，避免返回时重新命中 play-entrance。
+const settled = ref(coverEntrancePlayed || !props.activeHome)
 coverEntrancePlayed = true
 
 const cover = ref<HTMLElement | null>(null)
@@ -31,12 +33,18 @@ const launching = ref(false)
 const astronomyPending = ref(false)
 let pointerFrame = 0
 
+function resetLaunchState() {
+  astronomyPending.value = false
+  launching.value = false
+}
+
+defineExpose({ resetLaunchState })
+
 // 封面实例现在跨“返回首页”存活（standby 待命，不再卸载重挂），
 // 瞬态标志必须随封面重新成为可交互首页而复位，否则再次点击天文观测会被守卫拦下。
 watch(() => props.activeHome, (active) => {
   if (!active) return
-  astronomyPending.value = false
-  launching.value = false
+  resetLaunchState()
 })
 
 function updateParallax(event: PointerEvent) {
@@ -58,6 +66,7 @@ function resetParallax() {
 
 function enterDeepSpace() {
   if (launching.value || astronomyPending.value) return
+  settled.value = true
   launching.value = true
   // 与 launching 的 DOM 更新保持在同一个 Vue flush 中。若延后一轮 event loop，浏览器可能先
   // 绘制一帧旧的 is-launching 黑场，再被 deep-preparing 覆盖，看起来像首页重新闪出。
@@ -73,6 +82,7 @@ function handleAnimationEnd(event: AnimationEvent) {
 function enterAstronomy() {
   if (launching.value || astronomyPending.value) return
   // 天文观测是同级工作台，切换时保持封面亮度，不复用深空探索的起飞遮罩。
+  settled.value = true
   astronomyPending.value = true
   emit('astronomy')
 }
