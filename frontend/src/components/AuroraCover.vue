@@ -18,6 +18,7 @@ import coverEarth from '../assets/aurora-cover-earth.png'
 const emit = defineEmits<{
   explore: []
   astronomy: []
+  deepTransitionEnd: []
 }>()
 
 const props = withDefaults(defineProps<{ activeHome?: boolean }>(), { activeHome: false })
@@ -29,7 +30,6 @@ const cover = ref<HTMLElement | null>(null)
 const launching = ref(false)
 const astronomyPending = ref(false)
 let pointerFrame = 0
-let launchTimer: number | undefined
 
 // 封面实例现在跨“返回首页”存活（standby 待命，不再卸载重挂），
 // 瞬态标志必须随封面重新成为可交互首页而复位，否则再次点击天文观测会被守卫拦下。
@@ -37,10 +37,6 @@ watch(() => props.activeHome, (active) => {
   if (!active) return
   astronomyPending.value = false
   launching.value = false
-  if (launchTimer !== undefined) {
-    window.clearTimeout(launchTimer)
-    launchTimer = undefined
-  }
 })
 
 function updateParallax(event: PointerEvent) {
@@ -63,7 +59,15 @@ function resetParallax() {
 function enterDeepSpace() {
   if (launching.value || astronomyPending.value) return
   launching.value = true
-  launchTimer = window.setTimeout(() => emit('explore'), 0) // 点击立即切页
+  // 与 launching 的 DOM 更新保持在同一个 Vue flush 中。若延后一轮 event loop，浏览器可能先
+  // 绘制一帧旧的 is-launching 黑场，再被 deep-preparing 覆盖，看起来像首页重新闪出。
+  emit('explore')
+}
+
+function handleAnimationEnd(event: AnimationEvent) {
+  if (event.target !== event.currentTarget) return
+  // scoped CSS 会给 keyframes 添加哈希后缀，因此只匹配稳定前缀。
+  if (event.animationName.startsWith('cover-to-deep-space')) emit('deepTransitionEnd')
 }
 
 function enterAstronomy() {
@@ -75,7 +79,6 @@ function enterAstronomy() {
 
 onBeforeUnmount(() => {
   window.cancelAnimationFrame(pointerFrame)
-  if (launchTimer) window.clearTimeout(launchTimer)
 })
 </script>
 
@@ -88,6 +91,7 @@ onBeforeUnmount(() => {
     aria-labelledby="aurora-cover-title"
     @pointermove="updateParallax"
     @pointerleave="resetParallax"
+    @animationend="handleAnimationEnd"
   >
     <img class="cover-earth" :src="coverEarth" alt="" aria-hidden="true">
     <div class="cover-vignette" aria-hidden="true" />

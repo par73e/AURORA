@@ -10,6 +10,10 @@ test('首页与太阳系使用双端参与的对称空间交接', async () => {
   assert.match(appSource, /function exitSolarSystemToCover/)
   assert.match(appSource, /deepCoverReturning\.value = true/)
   assert.match(appSource, /solarHomeLeaving\.value = true/)
+  assert.match(appSource, /@deep-transition-end="onDeepCoverTransitionEnd"/)
+  assert.match(appSource, /waitForDeepCoverAnimation\(handoffMs \+ 240\)/)
+  assert.match(appSource, /waitForDeepCoverAnimation\(coverReturnMs \+ 240\)/)
+  assert.doesNotMatch(appSource, /scheduleForNavigation\(generation, \(\) => \{[\s\S]{0,120}deepCoverTransitioning\.value = false[\s\S]{0,40}\}, handoffMs\)/)
   assert.doesNotMatch(
     appSource.match(/function enterSolarSystem\(\)[\s\S]*?\n}\n\nfunction enterSky/)?.[0] ?? '',
     /veilActive\.value = true/,
@@ -26,6 +30,9 @@ test('深空交接复用同一斜向蒙版并提供 reduced-motion 路径', asyn
   assert.match(coverSource, /from \{ --deep-wipe: -24%; \}/)
   assert.match(coverSource, /to \{ --deep-wipe: 118%; \}/)
   assert.match(coverSource, /\.aurora-cover\.deep-returning[\s\S]*?animation-direction: reverse/)
+  assert.match(coverSource, /if \(event\.animationName\.startsWith\('cover-to-deep-space'\)\) emit\('deepTransitionEnd'\)/)
+  assert.match(coverSource, /launching\.value = true\s*\/\/[\s\S]*?emit\('explore'\)/)
+  assert.doesNotMatch(coverSource, /setTimeout\(\(\) => emit\('explore'\), 0\)/)
   assert.match(coverSource, /prefers-reduced-motion: reduce[\s\S]*?\.aurora-cover\.deep-transitioning/)
   assert.match(solarSource, /\.solar-system\.home-entering \.solar-scene-host/)
   assert.match(solarSource, /\.solar-system\.home-leaving \.solar-scene-host/)

@@ -287,6 +287,8 @@ let skyModulePreloadTimer: number | undefined
 /** 每次导航递增；异步纹理解码完成后先核验代际，旧页面不能把用户拉回去。 */
 let navigationGeneration = 0
 const deferredNavigationTimers = new Set<number>()
+let deepCoverAnimationFallback: number | undefined
+let pendingDeepCoverAnimation: ((completed: boolean) => void) | null = null
 
 function isCurrentNavigation(generation: number) {
   return generation === navigationGeneration
@@ -300,6 +302,29 @@ function scheduleForNavigation(generation: number, callback: () => void, delay: 
   }, delay)
   deferredNavigationTimers.add(timer)
   return timer
+}
+
+/** 深空交接以浏览器真正提交的 animationend 为准；超时只处理后台标签页或异常动画。 */
+function settleDeepCoverAnimation(completed: boolean) {
+  if (deepCoverAnimationFallback !== undefined) {
+    window.clearTimeout(deepCoverAnimationFallback)
+    deepCoverAnimationFallback = undefined
+  }
+  const resolve = pendingDeepCoverAnimation
+  pendingDeepCoverAnimation = null
+  resolve?.(completed)
+}
+
+function waitForDeepCoverAnimation(fallbackMs: number) {
+  settleDeepCoverAnimation(false)
+  return new Promise<boolean>((resolve) => {
+    pendingDeepCoverAnimation = resolve
+    deepCoverAnimationFallback = window.setTimeout(() => settleDeepCoverAnimation(true), fallbackMs)
+  })
+}
+
+function onDeepCoverTransitionEnd() {
+  settleDeepCoverAnimation(true)
 }
 
 /** 连续两帧：Vue 提交 DOM 后，再给浏览器一次实际合成机会。 */
@@ -338,6 +363,7 @@ function preloadSurfaceComponent(target: AppSurface) {
 /** 取消进行中的过渡（含定时器与动画帧），恢复无过渡状态 */
 function cancelPendingTransition() {
   navigationGeneration += 1
+  settleDeepCoverAnimation(false)
   for (const timer of deferredNavigationTimers) window.clearTimeout(timer)
   deferredNavigationTimers.clear()
   if (transitionTimer !== undefined) {
@@ -908,8 +934,11 @@ function enterSolarSystem() {
     await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
     if (!isCurrentNavigation(generation)) return
     transitionTimer = scheduleForNavigation(generation, () => {
+      const handoffDone = waitForDeepCoverAnimation(handoffMs + 240)
       deepCoverTransitioning.value = true
-      transitionTimer = scheduleForNavigation(generation, () => {
+      void (async () => {
+        const completed = await handoffDone
+        if (!completed || !isCurrentNavigation(generation)) return
         coverLingering.value = false
         deepCoverPreparing.value = false
         deepCoverTransitioning.value = false
@@ -918,7 +947,7 @@ function enterSolarSystem() {
           solarHomeEntering.value = false
           transitionTimer = undefined
         }, reduced ? 0 : 360)
-      }, handoffMs)
+      })()
     }, reduced ? 0 : 140)
   })()
 }
@@ -1062,19 +1091,19 @@ function exitSolarSystemToCover(skipPush = false) {
     if (!isCurrentNavigation(generation)) return
     solarHomeLeaving.value = true
     transitionTimer = scheduleForNavigation(generation, () => {
+      const coverReturned = waitForDeepCoverAnimation(coverReturnMs + 240)
       coverStandby.value = false
       deepCoverReturning.value = true
-      transitionTimer = scheduleForNavigation(generation, () => {
-        if (!isCurrentNavigation(generation)) return
+      void (async () => {
+        const completed = await coverReturned
+        if (!completed || !isCurrentNavigation(generation)) return
         void setSurface('cover')
-        requestAnimationFrame(() => {
-          deepCoverPreparing.value = false
-          deepCoverReturning.value = false
-          solarHomeLeaving.value = false
-          coverStandby.value = false
-          transitionTimer = undefined
-        })
-      }, coverReturnMs)
+        deepCoverPreparing.value = false
+        deepCoverReturning.value = false
+        solarHomeLeaving.value = false
+        coverStandby.value = false
+        transitionTimer = undefined
+      })()
     }, solarExitMs)
   })()
 }
@@ -1933,6 +1962,7 @@ onBeforeUnmount(() => {
       :active-home="surface === 'cover'"
       @explore="enterSolarSystem"
       @astronomy="enterSky"
+      @deep-transition-end="onDeepCoverTransitionEnd"
     />
 
     <div v-show="surface !== 'cover' || coverLingering" class="desktop-app" :class="{ 'header-collapsed': !headerExpanded, 'deep-entering': solarHomeEntering, 'deep-leaving': solarHomeLeaving, sky: surface === 'sky', moon: surface === 'moon', mars: surface === 'mars', venus: surface === 'venus', saturn: surface === 'saturn', jupiter: surface === 'jupiter', mercury: surface === 'mercury', uranus: surface === 'uranus', neptune: surface === 'neptune', sun: surface === 'sun' }">
