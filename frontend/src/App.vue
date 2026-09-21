@@ -326,6 +326,11 @@ interface TransitionTiming {
 const CELESTIAL_EXIT_SEQUENCE_MS = 640
 const CELESTIAL_EXIT_REDUCED_MS = 160
 const CELESTIAL_EXIT_VEIL_SECONDS = '0.16s'
+/** 首页 ↔ 太阳系使用同一段黑幕；纯黑保持按挂载成本补偿，令两个方向的感知时长接近。
+ *  进入还要在黑幕下挂载 WebGL 并提交两帧，因此显式保持更短；首页已在后台待命，退出保持稍长。 */
+const SOLAR_HOME_VEIL_SECONDS = '0.46s'
+const SOLAR_HOME_ENTRY_DWELL_MS = 32
+const SOLAR_HOME_EXIT_DWELL_MS = 120
 
 /** 预取目标场景组件，不等待它完成；原有纹理预热、黑幕与 reveal 时钟仍是唯一节奏来源。 */
 function preloadSurfaceComponent(target: AppSurface) {
@@ -892,11 +897,11 @@ function enterSolarSystem() {
   coverLingering.value = true
   solarHomeEntering.value = true
   veilTarget.value = 'solar-system'
-  veilDuration.value = reduced ? '0.04s' : '0.48s'
+  veilDuration.value = reduced ? '0.04s' : SOLAR_HOME_VEIL_SECONDS
   veilActive.value = true
 
   void (async () => {
-    const fullBlack = new Promise<void>((resolve) => waitUntilFullBlack(resolve, reduced ? 0 : 24))
+    const fullBlack = new Promise<void>((resolve) => waitUntilFullBlack(resolve, reduced ? 0 : SOLAR_HOME_ENTRY_DWELL_MS))
     try {
       await Promise.all([loadSolarSystem(), fullBlack])
     } catch {
@@ -916,7 +921,7 @@ function enterSolarSystem() {
       transitionTimer = scheduleForNavigation(generation, () => {
         solarHomeEntering.value = false
         transitionTimer = undefined
-      }, reduced ? 40 : 1320)
+      }, reduced ? 40 : 980)
     })
   })()
 }
@@ -1059,9 +1064,9 @@ function exitSolarSystemToCover(skipPush = false) {
     if (!isCurrentNavigation(generation)) return
     solarHomeLeaving.value = true
     veilTarget.value = 'cover'
-    veilDuration.value = reduced ? '0.04s' : '0.56s'
+    veilDuration.value = reduced ? '0.04s' : SOLAR_HOME_VEIL_SECONDS
     veilActive.value = true
-    await new Promise<void>((resolve) => waitUntilFullBlack(resolve, reduced ? 0 : 32))
+    await new Promise<void>((resolve) => waitUntilFullBlack(resolve, reduced ? 0 : SOLAR_HOME_EXIT_DWELL_MS))
     if (!isCurrentNavigation(generation)) return
     await setSurface('cover')
     coverStandby.value = false
@@ -1838,10 +1843,12 @@ function onGlobalKeydown(event: KeyboardEvent) {
 onMounted(() => {
   window.addEventListener('popstate', onPopState)
   window.addEventListener('keydown', onGlobalKeydown)
-  // 首页保持轻量、无权限请求；SKY 仅在空闲时预取代码与样式，不会挂载组件或触发定位。
+  // 首页仍不挂载三维场景或请求权限；只预取约 50 kB 的太阳系组件代码，
+  // 让点击后的纯黑停留由统一时钟决定，不再被首次动态 import 拉长。
   if (surface.value === 'sky') {
     preloadSurfaceComponent('sky')
   } else if (surface.value === 'cover') {
+    void loadSolarSystem()
     skyModulePreloadTimer = window.setTimeout(() => { void loadSkyObservatory() }, 600)
   } else if (surface.value === 'solar-system') {
     preloadSurfaceComponent('solar-system')
