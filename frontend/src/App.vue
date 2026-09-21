@@ -328,12 +328,12 @@ interface TransitionTiming {
 const CELESTIAL_EXIT_SEQUENCE_MS = 640
 const CELESTIAL_EXIT_REDUCED_MS = 160
 const CELESTIAL_EXIT_VEIL_SECONDS = '0.16s'
-/** 首页 → 太阳系整体预算约 1s；退出保留更从容的既有节奏。 */
-const SOLAR_HOME_ENTRY_VEIL_SECONDS = '0.16s'
+/** 首页 → 太阳系保持一次短促完整的交接；退出保留更从容的既有节奏。 */
+const SOLAR_HOME_ENTRY_VEIL_SECONDS = '0.08s'
 const SOLAR_HOME_EXIT_VEIL_SECONDS = '0.46s'
 const SOLAR_HOME_ENTRY_DWELL_MS = 0
 const SOLAR_HOME_EXIT_DWELL_MS = 120
-const SOLAR_HOME_ENTRY_SETTLE_MS = 620
+const SOLAR_HOME_ENTRY_SETTLE_MS = 200
 
 /** 预取目标场景组件，不等待它完成；原有纹理预热、黑幕与 reveal 时钟仍是唯一节奏来源。 */
 function preloadSurfaceComponent(target: AppSurface) {

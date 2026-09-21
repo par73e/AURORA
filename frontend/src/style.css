@@ -106,7 +106,7 @@ button { cursor: pointer; }
 .site-header.collapsed { transform: translateY(-100%); }
 .site-header.collapsed::after { opacity: 0; }
 .desktop-app.deep-entering .site-header {
-  animation: deep-header-enter .5s .62s cubic-bezier(.16, 1, .3, 1) both;
+  animation: deep-header-enter .18s .02s cubic-bezier(.16, 1, .3, 1) both;
 }
 .desktop-app.deep-leaving .site-header {
   animation: deep-header-leave .28s cubic-bezier(.4, 0, 1, 1) both;
