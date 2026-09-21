@@ -329,7 +329,7 @@ const CELESTIAL_EXIT_VEIL_SECONDS = '0.16s'
 /** 首页 ↔ 太阳系使用同一段黑幕；纯黑保持按挂载成本补偿，令两个方向的感知时长接近。
  *  进入还要在黑幕下挂载 WebGL 并提交两帧，因此显式保持更短；首页已在后台待命，退出保持稍长。 */
 const SOLAR_HOME_VEIL_SECONDS = '0.46s'
-const SOLAR_HOME_ENTRY_DWELL_MS = 32
+const SOLAR_HOME_ENTRY_DWELL_MS = 0
 const SOLAR_HOME_EXIT_DWELL_MS = 120
 
 /** 预取目标场景组件，不等待它完成；原有纹理预热、黑幕与 reveal 时钟仍是唯一节奏来源。 */
@@ -888,7 +888,8 @@ function enterSolarSystem() {
   preloadSolarTextures()
   void ensureOrbitOverview()
   preloadOrbitTextures() // 提前预热地球纹理，为下一步进入 ORBIT 做准备
-  // 封面先完整收暗；只有达到纯黑交接点后才挂载太阳系到前台并渐亮。
+  // 太阳系在仍可见的封面后方并行挂载；到达纯黑交接点时只需揭幕，
+  // 不再把 WebGL 初始化与双帧合成时间算进用户看到的黑屏。
   cancelPendingTransition()
   const generation = navigationGeneration
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -901,17 +902,20 @@ function enterSolarSystem() {
   veilActive.value = true
 
   void (async () => {
+    const solarReady = (async () => {
+      await loadSolarSystem()
+      if (!isCurrentNavigation(generation)) return
+      await setSurface('solar-system')
+      // 封面仍以 lingering 覆盖在最上层；太阳系在其后完成真实 WebGL 首帧。
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+    })()
     const fullBlack = new Promise<void>((resolve) => waitUntilFullBlack(resolve, reduced ? 0 : SOLAR_HOME_ENTRY_DWELL_MS))
     try {
-      await Promise.all([loadSolarSystem(), fullBlack])
+      await Promise.all([solarReady, fullBlack])
     } catch {
       cancelPendingTransition()
       return
     }
-    if (!isCurrentNavigation(generation)) return
-    await setSurface('solar-system')
-    // 纯黑下完成 WebGL 首帧提交，再让黑幕退去；太阳系由自身 home-entering 渐亮。
-    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
     if (!isCurrentNavigation(generation)) return
     coverLingering.value = false
     coverStandby.value = true
