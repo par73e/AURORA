@@ -587,7 +587,7 @@ defineExpose({ resetView })
 .solar-system.home-leaving { pointer-events: none; }
 
 .solar-system.home-entering .solar-scene-host {
-  animation: solar-home-scene-enter .92s cubic-bezier(.16, 1, .3, 1) both;
+  animation: solar-home-scene-enter .58s cubic-bezier(.16, 1, .3, 1) both;
   transform-origin: 54% 44%;
 }
 
@@ -597,7 +597,7 @@ defineExpose({ resetView })
 .solar-system.home-entering .position-toggle,
 .solar-system.home-entering .solar-credits,
 .solar-system.home-entering .solar-readout {
-  animation: solar-home-ui-enter .48s .3s cubic-bezier(.16, 1, .3, 1) both;
+  animation: solar-home-ui-enter .34s .16s cubic-bezier(.16, 1, .3, 1) both;
 }
 
 .solar-system.home-leaving .solar-intro,

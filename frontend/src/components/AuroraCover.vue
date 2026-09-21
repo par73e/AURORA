@@ -452,10 +452,10 @@ onBeforeUnmount(() => {
 
 .aurora-cover.is-launching .cover-earth {
   /* 移除入场动画的填充值（fill 模式会压制过渡，导致地球卡在原地不变暗）；
-     与遮罩（0.46s）同步淡出到全暗，不再放大，避免"放大+卡一下" */
+     与进入遮罩（0.32s）同步淡出到全暗，不再放大，避免"放大+卡一下" */
   animation: none;
   opacity: 0;
-  transition: opacity .46s ease;
+  transition: opacity .32s ease;
 }
 
 .aurora-cover.is-launching::after {
@@ -465,7 +465,7 @@ onBeforeUnmount(() => {
   inset: 0;
   background: #02070d;
   opacity: 1;
-  animation: cover-exit-veil .46s cubic-bezier(.16, 1, .3, 1) both;
+  animation: cover-exit-veil .32s cubic-bezier(.16, 1, .3, 1) both;
 }
 
 @media (prefers-reduced-motion: no-preference) {

@@ -253,6 +253,8 @@ const coverStandby = ref(false)
 const solarHomeEntering = ref(false)
 const solarHomeLeaving = ref(false)
 const coverHomeRevealing = ref(false)
+/** 首页空闲期隐藏挂载太阳系，点击时复用同一实例，避免 WebGL 创建突破 1s 入场预算。 */
+const solarHomePrewarming = ref(surface.value === 'cover')
 /** 太阳系入场推镜延迟；首页交接时与后方场景挂载同步起飞。 */
 const solarFlyDelay = ref(0)
 /** OrbitScene/MoonScene/MarsScene 首帧贴图上传完成信号（textures-ready） */
@@ -326,11 +328,12 @@ interface TransitionTiming {
 const CELESTIAL_EXIT_SEQUENCE_MS = 640
 const CELESTIAL_EXIT_REDUCED_MS = 160
 const CELESTIAL_EXIT_VEIL_SECONDS = '0.16s'
-/** 首页 ↔ 太阳系使用同一段黑幕；纯黑保持按挂载成本补偿，令两个方向的感知时长接近。
- *  进入还要在黑幕下挂载 WebGL 并提交两帧，因此显式保持更短；首页已在后台待命，退出保持稍长。 */
-const SOLAR_HOME_VEIL_SECONDS = '0.46s'
+/** 首页 → 太阳系整体预算约 1s；退出保留更从容的既有节奏。 */
+const SOLAR_HOME_ENTRY_VEIL_SECONDS = '0.32s'
+const SOLAR_HOME_EXIT_VEIL_SECONDS = '0.46s'
 const SOLAR_HOME_ENTRY_DWELL_MS = 0
 const SOLAR_HOME_EXIT_DWELL_MS = 120
+const SOLAR_HOME_ENTRY_SETTLE_MS = 620
 
 /** 预取目标场景组件，不等待它完成；原有纹理预热、黑幕与 reveal 时钟仍是唯一节奏来源。 */
 function preloadSurfaceComponent(target: AppSurface) {
@@ -898,7 +901,7 @@ function enterSolarSystem() {
   coverLingering.value = true
   solarHomeEntering.value = true
   veilTarget.value = 'solar-system'
-  veilDuration.value = reduced ? '0.04s' : SOLAR_HOME_VEIL_SECONDS
+  veilDuration.value = reduced ? '0.04s' : SOLAR_HOME_ENTRY_VEIL_SECONDS
   veilActive.value = true
 
   void (async () => {
@@ -906,6 +909,8 @@ function enterSolarSystem() {
       await loadSolarSystem()
       if (!isCurrentNavigation(generation)) return
       await setSurface('solar-system')
+      // v-if 条件由 prewarming 平滑切换为正式 surface，不卸载或重建 Three.js 实例。
+      solarHomePrewarming.value = false
       // 封面仍以 lingering 覆盖在最上层；太阳系在其后完成真实 WebGL 首帧。
       await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
     })()
@@ -925,7 +930,7 @@ function enterSolarSystem() {
       transitionTimer = scheduleForNavigation(generation, () => {
         solarHomeEntering.value = false
         transitionTimer = undefined
-      }, reduced ? 40 : 980)
+      }, reduced ? 40 : SOLAR_HOME_ENTRY_SETTLE_MS)
     })
   })()
 }
@@ -1068,7 +1073,7 @@ function exitSolarSystemToCover(skipPush = false) {
     if (!isCurrentNavigation(generation)) return
     solarHomeLeaving.value = true
     veilTarget.value = 'cover'
-    veilDuration.value = reduced ? '0.04s' : SOLAR_HOME_VEIL_SECONDS
+    veilDuration.value = reduced ? '0.04s' : SOLAR_HOME_EXIT_VEIL_SECONDS
     veilActive.value = true
     await new Promise<void>((resolve) => waitUntilFullBlack(resolve, reduced ? 0 : SOLAR_HOME_EXIT_DWELL_MS))
     if (!isCurrentNavigation(generation)) return
@@ -1081,6 +1086,7 @@ function exitSolarSystemToCover(skipPush = false) {
       veilActive.value = false
       transitionTimer = scheduleForNavigation(generation, () => {
         coverHomeRevealing.value = false
+        solarHomePrewarming.value = true
         transitionTimer = undefined
       }, reduced ? 40 : 760)
     })
@@ -1944,7 +1950,7 @@ onBeforeUnmount(() => {
       @astronomy="enterSky"
     />
 
-    <div v-show="surface !== 'cover' || coverLingering" class="desktop-app" :class="{ 'header-collapsed': !headerExpanded, 'deep-entering': solarHomeEntering, 'deep-leaving': solarHomeLeaving, sky: surface === 'sky', moon: surface === 'moon', mars: surface === 'mars', venus: surface === 'venus', saturn: surface === 'saturn', jupiter: surface === 'jupiter', mercury: surface === 'mercury', uranus: surface === 'uranus', neptune: surface === 'neptune', sun: surface === 'sun' }">
+    <div v-show="surface !== 'cover' || coverLingering || solarHomePrewarming" class="desktop-app" :class="{ 'header-collapsed': !headerExpanded, 'deep-entering': solarHomeEntering, 'deep-leaving': solarHomeLeaving, 'deep-prewarming': surface === 'cover' && solarHomePrewarming, sky: surface === 'sky', moon: surface === 'moon', mars: surface === 'mars', venus: surface === 'venus', saturn: surface === 'saturn', jupiter: surface === 'jupiter', mercury: surface === 'mercury', uranus: surface === 'uranus', neptune: surface === 'neptune', sun: surface === 'sun' }">
       <SkyObservatory v-if="surface === 'sky'" @home="returnToCover" />
 
       <header
@@ -2127,8 +2133,8 @@ onBeforeUnmount(() => {
 
       <SolarSystem
         ref="solarSystemRef"
-        v-if="surface === 'solar-system'"
-        :class="{ 'home-entering': solarHomeEntering, 'home-leaving': solarHomeLeaving }"
+        v-if="surface === 'solar-system' || solarHomePrewarming"
+        :class="{ 'home-entering': solarHomeEntering, 'home-leaving': solarHomeLeaving, 'home-prewarming': surface === 'cover' && solarHomePrewarming }"
         v-model:spacecraft-visible="solarSpacecraftVisible"
         :enter-from-orbit="solarEnterFromOrbit"
         :enter-from-moon="solarEnterFromMoon"
