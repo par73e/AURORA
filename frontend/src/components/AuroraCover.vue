@@ -190,6 +190,54 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
+/* 深空探索使用与 SKY 同族、但更有纵深感的斜向晨昏线：首页不是淡黑消失，
+   而是像近景舷窗一样退开，让已经在后方运行的太阳系自然接管画面。 */
+.aurora-cover.deep-transitioning,
+.aurora-cover.deep-returning {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(112deg, transparent 0 31%, rgba(0, 0, 0, .72) 47%, #000 58% 100%);
+  mask-image: linear-gradient(112deg, transparent 0 31%, rgba(0, 0, 0, .72) 47%, #000 58% 100%);
+  -webkit-mask-size: 270% 100%;
+  mask-size: 270% 100%;
+  -webkit-mask-position: 100% 0;
+  mask-position: 100% 0;
+  animation: cover-to-deep-space 1.04s cubic-bezier(.16, 1, .3, 1) both;
+}
+
+.aurora-cover.deep-returning {
+  -webkit-mask-position: 0 0;
+  mask-position: 0 0;
+  animation-direction: reverse;
+}
+
+/* 准备阶段只收拢首页信息，不允许旧的黑幕遮住即将接入的太阳系。 */
+.aurora-cover.deep-preparing.is-launching::after,
+.aurora-cover.deep-transitioning.is-launching::after,
+.aurora-cover.deep-returning.is-launching::after {
+  display: none;
+}
+
+.aurora-cover.deep-preparing.is-launching .cover-earth,
+.aurora-cover.deep-transitioning.is-launching .cover-earth,
+.aurora-cover.deep-returning .cover-earth {
+  animation: none;
+  opacity: 1;
+  filter: none;
+  transform: translate3d(10px, -2px, 0) scale(1.035);
+  transition: transform 1.04s cubic-bezier(.16, 1, .3, 1);
+}
+
+/* 返回首页时，蒙版先把地球带回，再让标题和路径从各自锚点重新就位。 */
+.aurora-cover.deep-returning .cover-content {
+  animation: deep-cover-content-return .62s .22s cubic-bezier(.16, 1, .3, 1) both;
+}
+
+.aurora-cover.deep-returning .cover-coordinate {
+  animation: deep-cover-coordinate-return .5s .34s cubic-bezier(.16, 1, .3, 1) both;
+}
+
 /* 返回时封面是"重新挂载"的：入场动画已由 .play-entrance 门控（仅首次挂载播放），
    保持离开首页时的静止画面，只让蒙版扫回。 */
 .cover-earth {
@@ -485,11 +533,37 @@ onBeforeUnmount(() => {
   }
 }
 
+@keyframes cover-to-deep-space {
+  from {
+    -webkit-mask-position: 100% 0;
+    mask-position: 100% 0;
+  }
+  to {
+    -webkit-mask-position: 0 0;
+    mask-position: 0 0;
+  }
+}
+
+@keyframes deep-cover-content-return {
+  from { opacity: 0; filter: blur(7px); transform: translateY(-50%) translateX(-20px); }
+  to { opacity: 1; filter: blur(0); transform: translateY(-50%) translateX(0); }
+}
+
+@keyframes deep-cover-coordinate-return {
+  from { opacity: 0; filter: blur(5px); transform: translateX(18px); }
+  to { opacity: 1; filter: blur(0); transform: translateX(0); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .aurora-cover.sky-transitioning,
-  .aurora-cover.sky-returning {
+  .aurora-cover.sky-returning,
+  .aurora-cover.deep-transitioning,
+  .aurora-cover.deep-returning {
     animation-duration: .04s;
   }
+
+  .aurora-cover.deep-returning .cover-content,
+  .aurora-cover.deep-returning .cover-coordinate { animation-duration: .04s; animation-delay: 0s; }
 }
 
 @keyframes cover-earth-arrive {

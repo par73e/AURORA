@@ -16,7 +16,6 @@ import SolarSystemItem from './components/SolarSystemItem.vue'
 import { fetchObserverPlace, fetchOrbitOverview, fetchSpacecraftCatalog } from './api'
 import { spacecraftPoint } from './orbit/coordinates'
 import { marsHdReady, moonHdReady, orbitTexturesReady, preloadMarsHdTexture, preloadMoonHdTexture, preloadOrbitTextures, preloadSolarTextures } from './preload'
-import { solarTexturesReady } from './solar/textures'
 import type { LaunchEvent, LaunchSite, OrbitOverview, SceneLayers, Selection, SpacecraftCatalogPage } from './types'
 import { primaryOperator } from './operators'
 import { createDefaultSceneLayers } from './sceneLayers'
@@ -244,9 +243,15 @@ const coverLingering = ref(false)
 const skyCoverTransitioning = ref(false)
 /** SKY → 封面：入场动画的镜像反向，封面从右向左扫回盖住星图（见 exitSkyToCover）。 */
 const skyCoverReturning = ref(false)
-/** SKY 页面期间封面保持挂载但隐藏待命：返回时直接揭示，避免点击瞬间同步挂载导致的顿挫。 */
+/** SKY / 太阳系期间封面保持挂载但隐藏待命：返回时直接揭示，避免点击瞬间同步挂载导致的顿挫。 */
 const coverStandby = ref(false)
-/** 太阳系入场推镜延迟：封面路径 = 变暗时长（全黑开始时起飞）；直接加载 = 0 */
+/** 首页 ↔ 太阳系使用同一条斜向晨昏线完成空间交接；两端各自承担一拍，而非穿过黑场换页。 */
+const deepCoverPreparing = ref(false)
+const deepCoverTransitioning = ref(false)
+const deepCoverReturning = ref(false)
+const solarHomeEntering = ref(false)
+const solarHomeLeaving = ref(false)
+/** 太阳系入场推镜延迟；首页交接时与后方场景挂载同步起飞。 */
 const solarFlyDelay = ref(0)
 /** OrbitScene/MoonScene/MarsScene 首帧贴图上传完成信号（textures-ready） */
 const orbitSceneReadyFlag = ref(false)
@@ -351,6 +356,11 @@ function cancelPendingTransition() {
   skyCoverTransitioning.value = false
   skyCoverReturning.value = false
   coverStandby.value = false
+  deepCoverPreparing.value = false
+  deepCoverTransitioning.value = false
+  deepCoverReturning.value = false
+  solarHomeEntering.value = false
+  solarHomeLeaving.value = false
   // 离开标志复位：过渡中止时页面不切换，若 leaving 仍为 true 会触发场景元素永久隐藏
   orbitSectionLeaving.value = false
   moonLeaving.value = false
@@ -873,51 +883,44 @@ function enterSolarSystem() {
   preloadSolarTextures()
   void ensureOrbitOverview()
   preloadOrbitTextures() // 提前预热地球纹理，为下一步进入 ORBIT 做准备
-  // 封面进入太阳系：星野页面（星空插图）渐入 → 停留（对应原黑屏时间）→ 渐亮揭示推镜
+  // 封面进入太阳系：封面先收拢内容，太阳系在后方挂载并开始由远及近运镜；
+  // 随后同一条斜向晨昏线退开，把空间关系连续交给太阳系，不再穿过独立黑场。
   cancelPendingTransition()
   const generation = navigationGeneration
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  const exitMs = reduced ? 40 : 20 // 星野渐入 20ms（近乎瞬切——用户指定）
-  const dwellMs = reduced ? 0 : 880 // 星野停留 880ms（渐入缩到 20ms 后补回时长：总黑幕保持 900ms 与原来一致，
-  // 停留时间未被砍短；太阳系仍在黑幕中提前渲染，纹理解码就绪后 reveal 才触发）
-  solarEntryFly.value = true // 封面路径：播放入场推镜（启动由 SolarSystem 侧等纹理就绪）
-  shellOrigin.value = '50% 42%'
-  shellZoom.value = 1.05
-  shellTransitioning.value = true
-  veilDuration.value = reduced ? '0.01s' : '0.01s' // 星野瞬切：点击后星点页面直接完整呈现（略过"先黑后星点"的渐入）
-  veilActive.value = true
+  const handoffMs = reduced ? 40 : 1040
+  solarEntryFly.value = true
+  solarFlyDelay.value = 0
+  deepCoverPreparing.value = true
   coverLingering.value = true
-  void setSurface('solar-system')
-  // 停留结束 = 纹理解码就绪（或 2.5s 超时兜底）——黑幕时长与加载同步，
-  // 渐亮揭示时推镜正在中途（SolarSystem 侧同源就绪信号启动推镜）
-  let revealed = false
-  const reveal = () => {
-    if (revealed || !isCurrentNavigation(generation) || surface.value !== 'solar-system') return
-    revealed = true
-    transitionTimer = undefined
-    if (surfaceFromHash() !== 'solar-system') {
+  solarHomeEntering.value = true
+
+  void (async () => {
+    try {
+      await loadSolarSystem()
+    } catch {
       cancelPendingTransition()
       return
     }
-    coverLingering.value = false
-    transitionFrame = requestAnimationFrame(() => {
-      transitionFrame = undefined
-      shellZoom.value = 1
-      veilDuration.value = reduced ? '0.01s' : '0.4s' // 渐亮时长：短促地从黑变亮（不拖灰），
-      // 全亮时刻 ≈ 推镜路程 70%（剩 1/3 距离）；其后推镜最后 1/3 全是清晰画面
-      veilActive.value = false
-    })
+    if (!isCurrentNavigation(generation)) return
+    await setSurface('solar-system')
+    // 双 rAF 让 WebGL 容器获得尺寸并提交首帧；再留一小拍给首页内容完成收拢。
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+    if (!isCurrentNavigation(generation)) return
     transitionTimer = scheduleForNavigation(generation, () => {
-      shellTransitioning.value = false
-      transitionTimer = undefined
-    }, 400 + 60)
-  }
-  transitionTimer = scheduleForNavigation(generation, () => {
-    solarTexturesReady().then(() => {
-      if (isCurrentNavigation(generation)) reveal()
-    })
-    scheduleForNavigation(generation, reveal, 2500) // 兜底：加载异常时最迟 2.5s 揭示
-  }, exitMs + dwellMs)
+      deepCoverTransitioning.value = true
+      transitionTimer = scheduleForNavigation(generation, () => {
+        coverLingering.value = false
+        deepCoverPreparing.value = false
+        deepCoverTransitioning.value = false
+        coverStandby.value = true
+        transitionTimer = scheduleForNavigation(generation, () => {
+          solarHomeEntering.value = false
+          transitionTimer = undefined
+        }, reduced ? 0 : 360)
+      }, handoffMs)
+    }, reduced ? 0 : 140)
+  })()
 }
 
 function enterSky() {
@@ -1032,7 +1035,48 @@ function returnToCover(skipPush = false) {
     exitPlanetToCover(skipPush) // 行星界面：完整退出动画（栏目淡出 → 裸星球 → 渐暗 → 封面）
     return
   }
-  transitionTo('cover', 0.96) // 太阳系/封面：原有过渡
+  if (surface.value === 'solar-system') {
+    exitSolarSystemToCover(skipPush)
+    return
+  }
+  transitionTo('cover', 0.96)
+}
+
+/** 太阳系 → 首页：先由太阳系收回页头、控件和景深，再让首页沿入场时的同一条
+ *  斜向晨昏线覆盖回来。两个页面都参与动画，方向、材质和缓动完全镜像。 */
+function exitSolarSystemToCover(skipPush = false) {
+  if (deepCoverReturning.value || solarHomeLeaving.value) return
+  if (!skipPush && window.location.hash !== '#home') window.history.pushState(null, '', '#home')
+  cancelPendingTransition()
+  const generation = navigationGeneration
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const solarExitMs = reduced ? 0 : 300
+  const coverReturnMs = reduced ? 40 : 1040
+
+  // 直接刷新太阳系后封面尚未挂载；先在不可见 standby 状态完成挂载，避免扫回首帧卡顿。
+  coverStandby.value = true
+  deepCoverPreparing.value = true
+  void (async () => {
+    await nextTick()
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+    if (!isCurrentNavigation(generation)) return
+    solarHomeLeaving.value = true
+    transitionTimer = scheduleForNavigation(generation, () => {
+      coverStandby.value = false
+      deepCoverReturning.value = true
+      transitionTimer = scheduleForNavigation(generation, () => {
+        if (!isCurrentNavigation(generation)) return
+        void setSurface('cover')
+        requestAnimationFrame(() => {
+          deepCoverPreparing.value = false
+          deepCoverReturning.value = false
+          solarHomeLeaving.value = false
+          coverStandby.value = false
+          transitionTimer = undefined
+        })
+      }, coverReturnMs)
+    }, solarExitMs)
+  })()
 }
 
 /** SKY → 首页：与 enterSky 完全对称的反向——封面在星图之上挂载，
@@ -1875,15 +1919,23 @@ onBeforeUnmount(() => {
     </div>
 
     <AuroraCover
-      v-if="surface === 'cover' || coverLingering || skyCoverReturning || coverStandby"
+      v-if="surface === 'cover' || coverLingering || skyCoverReturning || deepCoverReturning || coverStandby"
       class="desktop-cover"
-      :class="{ lingering: coverLingering || skyCoverReturning, standby: coverStandby, 'sky-transitioning': skyCoverTransitioning, 'sky-returning': skyCoverReturning }"
+      :class="{
+        lingering: coverLingering || skyCoverReturning || deepCoverReturning,
+        standby: coverStandby,
+        'sky-transitioning': skyCoverTransitioning,
+        'sky-returning': skyCoverReturning,
+        'deep-preparing': deepCoverPreparing,
+        'deep-transitioning': deepCoverTransitioning,
+        'deep-returning': deepCoverReturning,
+      }"
       :active-home="surface === 'cover'"
       @explore="enterSolarSystem"
       @astronomy="enterSky"
     />
 
-    <div v-show="surface !== 'cover' || coverLingering" class="desktop-app" :class="{ 'header-collapsed': !headerExpanded, sky: surface === 'sky', moon: surface === 'moon', mars: surface === 'mars', venus: surface === 'venus', saturn: surface === 'saturn', jupiter: surface === 'jupiter', mercury: surface === 'mercury', uranus: surface === 'uranus', neptune: surface === 'neptune', sun: surface === 'sun' }">
+    <div v-show="surface !== 'cover' || coverLingering" class="desktop-app" :class="{ 'header-collapsed': !headerExpanded, 'deep-entering': solarHomeEntering, 'deep-leaving': solarHomeLeaving, sky: surface === 'sky', moon: surface === 'moon', mars: surface === 'mars', venus: surface === 'venus', saturn: surface === 'saturn', jupiter: surface === 'jupiter', mercury: surface === 'mercury', uranus: surface === 'uranus', neptune: surface === 'neptune', sun: surface === 'sun' }">
       <SkyObservatory v-if="surface === 'sky'" @home="returnToCover" />
 
       <header
@@ -2067,6 +2119,7 @@ onBeforeUnmount(() => {
       <SolarSystem
         ref="solarSystemRef"
         v-if="surface === 'solar-system'"
+        :class="{ 'home-entering': solarHomeEntering, 'home-leaving': solarHomeLeaving }"
         v-model:spacecraft-visible="solarSpacecraftVisible"
         :enter-from-orbit="solarEnterFromOrbit"
         :enter-from-moon="solarEnterFromMoon"

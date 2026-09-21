@@ -581,6 +581,81 @@ defineExpose({ resetView })
   background: linear-gradient(156deg, transparent 36%, rgba(32, 96, 128, .035) 59%, transparent 60%);
 }
 
+/* 首页交接的第二拍：Three.js 负责真实镜头推进，这里只让场景容器与信息层
+   从同一空间方向接稳，避免整页同时“啪”地出现。 */
+.solar-system.home-entering,
+.solar-system.home-leaving { pointer-events: none; }
+
+.solar-system.home-entering .solar-scene-host {
+  animation: solar-home-scene-enter 1.28s cubic-bezier(.16, 1, .3, 1) both;
+  transform-origin: 54% 44%;
+}
+
+.solar-system.home-entering .solar-intro,
+.solar-system.home-entering .reset-view,
+.solar-system.home-entering .spacecraft-toggle,
+.solar-system.home-entering .position-toggle,
+.solar-system.home-entering .solar-credits,
+.solar-system.home-entering .solar-readout {
+  animation: solar-home-ui-enter .52s .56s cubic-bezier(.16, 1, .3, 1) both;
+}
+
+.solar-system.home-leaving .solar-intro,
+.solar-system.home-leaving .reset-view,
+.solar-system.home-leaving .spacecraft-toggle,
+.solar-system.home-leaving .position-toggle,
+.solar-system.home-leaving .solar-credits,
+.solar-system.home-leaving .solar-readout,
+.solar-system.home-leaving :deep(.mission-detail-panel) {
+  animation: solar-home-ui-leave .28s cubic-bezier(.4, 0, 1, 1) both;
+}
+
+.solar-system.home-leaving .solar-scene-host {
+  animation: solar-home-scene-leave 1.08s cubic-bezier(.4, 0, .2, 1) both;
+  transform-origin: 54% 44%;
+}
+
+@keyframes solar-home-scene-enter {
+  from { opacity: .18; transform: translate3d(14px, 0, 0) scale(.985); }
+  to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+
+@keyframes solar-home-ui-enter {
+  from { opacity: 0; filter: blur(5px); transform: translateY(8px); }
+  to { opacity: 1; filter: blur(0); transform: translateY(0); }
+}
+
+@keyframes solar-home-ui-leave {
+  from { opacity: 1; filter: blur(0); transform: translateY(0); }
+  to { opacity: 0; filter: blur(4px); transform: translateY(-7px); }
+}
+
+@keyframes solar-home-scene-leave {
+  from { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+  to { opacity: .34; transform: translate3d(-12px, 0, 0) scale(.982); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .solar-system.home-entering .solar-scene-host,
+  .solar-system.home-entering .solar-intro,
+  .solar-system.home-entering .reset-view,
+  .solar-system.home-entering .spacecraft-toggle,
+  .solar-system.home-entering .position-toggle,
+  .solar-system.home-entering .solar-credits,
+  .solar-system.home-entering .solar-readout,
+  .solar-system.home-leaving .solar-scene-host,
+  .solar-system.home-leaving .solar-intro,
+  .solar-system.home-leaving .reset-view,
+  .solar-system.home-leaving .spacecraft-toggle,
+  .solar-system.home-leaving .position-toggle,
+  .solar-system.home-leaving .solar-credits,
+  .solar-system.home-leaving .solar-readout,
+  .solar-system.home-leaving :deep(.mission-detail-panel) {
+    animation-duration: .04s;
+    animation-delay: 0s;
+  }
+}
+
 .solar-intro { position: absolute; z-index: 4; top: 110px; left: 32px; }
 .solar-intro p { margin: 0 0 9px; color: rgba(112, 179, 209, .72); font: 500 8px var(--font-mono); letter-spacing: .2em; }
 .solar-intro h1 { margin: 0; font-size: 34px; font-weight: 400; letter-spacing: .08em; }
