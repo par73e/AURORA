@@ -8,7 +8,7 @@ test('太阳系在封面后预挂载，双向都只在完全变黑后揭示目�
   const exitFlow = appSource.match(/function exitSolarSystemToCover[\s\S]*?\n}\n\n\/\*\* SKY/)?.[0] ?? ''
 
   assert.match(appSource, /const solarHomeEntering = ref\(false\)/)
-  assert.match(appSource, /const SOLAR_HOME_ENTRY_VEIL_SECONDS = '0\.32s'/)
+  assert.match(appSource, /const SOLAR_HOME_ENTRY_VEIL_SECONDS = '0\.16s'/)
   assert.match(appSource, /const SOLAR_HOME_EXIT_VEIL_SECONDS = '0\.46s'/)
   assert.match(appSource, /const SOLAR_HOME_ENTRY_DWELL_MS = 0/)
   assert.match(appSource, /const SOLAR_HOME_EXIT_DWELL_MS = 120/)
@@ -17,7 +17,8 @@ test('太阳系在封面后预挂载，双向都只在完全变黑后揭示目�
   assert.match(appSource, /'for-deep': solarHomeEntering \|\| solarHomeLeaving/)
   assert.match(enterFlow, /veilDuration\.value = reduced \? '0\.04s' : SOLAR_HOME_ENTRY_VEIL_SECONDS[\s\S]*?veilActive\.value = true/)
   assert.match(enterFlow, /waitUntilFullBlack\(resolve, reduced \? 0 : SOLAR_HOME_ENTRY_DWELL_MS\)/)
-  assert.match(enterFlow, /const solarReady = \(async \(\) => \{[\s\S]*?await loadSolarSystem\(\)[\s\S]*?await setSurface\('solar-system'\)[\s\S]*?requestAnimationFrame\(\(\) => requestAnimationFrame/)
+  assert.match(enterFlow, /const solarReady = \(async \(\) => \{[\s\S]*?await setSurface\('solar-system'\)[\s\S]*?requestAnimationFrame\(\(\) => requestAnimationFrame/)
+  assert.doesNotMatch(enterFlow, /const solarReady = \(async \(\) => \{[\s\S]*?await loadSolarSystem\(\)/)
   assert.match(enterFlow, /await Promise\.all\(\[solarReady, fullBlack\]\)[\s\S]*?coverLingering\.value = false[\s\S]*?veilActive\.value = false/)
   assert.match(exitFlow, /auroraCoverRef\.value\?\.resetLaunchState\(\)[\s\S]*?solarHomeLeaving\.value = true/)
   assert.match(exitFlow, /veilDuration\.value = reduced \? '0\.04s' : SOLAR_HOME_EXIT_VEIL_SECONDS/)
@@ -39,7 +40,7 @@ test('首页与太阳系各自完成收暗和渐亮，并提供 reduced-motion �
   assert.match(coverSource, /function enterDeepSpace\(\)[\s\S]*?settled\.value = true[\s\S]*?launching\.value = true/)
   assert.match(coverSource, /launching\.value = true\s*\/\/[\s\S]*?emit\('explore'\)/)
   assert.doesNotMatch(coverSource, /setTimeout\(\(\) => emit\('explore'\), 0\)/)
-  assert.match(coverSource, /\.aurora-cover\.is-launching::after[\s\S]*?animation: cover-exit-veil \.32s/)
+  assert.match(coverSource, /\.aurora-cover\.is-launching::after[\s\S]*?animation: cover-exit-veil \.16s/)
   assert.match(coverSource, /\.aurora-cover\.home-revealing \.cover-earth[\s\S]*?cover-home-earth-return \.72s/)
   assert.match(coverSource, /@keyframes cover-home-content-return[\s\S]*?translateY\(-50%\) translateX\(-14px\)/)
   assert.doesNotMatch(coverSource, /--deep-wipe|cover-to-deep-space/)

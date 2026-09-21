@@ -329,7 +329,7 @@ const CELESTIAL_EXIT_SEQUENCE_MS = 640
 const CELESTIAL_EXIT_REDUCED_MS = 160
 const CELESTIAL_EXIT_VEIL_SECONDS = '0.16s'
 /** 首页 → 太阳系整体预算约 1s；退出保留更从容的既有节奏。 */
-const SOLAR_HOME_ENTRY_VEIL_SECONDS = '0.32s'
+const SOLAR_HOME_ENTRY_VEIL_SECONDS = '0.16s'
 const SOLAR_HOME_EXIT_VEIL_SECONDS = '0.46s'
 const SOLAR_HOME_ENTRY_DWELL_MS = 0
 const SOLAR_HOME_EXIT_DWELL_MS = 120
@@ -906,8 +906,9 @@ function enterSolarSystem() {
 
   void (async () => {
     const solarReady = (async () => {
-      await loadSolarSystem()
       if (!isCurrentNavigation(generation)) return
+      // 不等待异步组件：先切换到已具备背景与页头的太阳系外壳，
+      // 组件继续在外壳内解析，黑幕时长不再受模块/WebGL 就绪速度影响。
       await setSurface('solar-system')
       // v-if 条件由 prewarming 平滑切换为正式 surface，不卸载或重建 Three.js 实例。
       solarHomePrewarming.value = false
