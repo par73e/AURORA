@@ -58,7 +58,7 @@ test('太阳系默认与重置视角共用更靠近的总览构图', async () =>
   const dataSource = await readFile(new URL('../src/solar/data.ts', import.meta.url), 'utf8')
   const sceneSource = await readFile(new URL('../src/solar/scene.ts', import.meta.url), 'utf8')
 
-  assert.match(dataSource, /composeMinDistance: 70/)
+  assert.match(dataSource, /composeMinDistance: 50/)
   assert.match(sceneSource, /private computeModeComposition[\s\S]*?return \{ target, distance: VIEW\.composeMinDistance \}/)
   assert.match(sceneSource, /private refit\(\)[\s\S]*?computeModeComposition\(aspect\)/)
   assert.match(sceneSource, /resetView\(\)[\s\S]*?computeModeComposition\(aspect\)/)
