@@ -21,7 +21,10 @@ test('深空交接复用同一斜向蒙版并提供 reduced-motion 路径', asyn
   const coverSource = await readFile(new URL('../src/components/AuroraCover.vue', import.meta.url), 'utf8')
   const solarSource = await readFile(new URL('../src/components/SolarSystem.vue', import.meta.url), 'utf8')
 
-  assert.match(coverSource, /\.aurora-cover\.deep-transitioning,[\s\S]*?linear-gradient\(112deg/)
+  assert.match(coverSource, /@property --deep-wipe/)
+  assert.match(coverSource, /\.aurora-cover\.deep-transitioning,[\s\S]*?linear-gradient\(\s*112deg/)
+  assert.match(coverSource, /from \{ --deep-wipe: -24%; \}/)
+  assert.match(coverSource, /to \{ --deep-wipe: 118%; \}/)
   assert.match(coverSource, /\.aurora-cover\.deep-returning[\s\S]*?animation-direction: reverse/)
   assert.match(coverSource, /prefers-reduced-motion: reduce[\s\S]*?\.aurora-cover\.deep-transitioning/)
   assert.match(solarSource, /\.solar-system\.home-entering \.solar-scene-host/)

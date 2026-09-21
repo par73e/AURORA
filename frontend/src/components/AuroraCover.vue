@@ -192,23 +192,37 @@ onBeforeUnmount(() => {
 
 /* 深空探索使用与 SKY 同族、但更有纵深感的斜向晨昏线：首页不是淡黑消失，
    而是像近景舷窗一样退开，让已经在后方运行的太阳系自然接管画面。 */
+@property --deep-wipe {
+  syntax: '<percentage>';
+  inherits: false;
+  initial-value: -24%;
+}
+
 .aurora-cover.deep-transitioning,
 .aurora-cover.deep-returning {
+  --deep-wipe: -24%;
   position: fixed;
   inset: 0;
   pointer-events: none;
-  -webkit-mask-image: linear-gradient(112deg, transparent 0 31%, rgba(0, 0, 0, .72) 47%, #000 58% 100%);
-  mask-image: linear-gradient(112deg, transparent 0 31%, rgba(0, 0, 0, .72) 47%, #000 58% 100%);
-  -webkit-mask-size: 270% 100%;
-  mask-size: 270% 100%;
-  -webkit-mask-position: 100% 0;
-  mask-position: 100% 0;
+  /* 直接移动渐变分界，而不是移动一张 270% 宽的蒙版图。后者的 0/100% position
+     并不等于“完全离场”，会在定时器撤类时残留半张封面并闪切。 */
+  -webkit-mask-image: linear-gradient(
+    112deg,
+    transparent 0 var(--deep-wipe),
+    rgba(0, 0, 0, .72) calc(var(--deep-wipe) + 9%),
+    #000 calc(var(--deep-wipe) + 18%) 100%
+  );
+  mask-image: linear-gradient(
+    112deg,
+    transparent 0 var(--deep-wipe),
+    rgba(0, 0, 0, .72) calc(var(--deep-wipe) + 9%),
+    #000 calc(var(--deep-wipe) + 18%) 100%
+  );
   animation: cover-to-deep-space 1.04s cubic-bezier(.16, 1, .3, 1) both;
 }
 
 .aurora-cover.deep-returning {
-  -webkit-mask-position: 0 0;
-  mask-position: 0 0;
+  --deep-wipe: 118%;
   animation-direction: reverse;
 }
 
@@ -534,14 +548,8 @@ onBeforeUnmount(() => {
 }
 
 @keyframes cover-to-deep-space {
-  from {
-    -webkit-mask-position: 100% 0;
-    mask-position: 100% 0;
-  }
-  to {
-    -webkit-mask-position: 0 0;
-    mask-position: 0 0;
-  }
+  from { --deep-wipe: -24%; }
+  to { --deep-wipe: 118%; }
 }
 
 @keyframes deep-cover-content-return {
