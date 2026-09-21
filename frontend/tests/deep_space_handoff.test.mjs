@@ -63,3 +63,16 @@ test('太阳系默认与重置视角共用更靠近的总览构图', async () =>
   assert.match(sceneSource, /private refit\(\)[\s\S]*?computeModeComposition\(aspect\)/)
   assert.match(sceneSource, /resetView\(\)[\s\S]*?computeModeComposition\(aspect\)/)
 })
+
+test('首页品牌字使用本地预载字体，不再等待远程 Montserrat 后替换字形', async () => {
+  const indexSource = await readFile(new URL('../index.html', import.meta.url), 'utf8')
+  const styleSource = await readFile(new URL('../src/style.css', import.meta.url), 'utf8')
+  const coverSource = await readFile(new URL('../src/components/AuroraCover.vue', import.meta.url), 'utf8')
+  const fontBytes = await readFile(new URL('../public/fonts/aurora-montserrat-200-latin.woff2', import.meta.url))
+
+  assert.match(indexSource, /rel="preload" href="\/fonts\/aurora-montserrat-200-latin\.woff2" as="font" type="font\/woff2" crossorigin/)
+  assert.match(styleSource, /font-family: 'Aurora Wordmark';[\s\S]*?font-display: block;/)
+  assert.match(coverSource, /font-family: 'Aurora Wordmark', sans-serif;/)
+  assert.doesNotMatch(styleSource, /family=Montserrat|font-family:\s*Montserrat/)
+  assert.ok(fontBytes.byteLength > 1_000)
+})

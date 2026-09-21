@@ -258,7 +258,7 @@ onBeforeUnmount(() => {
   top: 0;
   margin: 0;
   color: #f5f7f8;
-  font-family: Montserrat, Manrope, sans-serif;
+  font-family: 'Aurora Wordmark', sans-serif;
   font-size: clamp(76px, 7.6vw, 102px);
   font-weight: 200;
   line-height: .92;
