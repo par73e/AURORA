@@ -224,6 +224,7 @@ watch(veilActive, (active) => {
  *  若 veil 未到 opacity 1 就切页，新旧场景的首帧会透过遮罩叠影（残影）；
  *  缓冲 60ms 让合成器呈现几帧纯黑，确保旧 canvas 最后一帧已被替换。 */
 function waitUntilFullBlack(cb: () => void) {
+  const maxTries = Math.ceil((veilDurationMs() + 240) / 16)
   const poll = (triesLeft: number) => {
     // 0.999 而非 1：rAF 收尾 `from + (1-from)*t` 浮点可能停在 0.9999...，视觉上已全黑
     if (veilOpacity >= 0.999) {
@@ -231,14 +232,14 @@ function waitUntilFullBlack(cb: () => void) {
       return
     }
     if (triesLeft <= 0) {
-      cb() // 兜底：动画异常（如后台标签页 rAF 暂停）时最多等约 400ms
+      cb() // 兜底：异常或后台标签页 rAF 暂停时，等待窗口仍覆盖当前 veil duration
       return
     }
     transitionTimer = window.setTimeout(() => poll(triesLeft - 1), 16)
   }
-  poll(25)
+  poll(maxTries)
 }
-/** 封面→太阳系：换页提前到点击瞬间，封面继续覆盖（lingering），黑幕结束才撤下 */
+/** 封面→太阳系：封面持续覆盖，直到纯黑交接点后目标场景完成首帧。 */
 const coverLingering = ref(false)
 /** 封面 → SKY：目标页先在后方挂载，再由渐变夜幕横向揭示。 */
 const skyCoverTransitioning = ref(false)
@@ -246,10 +247,7 @@ const skyCoverTransitioning = ref(false)
 const skyCoverReturning = ref(false)
 /** SKY / 太阳系期间封面保持挂载但隐藏待命：返回时直接揭示，避免点击瞬间同步挂载导致的顿挫。 */
 const coverStandby = ref(false)
-/** 首页 ↔ 太阳系使用同一条斜向晨昏线完成空间交接；两端各自承担一拍，而非穿过黑场换页。 */
-const deepCoverPreparing = ref(false)
-const deepCoverTransitioning = ref(false)
-const deepCoverReturning = ref(false)
+/** 首页 ↔ 太阳系以纯黑为唯一交接点：当前页面完全收暗后，目标页面才开始显现。 */
 const solarHomeEntering = ref(false)
 const solarHomeLeaving = ref(false)
 /** 太阳系入场推镜延迟；首页交接时与后方场景挂载同步起飞。 */
@@ -288,8 +286,6 @@ let skyModulePreloadTimer: number | undefined
 /** 每次导航递增；异步纹理解码完成后先核验代际，旧页面不能把用户拉回去。 */
 let navigationGeneration = 0
 const deferredNavigationTimers = new Set<number>()
-let deepCoverAnimationFallback: number | undefined
-let pendingDeepCoverAnimation: ((completed: boolean) => void) | null = null
 
 function isCurrentNavigation(generation: number) {
   return generation === navigationGeneration
@@ -303,29 +299,6 @@ function scheduleForNavigation(generation: number, callback: () => void, delay: 
   }, delay)
   deferredNavigationTimers.add(timer)
   return timer
-}
-
-/** 深空交接以浏览器真正提交的 animationend 为准；超时只处理后台标签页或异常动画。 */
-function settleDeepCoverAnimation(completed: boolean) {
-  if (deepCoverAnimationFallback !== undefined) {
-    window.clearTimeout(deepCoverAnimationFallback)
-    deepCoverAnimationFallback = undefined
-  }
-  const resolve = pendingDeepCoverAnimation
-  pendingDeepCoverAnimation = null
-  resolve?.(completed)
-}
-
-function waitForDeepCoverAnimation(fallbackMs: number) {
-  settleDeepCoverAnimation(false)
-  return new Promise<boolean>((resolve) => {
-    pendingDeepCoverAnimation = resolve
-    deepCoverAnimationFallback = window.setTimeout(() => settleDeepCoverAnimation(true), fallbackMs)
-  })
-}
-
-function onDeepCoverTransitionEnd() {
-  settleDeepCoverAnimation(true)
 }
 
 /** 连续两帧：Vue 提交 DOM 后，再给浏览器一次实际合成机会。 */
@@ -364,7 +337,6 @@ function preloadSurfaceComponent(target: AppSurface) {
 /** 取消进行中的过渡（含定时器与动画帧），恢复无过渡状态 */
 function cancelPendingTransition() {
   navigationGeneration += 1
-  settleDeepCoverAnimation(false)
   for (const timer of deferredNavigationTimers) window.clearTimeout(timer)
   deferredNavigationTimers.clear()
   if (transitionTimer !== undefined) {
@@ -383,9 +355,6 @@ function cancelPendingTransition() {
   skyCoverTransitioning.value = false
   skyCoverReturning.value = false
   coverStandby.value = false
-  deepCoverPreparing.value = false
-  deepCoverTransitioning.value = false
-  deepCoverReturning.value = false
   solarHomeEntering.value = false
   solarHomeLeaving.value = false
   // 离开标志复位：过渡中止时页面不切换，若 leaving 仍为 true 会触发场景元素永久隐藏
@@ -910,46 +879,41 @@ function enterSolarSystem() {
   preloadSolarTextures()
   void ensureOrbitOverview()
   preloadOrbitTextures() // 提前预热地球纹理，为下一步进入 ORBIT 做准备
-  // 封面进入太阳系：封面先收拢内容，太阳系在后方挂载并开始由远及近运镜；
-  // 随后同一条斜向晨昏线退开，把空间关系连续交给太阳系，不再穿过独立黑场。
+  // 封面先完整收暗；只有达到纯黑交接点后才挂载太阳系到前台并渐亮。
   cancelPendingTransition()
   const generation = navigationGeneration
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  const handoffMs = reduced ? 40 : 1040
   solarEntryFly.value = true
   solarFlyDelay.value = 0
-  deepCoverPreparing.value = true
   coverLingering.value = true
   solarHomeEntering.value = true
+  veilTarget.value = 'solar-system'
+  veilDuration.value = reduced ? '0.04s' : '0.72s'
+  veilActive.value = true
 
   void (async () => {
+    const fullBlack = new Promise<void>((resolve) => waitUntilFullBlack(resolve))
     try {
-      await loadSolarSystem()
+      await Promise.all([loadSolarSystem(), fullBlack])
     } catch {
       cancelPendingTransition()
       return
     }
     if (!isCurrentNavigation(generation)) return
     await setSurface('solar-system')
-    // 双 rAF 让 WebGL 容器获得尺寸并提交首帧；再留一小拍给首页内容完成收拢。
+    // 纯黑下完成 WebGL 首帧提交，再让黑幕退去；太阳系由自身 home-entering 渐亮。
     await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
     if (!isCurrentNavigation(generation)) return
-    transitionTimer = scheduleForNavigation(generation, () => {
-      const handoffDone = waitForDeepCoverAnimation(handoffMs + 240)
-      deepCoverTransitioning.value = true
-      void (async () => {
-        const completed = await handoffDone
-        if (!completed || !isCurrentNavigation(generation)) return
-        coverLingering.value = false
-        deepCoverPreparing.value = false
-        deepCoverTransitioning.value = false
-        coverStandby.value = true
-        transitionTimer = scheduleForNavigation(generation, () => {
-          solarHomeEntering.value = false
-          transitionTimer = undefined
-        }, reduced ? 0 : 360)
-      })()
-    }, reduced ? 0 : 140)
+    coverLingering.value = false
+    coverStandby.value = true
+    transitionFrame = requestAnimationFrame(() => {
+      transitionFrame = undefined
+      veilActive.value = false
+      transitionTimer = scheduleForNavigation(generation, () => {
+        solarHomeEntering.value = false
+        transitionTimer = undefined
+      }, reduced ? 40 : 1320)
+    })
   })()
 }
 
@@ -1072,45 +1036,37 @@ function returnToCover(skipPush = false) {
   transitionTo('cover', 0.96)
 }
 
-/** 太阳系 → 首页：先由太阳系收回页头、控件和景深，再让首页沿入场时的同一条
- *  斜向晨昏线覆盖回来。两个页面都参与动画，方向、材质和缓动完全镜像。 */
+/** 太阳系 → 首页：太阳系完整收暗到纯黑，确认旧 canvas 不再可见后才切换首页。 */
 function exitSolarSystemToCover(skipPush = false) {
-  if (deepCoverReturning.value || solarHomeLeaving.value) return
+  if (solarHomeLeaving.value) return
   if (!skipPush && window.location.hash !== '#home') window.history.pushState(null, '', '#home')
   cancelPendingTransition()
   const generation = navigationGeneration
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  const solarExitMs = reduced ? 0 : 300
-  const coverReturnMs = reduced ? 40 : 1040
 
-  // 直接刷新太阳系后封面尚未挂载；先在不可见 standby 状态完成挂载，避免扫回首帧卡顿。
+  // 直接刷新太阳系后封面尚未挂载；先在不可见 standby 状态完成挂载。
   coverStandby.value = true
-  deepCoverPreparing.value = true
   void (async () => {
     await nextTick()
-    // 封面在 standby 隐藏期间先清掉上次进入太阳系遗留的 is-launching。
-    // 若等到 setSurface('cover') 才由 activeHome watcher 复位，撤下 deep-returning 的瞬间
-    // 会短暂重新启用旧的黑色退出遮罩，形成“首页已出现 → 突然变暗 → 再亮起”。
+    // standby 隐藏期间清掉上次进入太阳系遗留的 is-launching，首页只以静止完成态返回。
     auroraCoverRef.value?.resetLaunchState()
     await nextTick()
     await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
     if (!isCurrentNavigation(generation)) return
     solarHomeLeaving.value = true
-    transitionTimer = scheduleForNavigation(generation, () => {
-      const coverReturned = waitForDeepCoverAnimation(coverReturnMs + 240)
-      coverStandby.value = false
-      deepCoverReturning.value = true
-      void (async () => {
-        const completed = await coverReturned
-        if (!completed || !isCurrentNavigation(generation)) return
-        void setSurface('cover')
-        deepCoverPreparing.value = false
-        deepCoverReturning.value = false
-        solarHomeLeaving.value = false
-        coverStandby.value = false
-        transitionTimer = undefined
-      })()
-    }, solarExitMs)
+    veilTarget.value = 'cover'
+    veilDuration.value = reduced ? '0.04s' : '0.72s'
+    veilActive.value = true
+    await new Promise<void>((resolve) => waitUntilFullBlack(resolve))
+    if (!isCurrentNavigation(generation)) return
+    await setSurface('cover')
+    coverStandby.value = false
+    solarHomeLeaving.value = false
+    transitionFrame = requestAnimationFrame(() => {
+      transitionFrame = undefined
+      veilActive.value = false
+      transitionTimer = undefined
+    })
   })()
 }
 
@@ -1945,7 +1901,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="surfaceVeilRef" class="surface-veil" :class="{ active: veilActive, 'for-sky': veilTarget === 'sky' }" :style="{ '--veil-duration': veilDuration }" aria-hidden="true" />
+  <div ref="surfaceVeilRef" class="surface-veil" :class="{ active: veilActive, 'for-sky': veilTarget === 'sky', 'for-deep': solarHomeEntering || solarHomeLeaving }" :style="{ '--veil-duration': veilDuration }" aria-hidden="true" />
   <main class="aurora-shell" :style="shellStyle">
     <div class="desktop-only">
       <span>AURORA / ORBIT</span>
@@ -1955,21 +1911,17 @@ onBeforeUnmount(() => {
 
     <AuroraCover
       ref="auroraCoverRef"
-      v-if="surface === 'cover' || coverLingering || skyCoverReturning || deepCoverReturning || coverStandby"
+      v-if="surface === 'cover' || coverLingering || skyCoverReturning || coverStandby"
       class="desktop-cover"
       :class="{
-        lingering: coverLingering || skyCoverReturning || deepCoverReturning,
+        lingering: coverLingering || skyCoverReturning,
         standby: coverStandby,
         'sky-transitioning': skyCoverTransitioning,
         'sky-returning': skyCoverReturning,
-        'deep-preparing': deepCoverPreparing,
-        'deep-transitioning': deepCoverTransitioning,
-        'deep-returning': deepCoverReturning,
       }"
       :active-home="surface === 'cover'"
       @explore="enterSolarSystem"
       @astronomy="enterSky"
-      @deep-transition-end="onDeepCoverTransitionEnd"
     />
 
     <div v-show="surface !== 'cover' || coverLingering" class="desktop-app" :class="{ 'header-collapsed': !headerExpanded, 'deep-entering': solarHomeEntering, 'deep-leaving': solarHomeLeaving, sky: surface === 'sky', moon: surface === 'moon', mars: surface === 'mars', venus: surface === 'venus', saturn: surface === 'saturn', jupiter: surface === 'jupiter', mercury: surface === 'mercury', uranus: surface === 'uranus', neptune: surface === 'neptune', sun: surface === 'sun' }">

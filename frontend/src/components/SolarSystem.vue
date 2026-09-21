@@ -611,7 +611,7 @@ defineExpose({ resetView })
 }
 
 .solar-system.home-leaving .solar-scene-host {
-  animation: solar-home-scene-leave 1.08s cubic-bezier(.4, 0, .2, 1) both;
+  animation: solar-home-scene-leave .62s cubic-bezier(.4, 0, .2, 1) both;
   transform-origin: 54% 44%;
 }
 
@@ -632,7 +632,7 @@ defineExpose({ resetView })
 
 @keyframes solar-home-scene-leave {
   from { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
-  to { opacity: .34; transform: translate3d(-12px, 0, 0) scale(.982); }
+  to { opacity: 0; transform: translate3d(-12px, 0, 0) scale(.982); }
 }
 
 @media (prefers-reduced-motion: reduce) {

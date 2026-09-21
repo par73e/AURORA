@@ -18,7 +18,6 @@ import coverEarth from '../assets/aurora-cover-earth.png'
 const emit = defineEmits<{
   explore: []
   astronomy: []
-  deepTransitionEnd: []
 }>()
 
 const props = withDefaults(defineProps<{ activeHome?: boolean }>(), { activeHome: false })
@@ -73,12 +72,6 @@ function enterDeepSpace() {
   emit('explore')
 }
 
-function handleAnimationEnd(event: AnimationEvent) {
-  if (event.target !== event.currentTarget) return
-  // scoped CSS 会给 keyframes 添加哈希后缀，因此只匹配稳定前缀。
-  if (event.animationName.startsWith('cover-to-deep-space')) emit('deepTransitionEnd')
-}
-
 function enterAstronomy() {
   if (launching.value || astronomyPending.value) return
   // 天文观测是同级工作台，切换时保持封面亮度，不复用深空探索的起飞遮罩。
@@ -101,7 +94,6 @@ onBeforeUnmount(() => {
     aria-labelledby="aurora-cover-title"
     @pointermove="updateParallax"
     @pointerleave="resetParallax"
-    @animationend="handleAnimationEnd"
   >
     <img class="cover-earth" :src="coverEarth" alt="" aria-hidden="true">
     <div class="cover-vignette" aria-hidden="true" />
@@ -204,70 +196,6 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
-/* 深空探索使用与 SKY 同族、但更有纵深感的斜向晨昏线：首页不是淡黑消失，
-   而是像近景舷窗一样退开，让已经在后方运行的太阳系自然接管画面。 */
-@property --deep-wipe {
-  syntax: '<percentage>';
-  inherits: false;
-  initial-value: -24%;
-}
-
-.aurora-cover.deep-transitioning,
-.aurora-cover.deep-returning {
-  --deep-wipe: -24%;
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  /* 直接移动渐变分界，而不是移动一张 270% 宽的蒙版图。后者的 0/100% position
-     并不等于“完全离场”，会在定时器撤类时残留半张封面并闪切。 */
-  -webkit-mask-image: linear-gradient(
-    112deg,
-    transparent 0 var(--deep-wipe),
-    rgba(0, 0, 0, .72) calc(var(--deep-wipe) + 9%),
-    #000 calc(var(--deep-wipe) + 18%) 100%
-  );
-  mask-image: linear-gradient(
-    112deg,
-    transparent 0 var(--deep-wipe),
-    rgba(0, 0, 0, .72) calc(var(--deep-wipe) + 9%),
-    #000 calc(var(--deep-wipe) + 18%) 100%
-  );
-  animation: cover-to-deep-space 1.04s cubic-bezier(.16, 1, .3, 1) both;
-}
-
-.aurora-cover.deep-returning {
-  --deep-wipe: 118%;
-  animation-direction: reverse;
-}
-
-/* 准备阶段只收拢首页信息，不允许旧的黑幕遮住即将接入的太阳系。 */
-.aurora-cover.deep-preparing.is-launching::after,
-.aurora-cover.deep-transitioning.is-launching::after,
-.aurora-cover.deep-returning.is-launching::after {
-  display: none;
-}
-
-.aurora-cover.deep-preparing.is-launching .cover-earth,
-.aurora-cover.deep-transitioning.is-launching .cover-earth,
-.aurora-cover.deep-returning .cover-earth {
-  animation: none;
-  opacity: 1;
-  filter: none;
-  transform: translate3d(10px, -2px, 0) scale(1.035);
-  transition: transform 1.04s cubic-bezier(.16, 1, .3, 1);
-}
-
-/* 返回首页时，蒙版先把地球带回，再让标题和路径从各自锚点重新就位。 */
-.aurora-cover.deep-returning .cover-content {
-  animation: deep-cover-content-return .62s .22s cubic-bezier(.16, 1, .3, 1) both;
-}
-
-.aurora-cover.deep-returning .cover-coordinate {
-  animation: deep-cover-coordinate-return .5s .34s cubic-bezier(.16, 1, .3, 1) both;
-}
-
-/* 返回时封面是"重新挂载"的：入场动画已由 .play-entrance 门控（仅首次挂载播放），
-   保持离开首页时的静止画面，只让蒙版扫回。 */
 .cover-earth {
   position: absolute;
   z-index: -4;
@@ -561,31 +489,11 @@ onBeforeUnmount(() => {
   }
 }
 
-@keyframes cover-to-deep-space {
-  from { --deep-wipe: -24%; }
-  to { --deep-wipe: 118%; }
-}
-
-@keyframes deep-cover-content-return {
-  from { opacity: 0; filter: blur(7px); transform: translateY(-50%) translateX(-20px); }
-  to { opacity: 1; filter: blur(0); transform: translateY(-50%) translateX(0); }
-}
-
-@keyframes deep-cover-coordinate-return {
-  from { opacity: 0; filter: blur(5px); transform: translateX(18px); }
-  to { opacity: 1; filter: blur(0); transform: translateX(0); }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .aurora-cover.sky-transitioning,
-  .aurora-cover.sky-returning,
-  .aurora-cover.deep-transitioning,
-  .aurora-cover.deep-returning {
+  .aurora-cover.sky-returning {
     animation-duration: .04s;
   }
-
-  .aurora-cover.deep-returning .cover-content,
-  .aurora-cover.deep-returning .cover-coordinate { animation-duration: .04s; animation-delay: 0s; }
 }
 
 @keyframes cover-earth-arrive {

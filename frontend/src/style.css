@@ -89,6 +89,7 @@ button { cursor: pointer; }
 }
 .surface-veil.active { opacity: 1; pointer-events: auto; }
 .surface-veil.for-sky { background: #02080d; }
+.surface-veil.for-deep { background: #010307; }
 
 @media (prefers-reduced-motion: reduce) {
   .aurora-shell { transition: none; will-change: auto; }
