@@ -308,7 +308,7 @@ onMounted(() => {
     },
   )
   scene.setProbesVisible(spacecraftEnabled.value)
-  // 会话记忆：上次是"真实公转位置"模式则直接恢复（无动画）；刷新/首次访问为默认排布
+  // 运行期记忆：从其他页面返回时恢复模式；刷新/重新打开应用后默认一字排布
   if (!alignedPositions.value) scene.setRealPositions()
   if (props.enterFromSun) {
     // 从太阳页面返回：镜头从太阳近景拉回默认构图（太阳缩回太阳系）
@@ -371,7 +371,7 @@ onBeforeUnmount(() => {
   scene?.dispose()
 })
 
-/** 行星是否处于"一字排布"模式；点击切换为当前真实公转位置（模式存入会话记忆） */
+/** 行星是否处于"一字排布"模式；点击切换后仅在当前应用运行期间记忆 */
 const alignedPositions = ref(!solarSession.realPositions)
 
 function togglePositions() {
@@ -419,6 +419,15 @@ function onKeydown(event: KeyboardEvent) {
     else if (activeId.value === 'sun') choosePlanet('sun')
   }
 }
+
+// 首页会提前把太阳系场景挂载在封面后方；首次点击发生在挂载之后，
+// 因此必须响应播放开关的上升沿，不能只在 onMounted 中读取一次初值。
+watch(
+  () => props.playEntryFly,
+  (shouldPlay, wasPlaying) => {
+    if (shouldPlay && !wasPlaying) scene?.flyInFromDistance(props.flyDelay ?? 0)
+  },
+)
 
 /** 复位视角：恢复到当前模式的默认构图（一字排开 → 小行星带锚定；真实位置 → 太阳居中），
  *  同时清掉探测器选中状态（由页头图标/重置按钮触发） */
@@ -587,7 +596,7 @@ defineExpose({ resetView })
 .solar-system.home-leaving { pointer-events: none; }
 
 .solar-system.home-entering .solar-scene-host {
-  animation: solar-home-scene-enter .2s cubic-bezier(.16, 1, .3, 1) both;
+  animation: solar-home-scene-enter .7s cubic-bezier(.4, 0, .2, 1) both;
   transform-origin: 54% 44%;
 }
 
@@ -597,7 +606,7 @@ defineExpose({ resetView })
 .solar-system.home-entering .position-toggle,
 .solar-system.home-entering .solar-credits,
 .solar-system.home-entering .solar-readout {
-  animation: solar-home-ui-enter .14s .04s cubic-bezier(.16, 1, .3, 1) both;
+  animation: solar-home-ui-enter .36s .2s cubic-bezier(.16, 1, .3, 1) both;
 }
 
 .solar-system.home-leaving .solar-intro,
@@ -616,8 +625,8 @@ defineExpose({ resetView })
 }
 
 @keyframes solar-home-scene-enter {
-  from { opacity: .32; transform: translate3d(11px, 0, 0) scale(.988); }
-  to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @keyframes solar-home-ui-enter {

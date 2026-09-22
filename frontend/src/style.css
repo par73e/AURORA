@@ -105,7 +105,13 @@ button { cursor: pointer; }
   .surface-veil { transition: none; }
 }
 .desktop-app { --header-overlay-offset: 72px; background: var(--bg); }
-.desktop-app.deep-prewarming { visibility: hidden; pointer-events: none; }
+.desktop-app.deep-prewarming {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
 .desktop-app.header-collapsed { --header-overlay-offset: 0px; }
 .desktop-only { display: none; }
 .page-frame { width: min(calc(100% - 64px), 1440px); margin: 0 auto; }

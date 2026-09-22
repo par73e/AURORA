@@ -25,3 +25,15 @@ test('太阳系总览与天体特写页的飞行器状态相互独立', async ()
     assert.doesNotMatch(source, /solarSession\.spacecraftVisible|spacecraftVisible\.v\d|spacecraftVisibilityVersion/)
   }
 })
+
+test('太阳系位置模式首次进入默认排布，应用内离开再返回仍保留选择', async () => {
+  const sessionSource = await readFile(new URL('../src/solar/session.ts', import.meta.url), 'utf8')
+  const solarSource = await readFile(new URL('../src/components/SolarSystem.vue', import.meta.url), 'utf8')
+
+  assert.match(sessionSource, /let realPositions = false/)
+  assert.match(sessionSource, /get realPositions\(\): boolean \{\s*return realPositions\s*\}/)
+  assert.match(sessionSource, /set realPositions\(value: boolean\) \{\s*realPositions = value\s*\}/)
+  assert.doesNotMatch(sessionSource, /localStorage|sessionStorage/)
+  assert.match(solarSource, /const alignedPositions = ref\(!solarSession\.realPositions\)/)
+  assert.match(solarSource, /solarSession\.realPositions = !alignedPositions\.value/)
+})

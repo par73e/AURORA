@@ -1162,7 +1162,7 @@ export class SolarSystemScene {
   }
 
   /** 封面入场：镜头从远端沿视线方向飞入当前模式的默认构图（由远及近） */
-  /** 封面入场推镜：delayMs 毫秒后从 40 倍远处匀速高速冲入默认构图（延迟期停在起点）。
+  /** 封面入场推镜：delayMs 毫秒后从固定距离冲入默认构图（延迟期停在起点）。
    *  挂载瞬间容器可能 0×0（尚未布局），此时挂起等待，容器有尺寸后自动启动 */
   flyInFromDistance(delayMs = 0) {
     if (this.flyState) return
@@ -1184,12 +1184,10 @@ export class SolarSystemScene {
     const aspect = width / height
     const { target, distance } = this.computeModeComposition(aspect)
     this.fitDistance = distance
-    // 起点：15 倍构图距离（原 20×——揭幕首帧太远；12× 后揭幕首帧约 6× 正合适，
-    // 但起点太近纵深不足，故取 15× 折中：起点仍有由远及近的纵深，
-    // 推镜 1.3s（原 1.6s——推进偏慢）下揭幕首帧（约 46% 进度）仍约 6×。
-    // 想更近/更快可调小（如 12 / 1200），想更远/更缓可调大）
+    // 起点比最终构图远 250 个单位：保留清晰的由远及近纵深，但不会退回深空小圆盘。
+    // 固定跨度与终点解耦，避免调整最终构图时再次意外放大入场距离。
     const destPosition = target.clone().addScaledVector(this.dir, distance)
-    const p0 = target.clone().addScaledVector(this.dir, distance * 15)
+    const p0 = target.clone().addScaledVector(this.dir, distance + VIEW.entryStartOffset)
     const delta = destPosition.clone().sub(p0)
     const p1 = p0.clone().addScaledVector(delta, 0.3)
     const p2 = p0.clone().addScaledVector(delta, 0.68)
@@ -1204,13 +1202,11 @@ export class SolarSystemScene {
       toTarget: target.clone(),
       // startedAt 带延迟：全黑期间镜头停在起点，延迟结束才开始推进
       startedAt: performance.now() + delayMs,
-      // 1.6s 推镜：整体入场压缩到 1.6s——黑幕 600ms（挂载/编译/首帧都在其中，可见时不卡顿）
-      // + 渐亮 0.9s（600→1500ms），渐亮完全结束时推镜约 94%（放大到最大之前一点点）
-      duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 250 : 1600,
+      // 与场景渐亮共用 0.7s 时间轴；默认 easeInOut 保证推进速度连续、起止柔和。
+      duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 250 : 700,
       zoomed: true,
       reverse: true,
       entry: true,
-      easeOut: 'linear-out',
     }
     this.controls.enabled = false
     this.userInteracted = false
@@ -1218,28 +1214,31 @@ export class SolarSystemScene {
 
   // ---- 相机与构图 --------------------------------------------------------
 
-  /** 当前模式的目标构图：aligned = 小行星带锚定（右上太阳/对角线行星）；
-   *  real = 太阳居中偏上（锚定屏幕 38%、横向居中），画面放大拉近（×0.75），海王星轨道部分出屏 */
+  /** 当前模式的目标构图：两种模式各自按视口自适应；
+   *  aligned = 更近的小行星带锚定视角（右上太阳/对角线行星）；
+   *  real = 太阳居中偏上（锚定屏幕 38%、横向居中），海王星轨道部分出屏。 */
   private computeModeComposition(aspect: number): { target: THREE.Vector3; distance: number } {
+    const tanHalf = Math.tan((VIEW.fov / 2) * DEG)
+    const viewportRadiusDistance = KUIPER_BELT.outer / (tanHalf * aspect)
+
     if (this.compositionMode === 'real') {
-      const tanHalfV = Math.tan((VIEW.fov / 2) * DEG)
+      const distance = Math.max(VIEW.composeMinDistance, viewportRadiusDistance * VIEW.realFitMargin)
       // 距离由水平方向决定：realFitMargin 0.75 = 再放大一点点（海王星轨道部分出屏）
-      const distance = (KUIPER_BELT.outer / (tanHalfV * aspect)) * VIEW.realFitMargin
       // 太阳锚定在屏幕 38%（偏高，横向居中；下方留出行星轨道空间），椭圆中心随之
-      const beta = (2 * VIEW.realAnchorScreenY - 1) * tanHalfV
+      const beta = (2 * VIEW.realAnchorScreenY - 1) * tanHalf
       const target = new THREE.Vector3(0, 0, 0).addScaledVector(this.upv, distance * beta)
       return { target, distance }
     }
-    const tanHalf = Math.tan((VIEW.fov / 2) * DEG)
+    const distance = Math.max(VIEW.composeMinDistance, viewportRadiusDistance * VIEW.alignedFitMargin)
     const ndcX = 2 * VIEW.anchorScreenX - 1
     const ndcY = -(2 * VIEW.anchorScreenY - 1)
     const alpha = -ndcX * tanHalf * aspect
     const beta = -ndcY * tanHalf
     const target = this.beltAnchor
       .clone()
-      .addScaledVector(this.right, VIEW.composeMinDistance * alpha)
-      .addScaledVector(this.upv, VIEW.composeMinDistance * beta)
-    return { target, distance: VIEW.composeMinDistance }
+      .addScaledVector(this.right, distance * alpha)
+      .addScaledVector(this.upv, distance * beta)
+    return { target, distance }
   }
 
   /** 数值构图：按当前模式摆放默认视角 */

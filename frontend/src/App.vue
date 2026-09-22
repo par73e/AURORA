@@ -333,7 +333,7 @@ const SOLAR_HOME_ENTRY_VEIL_SECONDS = '0.08s'
 const SOLAR_HOME_EXIT_VEIL_SECONDS = '0.46s'
 const SOLAR_HOME_ENTRY_DWELL_MS = 0
 const SOLAR_HOME_EXIT_DWELL_MS = 120
-const SOLAR_HOME_ENTRY_SETTLE_MS = 200
+const SOLAR_HOME_ENTRY_SETTLE_MS = 700
 
 /** 预取目标场景组件，不等待它完成；原有纹理预热、黑幕与 reveal 时钟仍是唯一节奏来源。 */
 function preloadSurfaceComponent(target: AppSurface) {
@@ -785,6 +785,8 @@ function timeOnly(value: Date | string) {
 
 
 async function setSurface(nextSurface: AppSurface) {
+  // 入场动画是一次性的上升沿触发。回到首页先复位，下一次点击才能再次从 false 切到 true。
+  if (nextSurface === 'cover') solarEntryFly.value = false
   surface.value = nextSurface
   document.title = nextSurface === 'cover'
     ? 'AURORA'
@@ -896,10 +898,10 @@ function enterSolarSystem() {
   cancelPendingTransition()
   const generation = navigationGeneration
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  solarEntryFly.value = true
+  // 先完整进入黑场；推进与太阳系自身的渐亮在纯黑交接点再同时启动。
+  solarEntryFly.value = false
   solarFlyDelay.value = 0
   coverLingering.value = true
-  solarHomeEntering.value = true
   veilTarget.value = 'solar-system'
   veilDuration.value = reduced ? '0.04s' : SOLAR_HOME_ENTRY_VEIL_SECONDS
   veilActive.value = true
@@ -922,6 +924,12 @@ function enterSolarSystem() {
       cancelPendingTransition()
       return
     }
+    if (!isCurrentNavigation(generation)) return
+    solarHomeEntering.value = true
+    solarEntryFly.value = true
+    // 让子组件先收到推进上升沿、让渐亮初态在纯黑下提交一帧，再撤下黑幕。
+    await nextTick()
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     if (!isCurrentNavigation(generation)) return
     coverLingering.value = false
     coverStandby.value = true
@@ -1927,7 +1935,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="surfaceVeilRef" class="surface-veil" :class="{ active: veilActive, 'for-sky': veilTarget === 'sky', 'for-deep': solarHomeEntering || solarHomeLeaving }" :style="{ '--veil-duration': veilDuration }" aria-hidden="true" />
+  <div ref="surfaceVeilRef" class="surface-veil" :class="{ active: veilActive, 'for-sky': veilTarget === 'sky', 'for-deep': veilTarget === 'solar-system' || solarHomeLeaving }" :style="{ '--veil-duration': veilDuration }" aria-hidden="true" />
   <main class="aurora-shell" :style="shellStyle">
     <div class="desktop-only">
       <span>AURORA / ORBIT</span>
@@ -2134,7 +2142,7 @@ onBeforeUnmount(() => {
 
       <SolarSystem
         ref="solarSystemRef"
-        v-if="surface === 'solar-system' || solarHomePrewarming"
+        v-if="surface === 'solar-system' || (surface === 'cover' && solarHomePrewarming)"
         :class="{ 'home-entering': solarHomeEntering, 'home-leaving': solarHomeLeaving, 'home-prewarming': surface === 'cover' && solarHomePrewarming }"
         v-model:spacecraft-visible="solarSpacecraftVisible"
         :enter-from-orbit="solarEnterFromOrbit"

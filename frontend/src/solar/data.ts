@@ -155,12 +155,15 @@ export const VIEW = {
   azimuthDeg: -35,
   /** 滚轮缩放近限：可贴近到行星表面之上，仅保留防穿模下限 */
   minDistance: 0.15,
-  /** 默认总览采用更近的沉浸构图，突出行星主体。 */
+  /** 默认总览的最近距离下限；实际距离按视口宽高比自适应。 */
   composeMinDistance: 50,
   composeMaxDistance: 900,
-  /** 视角中心（小行星带）锚定位置：水平居中、垂直略偏上（整体上移） */
-  anchorScreenX: 0.5,
-  anchorScreenY: 0.45,
+  /** 封面进入太阳系时，相机从最终构图外侧 250 个单位开始，形成适度远景推进。 */
+  entryStartOffset: 250,
+  /** 示意排布模式：截图基准构图的水平适配系数与小行星带屏幕锚点。 */
+  alignedFitMargin: 0.544,
+  anchorScreenX: 0.398,
+  anchorScreenY: 0.556,
   /** 真实位置模式：太阳锚定位置（屏幕从上往下比例；0.38 = 太阳偏高、横向居中） */
   realAnchorScreenY: 0.38,
   /** 真实位置模式：水平边距系数（0.75 = 再放大一点点，海王星轨道部分出屏） */
