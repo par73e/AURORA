@@ -1,22 +1,47 @@
 <script setup lang="ts">
-defineProps<{
+const props = withDefaults(defineProps<{
   kind: 'spacecraft' | 'surface'
   nameZh: string
   nameEn?: string
   selected?: boolean
   iconHtml?: string
   compact?: boolean
-}>()
+  mode?: 'full' | 'compact' | 'cluster'
+  clusterCount?: number
+  connector?: boolean
+}>(), {
+  mode: 'full',
+  clusterCount: 1,
+  connector: true,
+})
+
+function isCompact() {
+  return props.compact || props.mode === 'compact'
+}
 </script>
 
 <template>
-  <button class="mission-scene-label" :class="[`is-${kind}`, { selected, 'is-compact': compact }]" type="button">
-    <span v-if="iconHtml" class="mission-scene-label-icon" aria-hidden="true" v-html="iconHtml" />
-    <i v-else class="mission-scene-label-dot" aria-hidden="true" />
-    <span class="mission-scene-label-copy">
-      <strong>{{ nameZh }}</strong>
-      <small v-if="nameEn && nameEn !== nameZh">（{{ nameEn }}）</small>
+  <button
+    class="mission-scene-label"
+    :class="[
+      `is-${kind}`,
+      `is-${mode}`,
+      { selected, 'is-compact': isCompact(), 'has-connector': connector },
+    ]"
+    type="button"
+  >
+    <span v-if="mode === 'cluster'" class="mission-scene-label-cluster" aria-hidden="true">
+      <i /><i /><i />
+      <b>×{{ clusterCount }}</b>
     </span>
+    <template v-else>
+      <span v-if="iconHtml" class="mission-scene-label-icon" aria-hidden="true" v-html="iconHtml" />
+      <i v-else class="mission-scene-label-dot" aria-hidden="true" />
+      <span class="mission-scene-label-copy">
+        <strong>{{ nameZh }}</strong>
+        <small v-if="nameEn && nameEn !== nameZh">（{{ nameEn }}）</small>
+      </span>
+    </template>
   </button>
 </template>
 
@@ -41,7 +66,7 @@ defineProps<{
   backdrop-filter: blur(8px);
   transition: border-color .2s, background .2s, color .2s, opacity .3s;
 }
-.mission-scene-label.is-spacecraft::before {
+.mission-scene-label.has-connector::before {
   content: '';
   position: absolute;
   right: 100%;
@@ -102,7 +127,6 @@ defineProps<{
   background: transparent;
   backdrop-filter: none;
 }
-.mission-scene-label.is-compact::before { display: none; }
 .mission-scene-label.is-compact .mission-scene-label-dot {
   display: none;
 }
@@ -125,6 +149,37 @@ defineProps<{
   border-color: var(--mission-accent, #72d7ff);
   background: var(--mission-label-surface-active, rgba(6, 17, 26, .86));
   backdrop-filter: blur(5px);
+}
+.mission-scene-label.is-cluster {
+  min-width: 42px;
+  min-height: 22px;
+  padding: 3px 5px;
+  border-color: color-mix(in srgb, var(--mission-accent, #72d7ff) 42%, transparent);
+  background: var(--mission-label-surface, rgba(3, 10, 17, .78));
+}
+.mission-scene-label-cluster {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 30px;
+  height: 14px;
+}
+.mission-scene-label-cluster i {
+  position: absolute;
+  left: 1px;
+  width: 7px;
+  height: 7px;
+  border: 1px solid color-mix(in srgb, var(--mission-accent, #72d7ff) 72%, transparent);
+  border-radius: 2px;
+  background: var(--mission-label-surface-active, rgba(6, 17, 26, .9));
+}
+.mission-scene-label-cluster i:nth-child(2) { left: 4px; top: 2px; }
+.mission-scene-label-cluster i:nth-child(3) { left: 7px; top: 4px; }
+.mission-scene-label-cluster b {
+  margin-left: 17px;
+  color: var(--mission-text, #ecf5f9);
+  font: 500 8px/1 var(--font-mono);
+  letter-spacing: .04em;
 }
 @media (prefers-reduced-motion: reduce) {
   .mission-scene-label { transition-duration: .01ms; }

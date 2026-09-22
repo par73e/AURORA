@@ -28,14 +28,15 @@
           :name-zh="craftBilingual.get(label.id)?.primary ?? ''"
           :name-en="craftBilingual.get(label.id)?.secondary"
           :selected="selectedCraft === label.id"
-          :aria-label="`${craftBilingual.get(label.id)?.primary}${craftBilingual.get(label.id)?.secondary ? `（${craftBilingual.get(label.id)?.secondary}）` : ''}`"
+          :mode="label.mode"
+          :cluster-count="label.clusterCount"
+          :aria-label="label.mode === 'cluster' ? `${label.clusterCount} 个相近飞行器` : `${craftBilingual.get(label.id)?.primary}${craftBilingual.get(label.id)?.secondary ? `（${craftBilingual.get(label.id)?.secondary}）` : ''}`"
           @click="selectedCraft = label.id"
           @pointerenter="hoveredCraftId = label.id"
           @pointerleave="hoveredCraftId = null"
         />
 
         <!-- 着陆点标签：图标（宇航员/着陆器/月球车/样本）+ 地点名 + 任务名 -->
-        <SurfaceLeaderLayer v-show="sitesEnabled" :labels="siteLabels" />
         <MissionSceneLabel
           v-for="label in siteLabels"
           v-show="label.visible && sitesEnabled"
@@ -48,7 +49,8 @@
           :name-zh="siteBilingual.get(label.id)?.primary ?? ''"
           :name-en="siteBilingual.get(label.id)?.secondary"
           :selected="selectedSite === label.id"
-          :compact="label.compact"
+          :mode="label.mode"
+          :cluster-count="label.clusterCount"
           :icon-html="siteGlyph(siteById(label.id)?.icon ?? 'lander')"
           :aria-label="`${siteBilingual.get(label.id)?.primary}${siteBilingual.get(label.id)?.secondary ? `（${siteBilingual.get(label.id)?.secondary}）` : ''}`"
           @click="selectSite(label.id)"
@@ -198,11 +200,10 @@ import { CATALOG_PAGE_SIZE } from '../catalog'
 import { usePlanetSceneData } from '../composables/usePlanetSceneData'
 import MissionDetailPanel from './MissionDetailPanel.vue'
 import MissionSceneLabel from './MissionSceneLabel.vue'
-import SurfaceLeaderLayer from './SurfaceLeaderLayer.vue'
 import type { MissionDetail } from '../missionPresentation'
-import { missionMarkerScale, spacecraftFields, spacecraftFocusDistance, surfaceMissionFields } from '../missionPresentation'
-import type { SurfaceAnnotationLayout } from '../surfaceAnnotations'
-import { layoutSurfaceAnnotations, projectedSphereRadiusPx, surfaceMarkerRadiusPx, surfaceMarkerWorldRadius } from '../surfaceAnnotations'
+import { spacecraftFields, spacecraftFocusDistance, surfaceMissionFields } from '../missionPresentation'
+import type { SceneAnnotationLayout, SurfaceAnnotationLayout } from '../surfaceAnnotations'
+import { layoutSceneAnnotations, projectedSphereRadiusPx, orbitMarkerRadiusPx, sceneMarkerWorldRadius, surfaceMarkerRadiusPx, surfaceMarkerWorldRadius } from '../surfaceAnnotations'
 
 const marsProfile = MARS_PAGE.profile
 
@@ -242,7 +243,7 @@ const craftOperatorFilter = ref('all')
 const craftSort = ref('name')
 const craftOperators = computed(() => [...new Set(crafts.value.map((c) => primaryOperator(c.operatorName)))].sort())
 const siteQuery = ref('')
-const craftLabels = ref<Array<{ id: string; x: number; y: number; visible: boolean }>>([])
+const craftLabels = ref<SceneAnnotationLayout[]>([])
 const siteLabels = ref<SurfaceAnnotationLayout[]>([])
 const landingSites = ref<MarsLandingSite[]>([])
 const selectedSite = ref<string | null>(null)
@@ -746,10 +747,12 @@ onMounted(() => {
       const active = runtime.spec.id === (hoveredCraftId.value ?? selectedCraft.value)
       if (dotMat) dotMat.opacity = elementsFadeNow
       if (runtime.line) (runtime.line.material as THREE.LineBasicMaterial).opacity = (active ? 0.95 : 0.55) * elementsFadeNow
-      // 部分透视补偿（远小近大、不过度）：scale = (d/基准)^0.6；高亮时放大 35%
-      // 距离透明度：远处 70% 半透明、放大后实色（与地球统一）；隐藏期不渲染（visible 兜底）
+      // 点与标签共享同一屏幕空间缩放；高亮只改变亮度，不改变几何大小。
       const d = runtime.dot.getWorldPosition(focusTmp).distanceTo(camera.position)
-      runtime.dot.scale.setScalar(missionMarkerScale(d, MARS_MARKER_REF_DISTANCE, active))
+      const viewportHeight = canvasHost.value?.clientHeight ?? 0
+      const currentPlanetRadiusPx = projectedSphereRadiusPx(MARS_RADIUS, camera.position.length(), MARS_FOV, viewportHeight)
+      const referencePlanetRadiusPx = projectedSphereRadiusPx(MARS_RADIUS, MARS_MARKER_REF_DISTANCE, MARS_FOV, viewportHeight)
+      runtime.dot.scale.setScalar(sceneMarkerWorldRadius(d, MARS_FOV, viewportHeight, orbitMarkerRadiusPx(currentPlanetRadiusPx, referencePlanetRadiusPx)))
       if (dotMat) dotMat.opacity = (active ? 1 : distOpacity(d)) * elementsFadeNow
       runtime.dot.visible = spacecraftEnabled.value && elementsFadeNow > 0.001
       if (runtime.line) runtime.line.visible = orbitsEnabled.value && elementsFadeNow > 0.001
@@ -816,13 +819,13 @@ function buildCraft(spec: MarsSpacecraft) {
   // 近点幅角不进 dot.rotation（只旋转球体无意义）：位置角度统一 = 真近点角 + argp（见 animate 循环）
   plane.add(dot)
   const dotMesh = new THREE.Mesh(
-    new THREE.SphereGeometry(spec.kind === 'stationary' ? 0.045 : 0.04, 16, 16),
+    new THREE.SphereGeometry(1, 16, 16),
     // transparent 必须为 true：否则分阶段揭示的 opacity=0 被忽略，圆点提前出现
     new THREE.MeshBasicMaterial({ color: spec.kind === 'stationary' ? 0xffd9a0 : 0xffb27d, transparent: true }),
   )
   dot.add(dotMesh)
   const hitSphere = new THREE.Mesh(
-    new THREE.SphereGeometry(0.22, 8, 8),
+    new THREE.SphereGeometry(5.5, 8, 8),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
   )
   hitSphere.userData.craftId = spec.id
@@ -979,13 +982,18 @@ const siteGotoPage = (delta: number) => {
 watch([craftQuery, craftOperatorFilter, craftSort], () => { craftPage.value = 1 })
 watch(siteQuery, () => { sitePage.value = 1 })
 
-/** 着陆点标签只负责排版位置；引线由独立 SVG 层连接真实表面锚点。 */
-function siteLabelStyle(label: SurfaceAnnotationLayout) {
+/** 所有标签都以圆点为唯一锚点；固定短线与标签一起缩放。 */
+function annotationLabelStyle(label: SceneAnnotationLayout) {
   return {
-    transform: `translate3d(${label.x}px, ${label.y}px, 0) scale(${label.scale})`,
-    transformOrigin: label.side === 'right' ? 'left center' : 'right center',
+    left: `${label.x}px`,
+    top: `${label.y}px`,
+    transform: `translateY(-50%) scale(${label.scale})`,
+    transformOrigin: 'left center',
   }
 }
+
+const siteLabelStyle = annotationLabelStyle
+const craftLabelStyle = annotationLabelStyle
 
 /** 着陆点圆点按火星屏幕半径统一换算为目标像素尺寸。 */
 function updateSiteMarkerProximity() {
@@ -1228,7 +1236,7 @@ function updateLabels() {
   const height = host.clientHeight
   if (width === 0 || height === 0) return
   const tmp = new THREE.Vector3()
-  const next: Array<{ id: string; x: number; y: number; visible: boolean }> = []
+  const next: Array<{ id: string; anchorX: number; anchorY: number; visible: boolean; selected: boolean; hovered: boolean }> = []
   for (const runtime of craftRuntimes) {
     const world = runtime.dot.getWorldPosition(tmp)
     // 先算遮挡（世界坐标），再投影（project 会原地改写向量）
@@ -1239,12 +1247,21 @@ function updateLabels() {
     runtime.dot.visible = spacecraftEnabled.value && !occluded && elementsFade > 0.001
     next.push({
       id: runtime.spec.id,
-      x: (p.x * 0.5 + 0.5) * width,
-      y: (-p.y * 0.5 + 0.5) * height,
+      anchorX: (p.x * 0.5 + 0.5) * width,
+      anchorY: (-p.y * 0.5 + 0.5) * height,
       visible: p.z > -1 && p.z < 1 && !occluded,
+      selected: selectedCraft.value === runtime.spec.id,
+      hovered: hoveredCraftId.value === runtime.spec.id,
     })
   }
-  craftLabels.value = next
+
+  const annotationViewport = {
+    width,
+    height,
+    currentPlanetRadiusPx: projectedSphereRadiusPx(MARS_RADIUS, camera.position.length(), MARS_FOV, height),
+    referencePlanetRadiusPx: projectedSphereRadiusPx(MARS_RADIUS, MARS_MARKER_REF_DISTANCE, MARS_FOV, height),
+  }
+  craftLabels.value = layoutSceneAnnotations(next, annotationViewport, craftLabels.value)
 
   // 着陆点标签：背面隐藏（圆点本体由材质深度测试自然遮挡）
   const siteNext: Array<{ id: string; anchorX: number; anchorY: number; visible: boolean; selected: boolean }> = []
@@ -1263,17 +1280,7 @@ function updateLabels() {
       selected: selectedSite.value === site.id,
     })
   }
-  siteLabels.value = layoutSurfaceAnnotations(siteNext, {
-    width,
-    height,
-    currentPlanetRadiusPx: projectedSphereRadiusPx(MARS_RADIUS, camera.position.length(), MARS_FOV, height),
-    referencePlanetRadiusPx: projectedSphereRadiusPx(MARS_RADIUS, MARS_MARKER_REF_DISTANCE, MARS_FOV, height),
-  })
-}
-
-function craftLabelStyle(label: { id: string; x: number; y: number }) {
-  // 标签垂直中心与圆点对齐（标签高约 28px，上移一半）
-  return { transform: `translate(${label.x + 10}px, ${label.y - 14}px)` }
+  siteLabels.value = layoutSceneAnnotations(siteNext, annotationViewport, siteLabels.value)
 }
 
 onBeforeUnmount(() => {

@@ -7,11 +7,10 @@ import { EARTH_DAY_TEXTURE_URL, EARTH_NIGHT_TEXTURE_URL, EARTH_RADIUS, latLonToV
 import { bilingualName } from '../bilingual'
 import MissionDetailPanel from './MissionDetailPanel.vue'
 import MissionSceneLabel from './MissionSceneLabel.vue'
-import SurfaceLeaderLayer from './SurfaceLeaderLayer.vue'
 import type { MissionDetail } from '../missionPresentation'
-import { missionMarkerScale, spacecraftFields } from '../missionPresentation'
-import type { SurfaceAnnotationLayout } from '../surfaceAnnotations'
-import { layoutSurfaceAnnotations, projectedSphereRadiusPx, surfaceMarkerRadiusPx, surfaceMarkerWorldRadius } from '../surfaceAnnotations'
+import { spacecraftFields } from '../missionPresentation'
+import type { SceneAnnotationLayout, SurfaceAnnotationLayout } from '../surfaceAnnotations'
+import { layoutSceneAnnotations, projectedSphereRadiusPx, orbitMarkerRadiusPx, sceneMarkerWorldRadius, surfaceMarkerRadiusPx, surfaceMarkerWorldRadius } from '../surfaceAnnotations'
 
 const EARTH_AXIAL_TILT_DEGREES = 23.44
 /** 地球入场自转（先做地球，月球后续再说）：
@@ -69,12 +68,9 @@ function emitTexturesReady() {
 }
 
 const canvasHost = ref<HTMLDivElement | null>(null)
-const labels = ref<Array<{ id: string; kind: 'spacecraft' | 'site'; name: string; x: number; y: number; visible: boolean }>>([])
+const labels = ref<Array<SceneAnnotationLayout & { kind: 'spacecraft'; name: string }>>([])
 const siteLabels = ref<Array<SurfaceAnnotationLayout & { name: string }>>([])
 const observerLabel = ref<(SurfaceAnnotationLayout & { name: string }) | null>(null)
-const surfaceLabels = computed<SurfaceAnnotationLayout[]>(() => observerLabel.value
-  ? [...siteLabels.value, observerLabel.value]
-  : siteLabels.value)
 /** 入场渐亮：进入边界（revealTick 递增）时置 true，0.2s 过渡；直接加载默认已亮 */
 const sceneRevealed = ref(!props.revealTick)
 /** 分阶段揭示是否已排程（revealTick 递增时才启动——与月球同基准：渐亮开始时计时） */
@@ -281,7 +277,6 @@ const labelProjTmp = new THREE.Vector3()
 const labelWorldTmp = new THREE.Vector3()
 const labelAuxTmp = new THREE.Vector3()
 const labelCamTmp = new THREE.Vector3()
-const labelById = new Map<string, { id: string; kind: 'spacecraft' | 'site'; name: string; x: number; y: number; visible: boolean }>()
 // 标记 scale/opacity 状态缓存：仅变化时写 THREE（滚动目录时相机静止 → 零写入）
 const markerStates = new Map<string, { scale: number; opacity: number }>()
 const earthOcclusionSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), EARTH_RADIUS * 1.004)
@@ -487,7 +482,7 @@ function rebuildDataLayers() {
     if (!point) continue
     const key = `spacecraft:${craft.id}`
     const marker = new THREE.Mesh(
-      new THREE.SphereGeometry(0.046, 16, 16),
+      new THREE.SphereGeometry(1, 16, 16),
       markerMaterial(0x72d7ff, false),
     )
     marker.position.copy(point.position)
@@ -497,7 +492,7 @@ function rebuildDataLayers() {
 
     // 不可见放大命中球（标记子节点，继承位置/缩放）：悬停预览的宽容目标，视觉不渲染
     const hit = new THREE.Mesh(
-      new THREE.SphereGeometry(0.15, 8, 8),
+      new THREE.SphereGeometry(3.4, 8, 8),
       new THREE.MeshBasicMaterial({ visible: false }),
     )
     hit.userData = { kind: 'spacecraft', id: craft.id }
@@ -622,57 +617,33 @@ function isOccludedByEarth(position: THREE.Vector3) {
 
 function updateLabels() {
   if (!camera || !canvasHost) return
+  const cam = camera
   const width = canvasHost.value?.clientWidth ?? 0
   const height = canvasHost.value?.clientHeight ?? 0
-  const seen = new Set<string>()
-
-  // 原地更新（不整数组替换）：位置/可见性未变化（<0.5px）的标签不写任何属性，
-  // Vue 对未变节点零 diff——滚动目录时相机静止，全部标签静止 → 每帧零 DOM 写。
-  const upsert = (
-    kind: 'spacecraft' | 'site',
-    id: string,
-    name: string,
-    x: number,
-    y: number,
-    visible: boolean,
-  ) => {
-    const key = `${kind}:${id}`
-    seen.add(key)
-    const entry = labelById.get(key)
-    if (!entry) {
-      const created = { id, kind, name, x, y, visible }
-      labels.value.push(created)
-      // 缓存 push 后的响应式代理（不是原始对象）——原地改属性必须走代理才会触发 Vue 重渲染
-      labelById.set(key, labels.value[labels.value.length - 1])
-      return
-    }
-    if (
-      entry.name !== name ||
-      Math.abs(entry.x - x) > 0.5 ||
-      Math.abs(entry.y - y) > 0.5 ||
-      entry.visible !== visible
-    ) {
-      entry.name = name
-      entry.x = x
-      entry.y = y
-      entry.visible = visible
-    }
+  const annotationViewport = {
+    width,
+    height,
+    currentPlanetRadiusPx: projectedSphereRadiusPx(EARTH_RADIUS, cam.position.length(), 42, height),
+    referencePlanetRadiusPx: projectedSphereRadiusPx(EARTH_RADIUS, 7.6, 42, height),
   }
 
-  for (const craft of props.spacecraft) {
+  const projectedCrafts = props.spacecraft.flatMap((craft) => {
     const marker = markerObjects.get(`spacecraft:${craft.id}`)
-    if (!marker || !props.layers.spacecraft) continue
+    if (!marker || !props.layers.spacecraft) return []
     const position = marker.getWorldPosition(labelWorldTmp)
-    labelProjTmp.copy(position).project(camera)
-    upsert(
-      'spacecraft',
-      craft.id,
-      craft.nameZh,
-      (labelProjTmp.x * 0.5 + 0.5) * width,
-      (-labelProjTmp.y * 0.5 + 0.5) * height,
-      labelProjTmp.z > -1 && labelProjTmp.z < 1 && !isOccludedByEarth(position),
-    )
-  }
+    labelProjTmp.copy(position).project(cam)
+    return [{
+      id: craft.id,
+      kind: 'spacecraft' as const,
+      name: craft.nameZh,
+      anchorX: (labelProjTmp.x * 0.5 + 0.5) * width,
+      anchorY: (-labelProjTmp.y * 0.5 + 0.5) * height,
+      visible: labelProjTmp.z > -1 && labelProjTmp.z < 1 && !isOccludedByEarth(position),
+      selected: activeKey.value === `spacecraft:${craft.id}`,
+      hovered: hoveredSpacecraftId.value === craft.id,
+    }]
+  })
+  labels.value = layoutSceneAnnotations(projectedCrafts, annotationViewport, labels.value)
 
   const projectedSites: Array<{ id: string; name: string; anchorX: number; anchorY: number; visible: boolean; selected: boolean }> = []
   for (const site of props.sites) {
@@ -719,19 +690,18 @@ function updateLabels() {
       inactive: props.observerActive === false,
     })
   }
-  const surfaceLayouts = layoutSurfaceAnnotations(projectedSurfaces, {
-    width,
-    height,
-    currentPlanetRadiusPx: projectedSphereRadiusPx(EARTH_RADIUS, camera.position.length(), 42, height),
-    referencePlanetRadiusPx: projectedSphereRadiusPx(EARTH_RADIUS, 7.6, 42, height),
-  })
+  const previousSurfaces = observerLabel.value ? [...siteLabels.value, observerLabel.value] : siteLabels.value
+  const surfaceLayouts = layoutSceneAnnotations(projectedSurfaces, annotationViewport, previousSurfaces)
   siteLabels.value = surfaceLayouts.filter((label) => label.kind === 'site')
   observerLabel.value = surfaceLayouts.find((label) => label.kind === 'observer') ?? null
-  // 图层关闭等导致条目收缩时移除多余标签（并重建索引）
-  if (labels.value.length !== seen.size) {
-    labels.value = labels.value.filter((l) => seen.has(`${l.kind}:${l.id}`))
-    labelById.clear()
-    for (const l of labels.value) labelById.set(`${l.kind}:${l.id}`, l)
+}
+
+function annotationLabelStyle(label: SceneAnnotationLayout) {
+  return {
+    left: `${label.x}px`,
+    top: `${label.y}px`,
+    transform: `translateY(-50%) scale(${label.scale})`,
+    transformOrigin: 'left center',
   }
 }
 
@@ -1166,9 +1136,7 @@ function animate(time = 0) {
     updateSun(new Date())
     lastSunUpdate = time
   }
-  // 标记点（航天器/发射场/坐标点）：部分透视补偿 scale=(d/基准)^0.6（远小近大不过度）
-  // ＋ 距离透明度：远处 70% 半透明、放大后渐变为实色（地球/月球统一视觉）
-  // ＋ 揭示淡入（elementsFadeNow：隐藏期 0 → 淡入 → 1），退出淡出同源
+  // 点、短线和标签共享同一屏幕空间缩放；选中只点亮，不改变点的几何大小。
   if (camera) {
     const refDistance = 7.6 // 默认视角相机距离（scale = 1 的基准）
     const minDistance = 3.0 // 最近（放大极限）——此处距离透明度为 1（实色）
@@ -1180,9 +1148,13 @@ function animate(time = 0) {
     for (const [key, marker] of markerObjects) {
       const d = marker.getWorldPosition(markerScaleTmp).distanceTo(camera.position)
       const isActive = activeKey.value === key
-      // 飞行器继续沿用轨道标记逻辑；地表坐标统一按行星屏幕半径换算为目标像素尺寸。
       const scale = key.startsWith('spacecraft:')
-        ? missionMarkerScale(d, refDistance, isActive)
+        ? sceneMarkerWorldRadius(
+            d,
+            42,
+            viewportHeight,
+            orbitMarkerRadiusPx(currentPlanetRadiusPx, referencePlanetRadiusPx),
+          )
         : surfaceMarkerWorldRadius(
             d,
             42,
@@ -1302,13 +1274,14 @@ onBeforeUnmount(() => {
         :name-zh="bName(props.spacecraft.find((item) => item.id === label.id)?.nameZh ?? label.name, props.spacecraft.find((item) => item.id === label.id)?.nameEn ?? '').primary"
         :name-en="bName(props.spacecraft.find((item) => item.id === label.id)?.nameZh ?? label.name, props.spacecraft.find((item) => item.id === label.id)?.nameEn ?? '').secondary"
         :selected="activeKey === `${label.kind}:${label.id}`"
-        :style="{ transform: `translate(${label.x + 14}px, ${label.y - 11}px)` }"
+        :mode="label.mode"
+        :cluster-count="label.clusterCount"
+        :style="annotationLabelStyle(label)"
         @pointerenter="onLabelEnter(label)"
         @pointerleave="onLabelLeave(label)"
         @click="localSelection = { kind: label.kind, id: label.id }; emit('select', { kind: label.kind, id: label.id })"
       />
     </template>
-    <SurfaceLeaderLayer v-show="elementsShown" :labels="surfaceLabels" />
     <MissionSceneLabel
       v-for="label in siteLabels"
       v-show="label.visible && props.layers.sites && elementsShown"
@@ -1318,19 +1291,25 @@ onBeforeUnmount(() => {
       :name-zh="bName(props.sites.find((item) => item.id === label.id)?.nameZh ?? label.name, props.sites.find((item) => item.id === label.id)?.nameEn ?? '').primary"
       :name-en="bName(props.sites.find((item) => item.id === label.id)?.nameZh ?? label.name, props.sites.find((item) => item.id === label.id)?.nameEn ?? '').secondary"
       :selected="activeKey === `site:${label.id}`"
-      :compact="label.compact"
-      :style="{ transform: `translate3d(${label.x}px, ${label.y}px, 0) scale(${label.scale})`, transformOrigin: label.side === 'right' ? 'left center' : 'right center' }"
+      :mode="label.mode"
+      :cluster-count="label.clusterCount"
+      :style="annotationLabelStyle(label)"
       @click="localSelection = { kind: 'site', id: label.id }; emit('select', { kind: 'site', id: label.id })"
     />
-    <div
+    <MissionSceneLabel
       v-if="observerLabel"
       v-show="observerLabel.visible && elementsShown"
       class="scene-observer-label"
-      :class="{ inactive: props.observerActive === false, compact: observerLabel.compact }"
-      :style="{ transform: `translate3d(${observerLabel.x}px, ${observerLabel.y}px, 0) scale(${observerLabel.scale})`, transformOrigin: observerLabel.side === 'right' ? 'left center' : 'right center' }"
-    >
-      <i />{{ observerLabel.name }}
-    </div>
+      :class="{ inactive: props.observerActive === false }"
+      kind="surface"
+      :name-zh="observerLabel.name"
+      :selected="props.observerActive !== false"
+      :mode="observerLabel.mode"
+      :cluster-count="observerLabel.clusterCount"
+      :style="annotationLabelStyle(observerLabel)"
+      :tabindex="-1"
+      aria-disabled="true"
+    />
     <div v-if="textureState === 'fallback'" class="texture-warning">地表影像未加载，已切换基础材质</div>
 
     <!-- 信息面板（组件内渲染，本地 selection 驱动——参照月球架构，不依赖 App 全局渲染） -->
@@ -1437,12 +1416,8 @@ onBeforeUnmount(() => {
 .scene-label:hover { color: #dce9f0; border-color: rgba(124, 184, 216, .4); background: rgba(5, 14, 22, .8); }
 .scene-label.selected { color: #e8f4fb; border-color: rgba(114, 215, 255, .5); background: rgba(6, 17, 26, .82); }
 .scene-label.selected i { box-shadow: 0 0 8px #72d7ff; }
-.scene-observer-label { position: absolute; left: 0; top: 0; z-index: 5; display: flex; align-items: center; gap: 7px; padding: 5px 8px; border: 1px solid rgba(121, 227, 189, .34); background: rgba(3, 10, 17, .78); color: #c7eee1; font: 500 10px/1.2 var(--font-sans); white-space: nowrap; pointer-events: none; backdrop-filter: blur(8px); }
-.scene-observer-label i { width: 5px; height: 5px; border-radius: 50%; background: #79e3bd; box-shadow: 0 0 8px rgba(121, 227, 189, .65); }
+.scene-observer-label { --mission-accent: #79e3bd; --mission-accent-dim: rgba(121, 227, 189, .4); --mission-line: rgba(121, 227, 189, .34); --mission-text: #c7eee1; pointer-events: none; }
 .scene-observer-label.inactive { opacity: .34; }
-.scene-observer-label.inactive i { box-shadow: none; }
-.scene-observer-label.compact { gap: 4px; min-height: 18px; max-width: 112px; padding: 2px 4px; border-color: transparent; background: transparent; backdrop-filter: none; overflow: hidden; text-overflow: ellipsis; }
-.scene-observer-label.compact i { display: none; }
 .texture-warning { position: absolute; z-index: 4; top: 82px; left: 50%; transform: translateX(-50%); color: #e6b985; font: 11px var(--font-mono); }
 @media (prefers-reduced-motion: reduce) {
   .scene-host.revealed.leaving-body { transition: opacity .1s linear .04s; }

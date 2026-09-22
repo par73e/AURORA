@@ -23,14 +23,15 @@
           :name-zh="label.name"
           :name-en="label.nameEn"
           :selected="selectedCraft === label.id"
-          :aria-label="`${label.name}${label.nameEn !== label.name ? `（${label.nameEn}）` : ''}`"
+          :mode="label.mode"
+          :cluster-count="label.clusterCount"
+          :aria-label="label.mode === 'cluster' ? `${label.clusterCount} 个相近飞行器` : `${label.name}${label.nameEn !== label.name ? `（${label.nameEn}）` : ''}`"
           @pointerenter="hoveredCraft = label.id"
           @pointerleave="hoveredCraft = null"
           @click.stop="selectCraft(label.id)"
         />
 
         <!-- 足迹标签：有坐标且在行星前半球才出现，背面由球体遮挡 -->
-        <SurfaceLeaderLayer v-show="sitesEnabled" :labels="siteLabels" />
         <MissionSceneLabel
           v-for="label in siteLabels"
           :key="label.id"
@@ -43,7 +44,8 @@
           :name-zh="label.name"
           :name-en="label.nameEn"
           :selected="selectedSite === label.id"
-          :compact="label.compact"
+          :mode="label.mode"
+          :cluster-count="label.clusterCount"
           :icon-html="siteGlyph(label.icon)"
           :aria-label="`${label.name}${label.nameEn !== label.name ? `（${label.nameEn}）` : ''}${planet.exploration?.title === '任务终点' ? '，任务终点' : ''}`"
           @click.stop="selectSite(label.id)"
@@ -193,11 +195,10 @@ import { solarTexture } from '../solar/textures'
 import type { PlanetCraft, PlanetCraftTrajectory, PlanetCraftTrajectoryKind, PlanetPageConfig } from '../planetPages'
 import MissionDetailPanel from './MissionDetailPanel.vue'
 import MissionSceneLabel from './MissionSceneLabel.vue'
-import SurfaceLeaderLayer from './SurfaceLeaderLayer.vue'
 import type { MissionDetail } from '../missionPresentation'
-import { ENDPOINT_SCENE_NOTE, missionMarkerScale, spacecraftFields, spacecraftFocusDistance, surfaceFocusDistance, surfaceMissionFields } from '../missionPresentation'
-import type { SurfaceAnnotationLayout } from '../surfaceAnnotations'
-import { layoutSurfaceAnnotations, projectedSphereRadiusPx, surfaceMarkerRadiusPx, surfaceMarkerWorldRadius } from '../surfaceAnnotations'
+import { ENDPOINT_SCENE_NOTE, spacecraftFields, spacecraftFocusDistance, surfaceFocusDistance, surfaceMissionFields } from '../missionPresentation'
+import type { SceneAnnotationLayout, SurfaceAnnotationLayout } from '../surfaceAnnotations'
+import { layoutSceneAnnotations, projectedSphereRadiusPx, orbitMarkerRadiusPx, sceneMarkerWorldRadius, surfaceMarkerRadiusPx, surfaceMarkerWorldRadius } from '../surfaceAnnotations'
 
 const props = defineProps<{ planet: PlanetPageConfig; spacecraftVisible?: boolean; revealTick?: number; enterFromSolar?: boolean; leaving?: boolean; headerExpanded?: boolean }>()
 const emit = defineEmits<{
@@ -297,7 +298,7 @@ function craftGotoPage(delta: number) {
 const markerSites = computed(() => props.planet.exploration?.sites.filter((s) => s.latitude != null && s.longitude != null) ?? [])
 /** 标签 overlay 数据（含屏幕投影坐标，rAF 更新） */
 type OverlayLabel = SurfaceAnnotationLayout & { name: string; nameEn: string; mission: string; type: string; icon: 'lander' | 'probe' | 'impact' }
-type CraftOverlayLabel = { id: string; name: string; nameEn: string; type: string; x: number; y: number; visible: boolean }
+type CraftOverlayLabel = SceneAnnotationLayout & { name: string; nameEn: string; type: string }
 const siteLabels = ref<OverlayLabel[]>([])
 const craftLabels = ref<CraftOverlayLabel[]>([])
 
@@ -423,20 +424,19 @@ function siteGlyph(icon: 'lander' | 'probe' | 'impact') {
   }
 }
 
-/** 标签样式：屏幕坐标定位（标签紧贴标记右侧 10px、垂直居中于圆点）。
- *  用纯数字拼接而非 calc()——Chrome 会把 translate(calc(xpx + 10px), ...)
- *  序列化成 calc(xpx)（+10px 被丢弃），导致标签落到圆点正上方而非右侧。 */
-function labelStyle(label: { x: number; y: number; visible: boolean }) {
-  return { display: label.visible ? '' : 'none', transform: `translate(${label.x + 10}px, ${label.y - 14}px)` }
-}
-
-function surfaceLabelStyle(label: SurfaceAnnotationLayout) {
+/** 标签紧贴圆点右侧，固定短线与标签使用相同的缩放原点。 */
+function annotationLabelStyle(label: SceneAnnotationLayout) {
   return {
     display: label.visible ? '' : 'none',
-    transform: `translate3d(${label.x}px, ${label.y}px, 0) scale(${label.scale})`,
-    transformOrigin: label.side === 'right' ? 'left center' : 'right center',
+    left: `${label.x}px`,
+    top: `${label.y}px`,
+    transform: `translateY(-50%) scale(${label.scale})`,
+    transformOrigin: 'left center',
   }
 }
+
+const labelStyle = annotationLabelStyle
+const surfaceLabelStyle = annotationLabelStyle
 
 /** 场景中的表面航天器：切换选择，避免重复点击仍强制启动一次运镜。 */
 function selectSite(id: string) {
@@ -864,7 +864,7 @@ onMounted(() => {
     line.userData = { kind: 'planet-trajectory', craftId: craft.id }
     swingPivot.add(line)
     const dot = new THREE.Mesh(
-      new THREE.SphereGeometry(Math.max(0.045, props.planet.radius * 0.018), 12, 12),
+      new THREE.SphereGeometry(1, 12, 12),
       new THREE.MeshBasicMaterial({
         color: props.planet.star ? 0xfff0c2 : (craft.status === '运行中' ? props.planet.sceneAccent : 0xd7e4ea),
         transparent: true,
@@ -884,7 +884,7 @@ onMounted(() => {
     dot.position.copy(path[Math.min(path.length - 1, Math.floor(path.length * displayProgress))])
     // 视觉圆点保持克制；透明拾取球沿用月球/火星，确保鼠标命中不依赖像素级精度。
     const hit = new THREE.Mesh(
-      new THREE.SphereGeometry(Math.max(0.16, props.planet.radius * 0.07), 10, 10),
+      new THREE.SphereGeometry(4, 10, 10),
       new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
     )
     hit.userData = { kind: 'planet-craft-hit', craftId: craft.id }
@@ -998,12 +998,12 @@ onMounted(() => {
       .filter((l): l is NonNullable<typeof l> => l !== null)
     const currentPlanetRadiusPx = projectedSphereRadiusPx(props.planet.radius, cam.position.length(), FOV, bounds.height)
     const referencePlanetRadiusPx = projectedSphereRadiusPx(props.planet.radius, props.planet.defaultDistance, FOV, bounds.height)
-    siteLabels.value = layoutSurfaceAnnotations(rawLabels, {
+    siteLabels.value = layoutSceneAnnotations(rawLabels, {
       width: bounds.width,
       height: bounds.height,
       currentPlanetRadiusPx,
       referencePlanetRadiusPx,
-    })
+    }, siteLabels.value)
   }
   const updateCraftLabels = () => {
     if (!renderer || !camera || !spacecraftEnabled.value) {
@@ -1012,26 +1012,33 @@ onMounted(() => {
     }
     const cam = camera
     const bounds = renderer.domElement.getBoundingClientRect()
-    craftLabels.value = Array.from(craftRuntimes.values()).map((runtime) => {
+    const rawLabels = Array.from(craftRuntimes.values()).map((runtime) => {
       runtime.dot.getWorldPosition(labelTmp)
       // 太阳页与圆点采用同一 HUD 语义，标签不被自发光球体吞掉；其他行星继续做球体遮挡判断。
       const notOccluded = props.planet.star || isNotOccluded(labelTmp)
       labelTmp.project(cam)
-      const x = bounds.left + (labelTmp.x * 0.5 + 0.5) * bounds.width
-      const y = bounds.top + (-labelTmp.y * 0.5 + 0.5) * bounds.height
-      // 轨迹可以延伸出画面，但可交互标签必须完整落在场景安全区内。
-      const insideSafeArea = x >= bounds.left + 16 && x <= bounds.right - 170 && y >= bounds.top + 24 && y <= bounds.bottom - 36
-      const visible = labelTmp.z <= 1 && notOccluded && insideSafeArea
+      const anchorX = (labelTmp.x * 0.5 + 0.5) * bounds.width
+      const anchorY = (-labelTmp.y * 0.5 + 0.5) * bounds.height
       return {
         id: runtime.spec.id,
         name: runtime.spec.name,
         nameEn: runtime.spec.nameEn,
         type: runtime.spec.status === '运行中' ? '运行中' : runtime.spec.type,
-        x,
-        y,
-        visible,
+        anchorX,
+        anchorY,
+        visible: labelTmp.z <= 1 && notOccluded,
+        selected: selectedCraft.value === runtime.spec.id,
+        hovered: hoveredCraft.value === runtime.spec.id,
       }
     })
+    const currentPlanetRadiusPx = projectedSphereRadiusPx(props.planet.radius, cam.position.length(), FOV, bounds.height)
+    const referencePlanetRadiusPx = projectedSphereRadiusPx(props.planet.radius, props.planet.defaultDistance, FOV, bounds.height)
+    craftLabels.value = layoutSceneAnnotations(rawLabels, {
+      width: bounds.width,
+      height: bounds.height,
+      currentPlanetRadiusPx,
+      referencePlanetRadiusPx,
+    }, craftLabels.value)
   }
 
   // 光照：行星用固定环境光 + 太阳方向光 + 跟随相机的观测光（360° 全亮，无晨昏线）；
@@ -1119,6 +1126,9 @@ onMounted(() => {
       }
     }
 
+    const markerViewportHeight = renderer.domElement.clientHeight
+    const currentPlanetRadiusPx = projectedSphereRadiusPx(props.planet.radius, camera.position.length(), FOV, markerViewportHeight)
+    const referencePlanetRadiusPx = projectedSphereRadiusPx(props.planet.radius, props.planet.defaultDistance, FOV, markerViewportHeight)
     for (const runtime of craftRuntimes.values()) {
       const trajectory = runtime.spec.trajectory
       if (!trajectory) continue
@@ -1136,7 +1146,12 @@ onMounted(() => {
       }
       const activeId = hoveredCraft.value ?? selectedCraft.value
       const world = runtime.dot.getWorldPosition(focusTmp4)
-      runtime.dot.scale.setScalar(missionMarkerScale(world.distanceTo(camera.position), props.planet.defaultDistance, activeId === runtime.spec.id))
+      runtime.dot.scale.setScalar(sceneMarkerWorldRadius(
+        world.distanceTo(camera.position),
+        FOV,
+        markerViewportHeight,
+        orbitMarkerRadiusPx(currentPlanetRadiusPx, referencePlanetRadiusPx),
+      ))
       const dotMat = runtime.dot.material as THREE.MeshBasicMaterial
       dotMat.opacity = 0.96 * elementsOpacity
       const lineMat = runtime.line?.material as THREE.LineBasicMaterial | undefined
@@ -1145,9 +1160,6 @@ onMounted(() => {
       if (runtime.line) runtime.line.visible = orbitsEnabled.value && elementsOpacity > 0.001
     }
 
-    const markerViewportHeight = renderer.domElement.clientHeight
-    const currentPlanetRadiusPx = projectedSphereRadiusPx(props.planet.radius, camera.position.length(), FOV, markerViewportHeight)
-    const referencePlanetRadiusPx = projectedSphereRadiusPx(props.planet.radius, props.planet.defaultDistance, FOV, markerViewportHeight)
     for (const [id, marker] of siteMarkers) {
       const world = marker.getWorldPosition(focusTmp4)
       const markerRadiusPx = surfaceMarkerRadiusPx(currentPlanetRadiusPx, referencePlanetRadiusPx, selectedSite.value === id)

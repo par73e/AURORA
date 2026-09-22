@@ -484,6 +484,7 @@ defineExpose({ resetView })
         :style="planetLabelStyle(label)"
         kind="spacecraft"
         compact
+        :connector="false"
         :name-zh="probeBilingual.get(label.id)?.primary ?? ''"
         :name-en="probeBilingual.get(label.id)?.secondary"
         :selected="selectedProbe?.id === label.id"
