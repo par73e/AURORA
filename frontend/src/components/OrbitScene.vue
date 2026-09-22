@@ -7,8 +7,11 @@ import { EARTH_DAY_TEXTURE_URL, EARTH_NIGHT_TEXTURE_URL, EARTH_RADIUS, latLonToV
 import { bilingualName } from '../bilingual'
 import MissionDetailPanel from './MissionDetailPanel.vue'
 import MissionSceneLabel from './MissionSceneLabel.vue'
+import SurfaceLeaderLayer from './SurfaceLeaderLayer.vue'
 import type { MissionDetail } from '../missionPresentation'
 import { missionMarkerScale, spacecraftFields } from '../missionPresentation'
+import type { SurfaceAnnotationLayout } from '../surfaceAnnotations'
+import { layoutSurfaceAnnotations, projectedSphereRadiusPx, surfaceMarkerRadiusPx, surfaceMarkerWorldRadius } from '../surfaceAnnotations'
 
 const EARTH_AXIAL_TILT_DEGREES = 23.44
 /** 地球入场自转（先做地球，月球后续再说）：
@@ -67,6 +70,7 @@ function emitTexturesReady() {
 
 const canvasHost = ref<HTMLDivElement | null>(null)
 const labels = ref<Array<{ id: string; kind: 'spacecraft' | 'site'; name: string; x: number; y: number; visible: boolean }>>([])
+const siteLabels = ref<Array<SurfaceAnnotationLayout & { name: string }>>([])
 const observerLabel = ref<{ name: string; x: number; y: number; visible: boolean } | null>(null)
 /** 入场渐亮：进入边界（revealTick 递增）时置 true，0.2s 过渡；直接加载默认已亮 */
 const sceneRevealed = ref(!props.revealTick)
@@ -514,16 +518,22 @@ function rebuildDataLayers() {
 
   for (const site of props.sites) {
     const key = `site:${site.id}`
-    const position = latLonToVector(site.latitude, site.longitude, EARTH_RADIUS * 1.006)
+    const position = latLonToVector(site.latitude, site.longitude, EARTH_RADIUS)
     const marker = new THREE.Mesh(
-      new THREE.ConeGeometry(0.042, 0.145, 8),
+      new THREE.SphereGeometry(1, 12, 12),
       markerMaterial(0xffb866, false),
     )
     marker.position.copy(position)
-    marker.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), position.clone().normalize())
     marker.userData = { kind: 'site', id: site.id }
+    const hit = new THREE.Mesh(
+      new THREE.SphereGeometry(3.4, 8, 8),
+      new THREE.MeshBasicMaterial({ visible: false }),
+    )
+    hit.userData = { kind: 'site', id: site.id }
+    marker.add(hit)
     siteGroup.add(marker)
     markerObjects.set(key, marker)
+    hoverTargets.set(key, hit)
   }
 
   spacecraftGroup.visible = props.layers.spacecraft
@@ -661,6 +671,7 @@ function updateLabels() {
     )
   }
 
+  const projectedSites: Array<{ id: string; name: string; anchorX: number; anchorY: number; visible: boolean; selected: boolean }> = []
   for (const site of props.sites) {
     const marker = markerObjects.get(`site:${site.id}`)
     if (!marker || !props.layers.sites) continue
@@ -668,15 +679,21 @@ function updateLabels() {
     labelProjTmp.copy(position).project(camera)
     const outward = labelAuxTmp.copy(position).normalize()
     const towardCamera = labelCamTmp.copy(camera.position).sub(position).normalize()
-    upsert(
-      'site',
-      site.id,
-      site.nameZh,
-      (labelProjTmp.x * 0.5 + 0.5) * width,
-      (-labelProjTmp.y * 0.5 + 0.5) * height,
-      labelProjTmp.z > -1 && labelProjTmp.z < 1 && outward.dot(towardCamera) > -0.05 && !isOccludedByEarth(position),
-    )
+    projectedSites.push({
+      id: site.id,
+      name: site.nameZh,
+      anchorX: (labelProjTmp.x * 0.5 + 0.5) * width,
+      anchorY: (-labelProjTmp.y * 0.5 + 0.5) * height,
+      visible: labelProjTmp.z > -1 && labelProjTmp.z < 1 && outward.dot(towardCamera) > -0.05 && !isOccludedByEarth(position),
+      selected: activeKey.value === `site:${site.id}`,
+    })
   }
+  siteLabels.value = layoutSurfaceAnnotations(projectedSites, {
+    width,
+    height,
+    currentPlanetRadiusPx: projectedSphereRadiusPx(EARTH_RADIUS, camera.position.length(), 42, height),
+    referencePlanetRadiusPx: projectedSphereRadiusPx(EARTH_RADIUS, 7.6, 42, height),
+  })
   if (observerMarker && props.observerTarget) {
     const position = observerMarker.getWorldPosition(labelWorldTmp)
     labelProjTmp.copy(position).project(camera)
@@ -1069,7 +1086,7 @@ function onPointerUp(event: PointerEvent) {
   const bounds = renderer.domElement.getBoundingClientRect()
   pointer.set(((event.clientX - bounds.left) / bounds.width) * 2 - 1, -((event.clientY - bounds.top) / bounds.height) * 2 + 1)
   raycaster.setFromCamera(pointer, camera)
-  const hits = raycaster.intersectObjects([...markerObjects.values()], false)
+  const hits = raycaster.intersectObjects([...markerObjects.values()], true)
   const target = hits[0]?.object.userData as { kind?: 'spacecraft' | 'site'; id?: string }
   if (target?.kind && target.id) {
     localSelection.value = { kind: target.kind, id: target.id } // 本地立即驱动面板（不依赖 App 渲染）
@@ -1148,13 +1165,21 @@ function animate(time = 0) {
     const minDistance = 3.0 // 最近（放大极限）——此处距离透明度为 1（实色）
     const fade = elementsFadeNow(time)
     const distOpacity = (d: number) => 0.7 + 0.3 * THREE.MathUtils.clamp((refDistance - d) / (refDistance - minDistance), 0, 1)
+    const viewportHeight = canvasHost.value?.clientHeight ?? 0
+    const currentPlanetRadiusPx = projectedSphereRadiusPx(EARTH_RADIUS, camera.position.length(), 42, viewportHeight)
+    const referencePlanetRadiusPx = projectedSphereRadiusPx(EARTH_RADIUS, refDistance, 42, viewportHeight)
     for (const [key, marker] of markerObjects) {
       const d = marker.getWorldPosition(markerScaleTmp).distanceTo(camera.position)
       const isActive = activeKey.value === key
-      // 飞行器采用统一的强透视补偿；发射场保持地球专属标记逻辑不变。
+      // 飞行器继续沿用轨道标记逻辑；地表坐标统一按行星屏幕半径换算为目标像素尺寸。
       const scale = key.startsWith('spacecraft:')
         ? missionMarkerScale(d, refDistance, isActive)
-        : Math.pow(d / refDistance, 0.6) * (isActive ? 1.35 : 1)
+        : surfaceMarkerWorldRadius(
+            d,
+            42,
+            viewportHeight,
+            surfaceMarkerRadiusPx(currentPlanetRadiusPx, referencePlanetRadiusPx, isActive),
+          )
       const material = (marker as THREE.Mesh).material as THREE.MeshBasicMaterial | undefined
       const opacity = (isActive ? 1 : distOpacity(d)) * fade
       // 仅变化时写（相机静止时 scale/opacity 恒定 → 每帧零材质/几何写，减滚动掉帧）
@@ -1268,17 +1293,21 @@ onBeforeUnmount(() => {
         @pointerleave="onLabelLeave(label)"
         @click="localSelection = { kind: label.kind, id: label.id }; emit('select', { kind: label.kind, id: label.id })"
       />
-      <button
-        v-else
-        v-show="label.visible && elementsShown"
-        class="scene-label site"
-        :class="{ selected: activeKey === `${label.kind}:${label.id}` }"
-        :style="{ transform: `translate(${label.x + 14}px, ${label.y - 11}px)` }"
-        @click="localSelection = { kind: label.kind, id: label.id }; emit('select', { kind: label.kind, id: label.id })"
-      >
-        <i />{{ label.name }}
-      </button>
     </template>
+    <SurfaceLeaderLayer v-show="props.layers.sites && elementsShown" :labels="siteLabels" />
+    <MissionSceneLabel
+      v-for="label in siteLabels"
+      v-show="label.visible && props.layers.sites && elementsShown"
+      :key="`site:${label.id}`"
+      class="scene-site-label"
+      kind="surface"
+      :name-zh="bName(props.sites.find((item) => item.id === label.id)?.nameZh ?? label.name, props.sites.find((item) => item.id === label.id)?.nameEn ?? '').primary"
+      :name-en="bName(props.sites.find((item) => item.id === label.id)?.nameZh ?? label.name, props.sites.find((item) => item.id === label.id)?.nameEn ?? '').secondary"
+      :selected="activeKey === `site:${label.id}`"
+      :compact="label.compact"
+      :style="{ transform: `translate3d(${label.x}px, ${label.y}px, 0) scale(${label.scale})`, transformOrigin: label.side === 'right' ? 'left center' : 'right center' }"
+      @click="localSelection = { kind: 'site', id: label.id }; emit('select', { kind: 'site', id: label.id })"
+    />
     <div
       v-if="observerLabel"
       v-show="observerLabel.visible && elementsShown"

@@ -35,9 +35,10 @@
         />
 
         <!-- 着陆点标签：图标（宇航员/着陆器/月球车/样本）+ 地点名 + 任务名 -->
+        <SurfaceLeaderLayer v-show="sitesEnabled" :labels="siteLabels" />
         <MissionSceneLabel
           v-for="label in siteLabels"
-          v-show="label.visible && selectedSite === label.id"
+          v-show="label.visible && sitesEnabled"
           :key="label.id"
           class="craft-label site-label"
           :class="{ selected: selectedSite === label.id, 'leaving-fade': leaving }"
@@ -47,6 +48,7 @@
           :name-zh="siteBilingual.get(label.id)?.primary ?? ''"
           :name-en="siteBilingual.get(label.id)?.secondary"
           :selected="selectedSite === label.id"
+          :compact="label.compact"
           :icon-html="siteGlyph(siteById(label.id)?.icon ?? 'lander')"
           :aria-label="`${siteBilingual.get(label.id)?.primary}${siteBilingual.get(label.id)?.secondary ? `（${siteBilingual.get(label.id)?.secondary}）` : ''}`"
           @click="selectSite(label.id)"
@@ -196,8 +198,11 @@ import { CATALOG_PAGE_SIZE } from '../catalog'
 import { usePlanetSceneData } from '../composables/usePlanetSceneData'
 import MissionDetailPanel from './MissionDetailPanel.vue'
 import MissionSceneLabel from './MissionSceneLabel.vue'
+import SurfaceLeaderLayer from './SurfaceLeaderLayer.vue'
 import type { MissionDetail } from '../missionPresentation'
 import { missionMarkerScale, spacecraftFields, spacecraftFocusDistance, surfaceMissionFields } from '../missionPresentation'
+import type { SurfaceAnnotationLayout } from '../surfaceAnnotations'
+import { layoutSurfaceAnnotations, projectedSphereRadiusPx, surfaceMarkerRadiusPx, surfaceMarkerWorldRadius } from '../surfaceAnnotations'
 
 const marsProfile = MARS_PAGE.profile
 
@@ -238,7 +243,7 @@ const craftSort = ref('name')
 const craftOperators = computed(() => [...new Set(crafts.value.map((c) => primaryOperator(c.operatorName)))].sort())
 const siteQuery = ref('')
 const craftLabels = ref<Array<{ id: string; x: number; y: number; visible: boolean }>>([])
-const siteLabels = ref<Array<{ id: string; x: number; y: number; visible: boolean }>>([])
+const siteLabels = ref<SurfaceAnnotationLayout[]>([])
 const landingSites = ref<MarsLandingSite[]>([])
 const selectedSite = ref<string | null>(null)
 const siteMarkers = new Map<string, THREE.Object3D>()
@@ -246,8 +251,6 @@ const siteMarkers = new Map<string, THREE.Object3D>()
 function siteMarkersArray() {
   return [...siteMarkers.values()]
 }
-/** 标签避让偏移缓存：每帧向目标偏移 lerp，避免重叠判定在阈值边缘抖动导致标签乱跳 */
-const siteLabelOffsets = new Map<string, number>()
 
 /** 入场渐亮：从太阳系进入（enterFromSolar）时等待 revealTick 递增；直接加载默认已亮。
  *  不能用 revealTick 判初始态——它只增不减，第二次进入时非 0 会误判为"直接加载" */
@@ -878,7 +881,7 @@ function buildSiteMarkers() {
     // 图标类型着色：astronaut 金 / rover 橙 / sample 青 / lander 银
     const color = site.icon === 'astronaut' ? 0xffcf8f : site.icon === 'rover' ? 0xffb27d : site.icon === 'sample' ? 0x8fd6c2 : 0xcfd8e2
     const marker = new THREE.Mesh(
-      new THREE.SphereGeometry(0.024, 12, 12),
+      new THREE.SphereGeometry(1, 12, 12),
       new THREE.MeshBasicMaterial({ color, transparent: true, opacity: elementsFade }),
     )
     // 球心落在火面半径上（1.57）：球体一半嵌进表面（被火星深度遮挡）、一半露出——
@@ -889,7 +892,7 @@ function buildSiteMarkers() {
     siteMarkers.set(site.id, marker)
     // 拾取球：扩大点击命中区域（点击圆点 → 选中并聚焦，标签随选中出现）
     const siteHit = new THREE.Mesh(
-      new THREE.SphereGeometry(0.12, 8, 8),
+      new THREE.SphereGeometry(5, 8, 8),
       new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
     )
     siteHit.userData.siteId = site.id
@@ -976,15 +979,20 @@ const siteGotoPage = (delta: number) => {
 watch([craftQuery, craftOperatorFilter, craftSort], () => { craftPage.value = 1 })
 watch(siteQuery, () => { sitePage.value = 1 })
 
-/** 着陆点标签样式：右侧偏移，垂直对齐圆点 */
-function siteLabelStyle(label: { id: string; x: number; y: number }) {
-  return { transform: `translate(${label.x + 10}px, ${label.y - 14}px)` }
+/** 着陆点标签只负责排版位置；引线由独立 SVG 层连接真实表面锚点。 */
+function siteLabelStyle(label: SurfaceAnnotationLayout) {
+  return {
+    transform: `translate3d(${label.x}px, ${label.y}px, 0) scale(${label.scale})`,
+    transformOrigin: label.side === 'right' ? 'left center' : 'right center',
+  }
 }
 
-/** 着陆点圆点随镜头距离淡出：远视正常 → 凑近半透明并缩小 → 贴面消失（不遮挡月面观察）
- *  距离 > 4.5 完全显示；4.5 → 3.2 线性淡出 + 缩至 45%；< 3.2 完全消失 */
+/** 着陆点圆点按火星屏幕半径统一换算为目标像素尺寸。 */
 function updateSiteMarkerProximity() {
   if (!camera || !sitesEnabled.value) return
+  const viewportHeight = canvasHost.value?.clientHeight ?? 0
+  const currentPlanetRadiusPx = projectedSphereRadiusPx(MARS_RADIUS, camera.position.length(), MARS_FOV, viewportHeight)
+  const referencePlanetRadiusPx = projectedSphereRadiusPx(MARS_RADIUS, MARS_MARKER_REF_DISTANCE, MARS_FOV, viewportHeight)
   for (const site of landingSites.value) {
     const marker = siteMarkers.get(site.id)
     if (!marker) continue
@@ -994,7 +1002,8 @@ function updateSiteMarkerProximity() {
     // 距离透明度（远处 70% 半透明、放大后实色）× 统一元素淡入淡出（进入一次性浮现 / 退出一次性消失）
     material.opacity = distOpacity(d) * elementsFade
     // 部分透视补偿（远小近大、不过度）：k=0.6；去掉原"贴面微缩"（近处缩小的观感反物理）
-    marker.scale.setScalar(missionMarkerScale(d, MARS_MARKER_REF_DISTANCE, selectedSite.value === site.id))
+    const markerRadiusPx = surfaceMarkerRadiusPx(currentPlanetRadiusPx, referencePlanetRadiusPx, selectedSite.value === site.id)
+    marker.scale.setScalar(surfaceMarkerWorldRadius(d, MARS_FOV, viewportHeight, markerRadiusPx))
     marker.visible = sitesEnabled.value && elementsFade > 0.001
   }
 }
@@ -1218,7 +1227,6 @@ function updateLabels() {
   const width = host.clientWidth
   const height = host.clientHeight
   if (width === 0 || height === 0) return
-  const halfFovTan = Math.tan((MARS_FOV / 2) * DEG)
   const tmp = new THREE.Vector3()
   const next: Array<{ id: string; x: number; y: number; visible: boolean }> = []
   for (const runtime of craftRuntimes) {
@@ -1239,7 +1247,7 @@ function updateLabels() {
   craftLabels.value = next
 
   // 着陆点标签：背面隐藏（圆点本体由材质深度测试自然遮挡）
-  const siteNext: Array<{ id: string; x: number; y: number; visible: boolean }> = []
+  const siteNext: Array<{ id: string; anchorX: number; anchorY: number; visible: boolean; selected: boolean }> = []
   const siteTmp = new THREE.Vector3()
   for (const site of landingSites.value) {
     const marker = siteMarkers.get(site.id)
@@ -1249,37 +1257,18 @@ function updateLabels() {
     const occluded = isCraftOccluded(world) // 同款背面判定：法线朝向相机才显示
     siteNext.push({
       id: site.id,
-      x: (cp.x * 0.5 + 0.5) * width,
-      y: (-cp.y * 0.5 + 0.5) * height,
+      anchorX: (cp.x * 0.5 + 0.5) * width,
+      anchorY: (-cp.y * 0.5 + 0.5) * height,
       visible: cp.z > -1 && cp.z < 1 && !occluded,
+      selected: selectedSite.value === site.id,
     })
   }
-  // 标签避让：屏幕距离过近的可见标签对，后者向下错开一档（链式处理多重重叠）。
-  // 真实站点可能相距仅 180m（阿波罗 12 与勘测者 3），投影后完全重叠——错开保证可读
-  // 阈值按实际标签盒取（向右展开约 170px 宽、两行文字约 36px 高）
-  const SITE_LABEL_W = 170
-  const SITE_LABEL_H = 36
-  const targetOffsets = new Map<string, number>()
-  for (let i = 0; i < siteNext.length; i += 1) {
-    const a = siteNext[i]
-    if (!a.visible) continue
-    for (let j = i + 1; j < siteNext.length; j += 1) {
-      const b = siteNext[j]
-      if (!b.visible) continue
-      if (Math.abs(a.x - b.x) < SITE_LABEL_W && Math.abs(a.y - b.y) < SITE_LABEL_H) {
-        targetOffsets.set(b.id, (targetOffsets.get(b.id) ?? 0) + SITE_LABEL_H)
-      }
-    }
-  }
-  // 平滑过渡：偏移向目标 lerp，转动时标签缓慢归位而非跳变
-  for (const label of siteNext) {
-    const target = targetOffsets.get(label.id) ?? 0
-    const current = siteLabelOffsets.get(label.id) ?? 0
-    const next = current + (target - current) * 0.25
-    siteLabelOffsets.set(label.id, next)
-    if (Math.abs(next) > 1) label.y += next
-  }
-  siteLabels.value = siteNext
+  siteLabels.value = layoutSurfaceAnnotations(siteNext, {
+    width,
+    height,
+    currentPlanetRadiusPx: projectedSphereRadiusPx(MARS_RADIUS, camera.position.length(), MARS_FOV, height),
+    referencePlanetRadiusPx: projectedSphereRadiusPx(MARS_RADIUS, MARS_MARKER_REF_DISTANCE, MARS_FOV, height),
+  })
 }
 
 function craftLabelStyle(label: { id: string; x: number; y: number }) {

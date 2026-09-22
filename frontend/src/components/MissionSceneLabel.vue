@@ -41,7 +41,7 @@ defineProps<{
   backdrop-filter: blur(8px);
   transition: border-color .2s, background .2s, color .2s, opacity .3s;
 }
-.mission-scene-label::before {
+.mission-scene-label.is-spacecraft::before {
   content: '';
   position: absolute;
   right: 100%;

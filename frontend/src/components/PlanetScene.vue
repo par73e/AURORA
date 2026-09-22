@@ -30,6 +30,7 @@
         />
 
         <!-- 足迹标签：有坐标且在行星前半球才出现，背面由球体遮挡 -->
+        <SurfaceLeaderLayer v-show="sitesEnabled" :labels="siteLabels" />
         <MissionSceneLabel
           v-for="label in siteLabels"
           :key="label.id"
@@ -37,11 +38,12 @@
           v-show="label.visible && sitesEnabled"
           :data-icon="label.icon"
           :class="{ selected: selectedSite === label.id, 'leaving-fade': leaving }"
-          :style="labelStyle(label)"
+          :style="surfaceLabelStyle(label)"
           kind="surface"
           :name-zh="label.name"
           :name-en="label.nameEn"
           :selected="selectedSite === label.id"
+          :compact="label.compact"
           :icon-html="siteGlyph(label.icon)"
           :aria-label="`${label.name}${label.nameEn !== label.name ? `（${label.nameEn}）` : ''}${planet.exploration?.title === '任务终点' ? '，任务终点' : ''}`"
           @click.stop="selectSite(label.id)"
@@ -191,8 +193,11 @@ import { solarTexture } from '../solar/textures'
 import type { PlanetCraft, PlanetCraftTrajectory, PlanetCraftTrajectoryKind, PlanetPageConfig } from '../planetPages'
 import MissionDetailPanel from './MissionDetailPanel.vue'
 import MissionSceneLabel from './MissionSceneLabel.vue'
+import SurfaceLeaderLayer from './SurfaceLeaderLayer.vue'
 import type { MissionDetail } from '../missionPresentation'
 import { ENDPOINT_SCENE_NOTE, missionMarkerScale, spacecraftFields, spacecraftFocusDistance, surfaceFocusDistance, surfaceMissionFields } from '../missionPresentation'
+import type { SurfaceAnnotationLayout } from '../surfaceAnnotations'
+import { layoutSurfaceAnnotations, projectedSphereRadiusPx, surfaceMarkerRadiusPx, surfaceMarkerWorldRadius } from '../surfaceAnnotations'
 
 const props = defineProps<{ planet: PlanetPageConfig; spacecraftVisible?: boolean; revealTick?: number; enterFromSolar?: boolean; leaving?: boolean; headerExpanded?: boolean }>()
 const emit = defineEmits<{
@@ -291,7 +296,7 @@ function craftGotoPage(delta: number) {
 /** 有坐标的足迹（可画 3D 标记 + 标签）：landing/impact 有坐标，atmospheric 无 */
 const markerSites = computed(() => props.planet.exploration?.sites.filter((s) => s.latitude != null && s.longitude != null) ?? [])
 /** 标签 overlay 数据（含屏幕投影坐标，rAF 更新） */
-type OverlayLabel = { id: string; name: string; nameEn: string; mission: string; type: string; icon: 'lander' | 'probe' | 'impact'; x: number; y: number; visible: boolean }
+type OverlayLabel = SurfaceAnnotationLayout & { name: string; nameEn: string; mission: string; type: string; icon: 'lander' | 'probe' | 'impact' }
 type CraftOverlayLabel = { id: string; name: string; nameEn: string; type: string; x: number; y: number; visible: boolean }
 const siteLabels = ref<OverlayLabel[]>([])
 const craftLabels = ref<CraftOverlayLabel[]>([])
@@ -423,6 +428,14 @@ function siteGlyph(icon: 'lander' | 'probe' | 'impact') {
  *  序列化成 calc(xpx)（+10px 被丢弃），导致标签落到圆点正上方而非右侧。 */
 function labelStyle(label: { x: number; y: number; visible: boolean }) {
   return { display: label.visible ? '' : 'none', transform: `translate(${label.x + 10}px, ${label.y - 14}px)` }
+}
+
+function surfaceLabelStyle(label: SurfaceAnnotationLayout) {
+  return {
+    display: label.visible ? '' : 'none',
+    transform: `translate3d(${label.x}px, ${label.y}px, 0) scale(${label.scale})`,
+    transformOrigin: label.side === 'right' ? 'left center' : 'right center',
+  }
 }
 
 /** 场景中的表面航天器：切换选择，避免重复点击仍强制启动一次运镜。 */
@@ -907,7 +920,7 @@ onMounted(() => {
   // 挂在 swingPivot 下随行星自转/轴倾角；大气坠毁（气态行星无表面坐标）不画标记
   for (const site of markerSites.value) {
     const marker = new THREE.Mesh(
-      new THREE.SphereGeometry(0.02 * Math.max(1, props.planet.radius / 2.1), 12, 12),
+      new THREE.SphereGeometry(1, 12, 12),
       new THREE.MeshBasicMaterial({ color: props.planet.sceneAccent, transparent: true, opacity: 0.95 }),
     )
     // 球心落在行星表面半径上：球体一半嵌进表面、一半露出（被行星深度遮挡，无 z-fighting）
@@ -917,7 +930,7 @@ onMounted(() => {
     siteMarkers.set(site.id, marker)
     // 拾取球：扩大点击命中区域
     const hit = new THREE.Mesh(
-      new THREE.SphereGeometry(0.14 * Math.max(1, props.planet.radius / 2.1), 8, 8),
+      new THREE.SphereGeometry(7, 8, 8),
       new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
     )
     hit.userData.siteId = site.id
@@ -960,7 +973,7 @@ onMounted(() => {
     }
     const cam = camera
     const bounds = renderer.domElement.getBoundingClientRect()
-    const labels = markerSites.value
+    const rawLabels = markerSites.value
       .map((site) => {
         const marker = siteMarkers.get(site.id)
         if (!marker) return null
@@ -976,26 +989,21 @@ onMounted(() => {
           mission: site.mission,
           type: siteKindLabel(site.kind),
           icon: site.icon,
-          x: bounds.left + (labelTmp.x * 0.5 + 0.5) * bounds.width,
-          y: bounds.top + (-labelTmp.y * 0.5 + 0.5) * bounds.height,
+          anchorX: (labelTmp.x * 0.5 + 0.5) * bounds.width,
+          anchorY: (-labelTmp.y * 0.5 + 0.5) * bounds.height,
           visible: true,
+          selected: selectedSite.value === site.id,
         }
       })
       .filter((l): l is NonNullable<typeof l> => l !== null)
-    // 防重叠：site 标签与 craft 标签投影过近时下移（水星 MESSENGER 撞击点与轨道圆点
-    // 常同时可见且投影接近，重叠会让引线看起来没对准标记）
-    if (labels.length && craftLabels.value.length) {
-      for (const site of labels) {
-        for (const craft of craftLabels.value) {
-          if (!craft.visible) continue
-          if (Math.hypot(site.x - craft.x, site.y - craft.y) < 40) {
-            site.y += 26
-            break
-          }
-        }
-      }
-    }
-    siteLabels.value = labels
+    const currentPlanetRadiusPx = projectedSphereRadiusPx(props.planet.radius, cam.position.length(), FOV, bounds.height)
+    const referencePlanetRadiusPx = projectedSphereRadiusPx(props.planet.radius, props.planet.defaultDistance, FOV, bounds.height)
+    siteLabels.value = layoutSurfaceAnnotations(rawLabels, {
+      width: bounds.width,
+      height: bounds.height,
+      currentPlanetRadiusPx,
+      referencePlanetRadiusPx,
+    })
   }
   const updateCraftLabels = () => {
     if (!renderer || !camera || !spacecraftEnabled.value) {
@@ -1137,9 +1145,13 @@ onMounted(() => {
       if (runtime.line) runtime.line.visible = orbitsEnabled.value && elementsOpacity > 0.001
     }
 
+    const markerViewportHeight = renderer.domElement.clientHeight
+    const currentPlanetRadiusPx = projectedSphereRadiusPx(props.planet.radius, camera.position.length(), FOV, markerViewportHeight)
+    const referencePlanetRadiusPx = projectedSphereRadiusPx(props.planet.radius, props.planet.defaultDistance, FOV, markerViewportHeight)
     for (const [id, marker] of siteMarkers) {
       const world = marker.getWorldPosition(focusTmp4)
-      marker.scale.setScalar(missionMarkerScale(world.distanceTo(camera.position), props.planet.defaultDistance, selectedSite.value === id))
+      const markerRadiusPx = surfaceMarkerRadiusPx(currentPlanetRadiusPx, referencePlanetRadiusPx, selectedSite.value === id)
+      marker.scale.setScalar(surfaceMarkerWorldRadius(world.distanceTo(camera.position), FOV, markerViewportHeight, markerRadiusPx))
       const markerMat = marker.material as THREE.MeshBasicMaterial
       markerMat.opacity = 0.95 * elementsOpacity
       marker.visible = sitesEnabled.value && elementsOpacity > 0.001
