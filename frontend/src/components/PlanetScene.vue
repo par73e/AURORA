@@ -24,11 +24,14 @@
           :name-en="label.nameEn"
           :selected="selectedCraft === label.id"
           :mode="label.mode"
+          :side="label.side"
           :cluster-count="label.clusterCount"
+          :cluster-items="label.memberIds.map((id) => ({ id, name: craftById(id)?.name ?? id }))"
           :aria-label="label.mode === 'cluster' ? `${label.clusterCount} 个相近飞行器` : `${label.name}${label.nameEn !== label.name ? `（${label.nameEn}）` : ''}`"
-          @pointerenter="hoveredCraft = label.id"
+          @pointerenter="hoveredCraft = label.mode === 'cluster' ? null : label.id"
           @pointerleave="hoveredCraft = null"
           @click.stop="selectCraft(label.id)"
+          @select-member="selectCraft($event)"
         />
 
         <!-- 足迹标签：有坐标且在行星前半球才出现，背面由球体遮挡 -->
@@ -45,10 +48,13 @@
           :name-en="label.nameEn"
           :selected="selectedSite === label.id"
           :mode="label.mode"
+          :side="label.side"
           :cluster-count="label.clusterCount"
+          :cluster-items="label.memberIds.map((id) => ({ id, name: markerSites.find((site) => site.id === id)?.name ?? id }))"
           :icon-html="siteGlyph(label.icon)"
           :aria-label="`${label.name}${label.nameEn !== label.name ? `（${label.nameEn}）` : ''}${planet.exploration?.title === '任务终点' ? '，任务终点' : ''}`"
           @click.stop="selectSite(label.id)"
+          @select-member="selectSite($event)"
         />
 
         <!-- 选中探测器的信息卡：与月球/火星场景保持同一互斥选择逻辑 -->
@@ -198,7 +204,7 @@ import MissionSceneLabel from './MissionSceneLabel.vue'
 import type { MissionDetail } from '../missionPresentation'
 import { ENDPOINT_SCENE_NOTE, spacecraftFields, spacecraftFocusDistance, surfaceFocusDistance, surfaceMissionFields } from '../missionPresentation'
 import type { SceneAnnotationLayout, SurfaceAnnotationLayout } from '../surfaceAnnotations'
-import { layoutSceneAnnotations, projectedSphereRadiusPx, orbitMarkerRadiusPx, sceneMarkerWorldRadius, surfaceMarkerRadiusPx, surfaceMarkerWorldRadius } from '../surfaceAnnotations'
+import { layoutSceneAnnotations, sceneAnnotationStyle, projectedSphereRadiusPx, orbitMarkerRadiusPx, sceneMarkerWorldRadius, surfaceMarkerRadiusPx, surfaceMarkerWorldRadius } from '../surfaceAnnotations'
 
 const props = defineProps<{ planet: PlanetPageConfig; spacecraftVisible?: boolean; revealTick?: number; enterFromSolar?: boolean; leaving?: boolean; headerExpanded?: boolean }>()
 const emit = defineEmits<{
@@ -424,16 +430,8 @@ function siteGlyph(icon: 'lander' | 'probe' | 'impact') {
   }
 }
 
-/** 标签紧贴圆点右侧，固定短线与标签使用相同的缩放原点。 */
-function annotationLabelStyle(label: SceneAnnotationLayout) {
-  return {
-    display: label.visible ? '' : 'none',
-    left: `${label.x}px`,
-    top: `${label.y}px`,
-    transform: `translateY(-50%) scale(${label.scale})`,
-    transformOrigin: 'left center',
-  }
-}
+/** 标签紧贴圆点两侧，固定短线与标签使用相同的缩放原点。 */
+const annotationLabelStyle = sceneAnnotationStyle
 
 const labelStyle = annotationLabelStyle
 const surfaceLabelStyle = annotationLabelStyle
@@ -1404,6 +1402,10 @@ onBeforeUnmount(() => {
   --mission-label-surface: color-mix(in srgb, var(--planet-accent) 3%, rgba(3, 10, 17, .82));
   --mission-label-surface-active: color-mix(in srgb, var(--planet-accent) 8%, rgba(6, 17, 26, .92));
 }
+.planet-section.venus {
+  --mission-label-text-stroke: 1.5px #000;
+  --mission-label-text-shadow: 0 1px 2px #000;
+}
 .planet-section.saturn,
 .planet-profile-section.saturn,
 .planet-spacecraft-section.saturn,
@@ -1745,66 +1747,7 @@ onBeforeUnmount(() => {
   font-weight: 500;
 }
 
-/* ===== 人类探索足迹：标签（贴行星表面，地球页 scene-label 同款结构 + 图标） ===== */
-.planet-site-label {
-  position: absolute;
-  left: 0;
-  top: 0;
-  z-index: 5;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 5px 8px;
-  border: 1px solid var(--planet-line);
-  background: rgba(3, 10, 17, .74);
-  backdrop-filter: blur(8px);
-  cursor: pointer;
-  pointer-events: auto;
-  transition: border-color .2s, color .2s;
-}
-.planet-site-label,
-.planet-craft-label {
-  font: inherit;
-  text-align: left;
-}
-.planet-site-label:hover { border-color: var(--planet-accent-dim); background: rgba(5, 14, 22, .8); }
-.planet-site-label.selected { border-color: var(--planet-accent); background: rgba(6, 17, 26, .82); }
-.planet-site-label .planet-site-glyph { display: inline-flex; flex-shrink: 0; color: var(--planet-accent); }
-.planet-site-label .planet-site-glyph svg { width: 10px; height: 10px; }
-.planet-site-label > span:last-child { color: var(--planet-text); font: 500 10px/1.2 var(--font-sans); letter-spacing: .04em; white-space: nowrap; }
-
-/* ===== 探测器标签：地球页 scene-label 同款（发光点 + 引线 + 简洁单行） ===== */
-.planet-craft-label {
-  position: absolute;
-  left: 0;
-  top: 0;
-  z-index: 5;
-  display: flex;
-  gap: 7px;
-  align-items: center;
-  padding: 5px 8px;
-  border: 1px solid var(--planet-line);
-  background: rgba(3, 10, 17, .74);
-  color: var(--planet-text);
-  font: 500 10px/1.2 var(--font-sans);
-  letter-spacing: .04em;
-  white-space: nowrap;
-  backdrop-filter: blur(8px);
-  cursor: pointer;
-  pointer-events: auto;
-  transition: border-color .2s, color .2s;
-}
-.planet-craft-label i {
-  width: 4px;
-  height: 4px;
-  flex: 0 0 4px;
-  border-radius: 50%;
-  background: var(--planet-accent);
-  box-shadow: 0 0 8px var(--planet-accent);
-}
-.planet-craft-label:hover { color: var(--planet-text); border-color: var(--planet-accent-dim); background: rgba(5, 14, 22, .8); }
-.planet-craft-label.selected { color: var(--planet-text); border-color: var(--planet-accent); background: rgba(6, 17, 26, .82); }
-.planet-craft-label.selected i { box-shadow: 0 0 8px var(--planet-accent); }
+/* 标注的完整、紧凑、聚合尺寸及左右短线统一由 MissionSceneLabel 管理。 */
 
 /* ===== 探测器详情 ===== */
 .planet-craft-panel {

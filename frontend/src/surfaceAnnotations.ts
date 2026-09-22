@@ -1,4 +1,5 @@
 export type SceneAnnotationMode = 'full' | 'compact' | 'cluster'
+export type SceneAnnotationSide = 'left' | 'right'
 
 export interface SceneAnchorProjection {
   id: string
@@ -17,6 +18,7 @@ export interface SceneAnnotationLayout extends SceneAnchorProjection {
   x: number
   y: number
   scale: number
+  side: SceneAnnotationSide
   compact: boolean
   mode: SceneAnnotationMode
   clusterCount: number
@@ -44,6 +46,8 @@ const CONNECTOR_LENGTH_PX = 10
 const SAFE_INSET = 8
 const CLUSTER_ENTER_PX = 16
 const CLUSTER_EXIT_PX = 22
+const PAIR_EXPAND_RATIO = 1.1
+const PAIR_COLLAPSE_RATIO = 0.95
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
@@ -64,15 +68,15 @@ export function projectedSphereRadiusPx(
 }
 
 /**
- * 点、固定短线和标签共享的视觉缩放。指数刻意较小，并限制在窄区间内，
- * 让远处仍可辨认、近处也不会突然膨胀；这是一种可读性透视而非物理透视。
+ * 点、固定短线和标签共享视觉缩放。远景明显收小，近景封顶；
+ * 最小飞行器圆点直径仍有 4.5px，避免缩小文字时把目标点一并丢失。
  */
 export function sceneAnnotationScale(
   currentPlanetRadiusPx: number,
   referencePlanetRadiusPx: number,
 ): number {
   const ratio = Math.max(currentPlanetRadiusPx, 0.001) / Math.max(referencePlanetRadiusPx, 0.001)
-  return clamp(Math.pow(ratio, 0.28), 0.75, 1.05)
+  return clamp(0.9 * Math.pow(ratio, 0.8), 0.5, 1.05)
 }
 
 /** 视觉圆点的目标屏幕半径；选中状态只改变样式，不改变几何大小。 */
@@ -130,9 +134,21 @@ function distance(a: SceneAnchorProjection, b: SceneAnchorProjection) {
   return Math.hypot(a.anchorX - b.anchorX, a.anchorY - b.anchorY)
 }
 
+/** x 是靠近圆点的标签边缘；左侧按真实 DOM 宽度定位，不猜测文字宽度。 */
+export function sceneAnnotationStyle(label: SceneAnnotationLayout) {
+  return {
+    left: `${label.x}px`,
+    top: `${label.y}px`,
+    transform: label.side === 'left'
+      ? `translate(-100%, -50%) scale(${label.scale})`
+      : `translateY(-50%) scale(${label.scale})`,
+    transformOrigin: `${label.side === 'left' ? 'right' : 'left'} center`,
+  }
+}
+
 /**
- * 标签的几何锚点始终固定在圆点右侧。空间不足时只切换信息密度：
- * full -> compact -> cluster；不再通过移动标签或改变引线角度来避让。
+ * 所有短线长度固定。近景的两个重叠目标向左右展开，即使坐标完全相同
+ * 也不要求先分离；空间不足时使用紧凑标签或可展开的聚合缩略图。
  */
 export function layoutSceneAnnotations<T extends SceneAnchorProjection>(
   anchors: T[],
@@ -141,9 +157,10 @@ export function layoutSceneAnnotations<T extends SceneAnchorProjection>(
 ): Array<T & SceneAnnotationLayout> {
   const scale = sceneAnnotationScale(viewport.currentPlanetRadiusPx, viewport.referencePlanetRadiusPx)
   const ratio = Math.max(viewport.currentPlanetRadiusPx, 0.001) / Math.max(viewport.referencePlanetRadiusPx, 0.001)
+  const previousById = new Map(previous.map((item) => [item.id, item]))
   const previousClusterById = new Map<string, Set<string>>()
   for (const item of previous) {
-    if (item.mode !== 'cluster') continue
+    if (item.memberIds.length < 2) continue
     const members = new Set(item.memberIds)
     for (const id of members) previousClusterById.set(id, members)
   }
@@ -165,10 +182,10 @@ export function layoutSceneAnnotations<T extends SceneAnchorProjection>(
 
   for (let i = 0; i < visible.length; i += 1) {
     const a = visible[i]
-    if (a.selected || a.hovered) continue
+    if (a.variant === 'observer') continue
     for (let j = i + 1; j < visible.length; j += 1) {
       const b = visible[j]
-      if (b.selected || b.hovered) continue
+      if (b.variant === 'observer') continue
       const wasTogether = previousClusterById.get(a.id)?.has(b.id) ?? false
       const threshold = (wasTogether ? CLUSTER_EXIT_PX : CLUSTER_ENTER_PX) * scale
       if (distance(a, b) <= threshold) union(a.id, b.id)
@@ -186,19 +203,61 @@ export function layoutSceneAnnotations<T extends SceneAnchorProjection>(
   const accepted: Array<{ x: number; y: number; width: number; height: number }> = []
   const layouts = new Map<string, T & SceneAnnotationLayout>()
 
-  const orderedGroups = [...groups.values()].sort((a, b) => {
+  const orderedGroups = [...groups.values()].flatMap((group) => {
+    if (group.length <= 2) return [group]
+    const active = group.filter((item) => item.selected || item.hovered)
+    const rest = group.filter((item) => !item.selected && !item.hovered)
+    return [...active.map((item) => [item]), ...(rest.length ? [rest] : [])]
+  }).sort((a, b) => {
     const aActive = a.some((item) => item.selected || item.hovered) ? 1 : 0
     const bActive = b.some((item) => item.selected || item.hovered) ? 1 : 0
     return bActive - aActive
   })
 
   for (const group of orderedGroups) {
-    const clustered = group.length > 1
-    const representative = group.find((item) => item.selected || item.hovered) ?? group[0]
-    const memberIds = group.map((item) => item.id)
+    // 排序与选中/悬停无关，同坐标的两项不会在交互时互换左右。
+    group.sort((a, b) => a.anchorX - b.anchorX || a.id.localeCompare(b.id))
+    const wasExpanded = group.length === 2 && group.every((item) => {
+      const before = previousById.get(item.id)
+      return before?.visible && before.mode !== 'cluster' && before.memberIds.length === 2
+    })
+    const expandPair = group.length === 2
+      && (ratio >= (wasExpanded ? PAIR_COLLAPSE_RATIO : PAIR_EXPAND_RATIO)
+        || group.some((item) => item.selected || item.hovered))
+    let clustered = group.length > 1 && !expandPair
+    const representative = group.find((item) => item.selected || item.hovered)
+      ?? group.find((item) => previousById.get(item.id)?.visible && previousById.get(item.id)?.mode === 'cluster')
+      ?? group[0]
+    const memberIds = group.map((item) => item.id).sort()
 
-    for (const item of group) {
-      let mode: SceneAnnotationMode = clustered ? 'cluster' : (ratio < 0.82 && !item.selected && !item.hovered ? 'compact' : 'full')
+    const boxFor = (item: T, mode: SceneAnnotationMode, side: SceneAnnotationSide) => {
+      const size = annotationSize(mode, scale)
+      const edge = item.anchorX + (side === 'left' ? -1 : 1) * CONNECTOR_LENGTH_PX * scale
+      return { x: side === 'left' ? edge - size.width : edge, y: item.anchorY - size.height / 2, ...size }
+    }
+    const fits = (box: ReturnType<typeof boxFor>) => box.x >= SAFE_INSET
+      && box.x + box.width <= viewport.width - SAFE_INSET
+      && box.y >= SAFE_INSET
+      && box.y + box.height <= viewport.height - SAFE_INSET
+    const previousSides = group.map((item) => previousById.get(item.id)?.side)
+    const sides: SceneAnnotationSide[] = group.length === 2
+      ? wasExpanded && new Set(previousSides).size === 2
+        ? previousSides as SceneAnnotationSide[]
+        : ['left', 'right']
+      : ['right']
+    let pairMode: SceneAnnotationMode = 'full'
+    if (expandPair) {
+      const pairFits = (mode: SceneAnnotationMode) => group.every((item, index) => {
+        const box = boxFor(item, mode, sides[index])
+        return fits(box) && !accepted.some((other) => overlaps(box, other))
+      })
+      if (!pairFits('full')) pairMode = 'compact'
+      if (!pairFits(pairMode)) clustered = true
+    }
+
+    for (const [index, item] of group.entries()) {
+      let side: SceneAnnotationSide = expandPair && !clustered ? sides[index] : 'right'
+      let mode: SceneAnnotationMode = clustered ? 'cluster' : expandPair ? pairMode : (ratio < 0.82 && !item.selected && !item.hovered ? 'compact' : 'full')
       const isRepresentative = item.id === representative.id
       if (clustered && !isRepresentative) {
         layouts.set(item.id, {
@@ -207,6 +266,7 @@ export function layoutSceneAnnotations<T extends SceneAnchorProjection>(
           x: item.anchorX,
           y: item.anchorY,
           scale,
+          side,
           compact: false,
           mode,
           clusterCount: group.length,
@@ -215,29 +275,31 @@ export function layoutSceneAnnotations<T extends SceneAnchorProjection>(
         continue
       }
 
-      let size = annotationSize(mode, scale)
-      const x = item.anchorX + CONNECTOR_LENGTH_PX * scale
-      const y = item.anchorY
-      let box = { x, y: y - size.height * 0.5, ...size }
-      const fits = () => box.x >= SAFE_INSET
-        && box.x + box.width <= viewport.width - SAFE_INSET
-        && box.y >= SAFE_INSET
-        && box.y + box.height <= viewport.height - SAFE_INSET
-
-      if (mode === 'full' && !item.selected && !item.hovered && (!fits() || accepted.some((other) => overlaps(box, other)))) {
-        mode = 'compact'
-        size = annotationSize(mode, scale)
-        box = { x, y: y - size.height * 0.5, ...size }
+      let box = boxFor(item, mode, side)
+      if (!expandPair || clustered) {
+        // 先尝试两个固定方向，再降低信息密度；不会生成斜线或自由位移。
+        const preferredSide = previousById.get(item.id)?.side ?? 'right'
+        const choices: SceneAnnotationSide[] = [preferredSide, preferredSide === 'right' ? 'left' : 'right']
+        const modes: SceneAnnotationMode[] = mode === 'full' ? ['full', 'compact'] : [mode]
+        const candidates = modes.flatMap((candidateMode) => choices.map((candidateSide) => ({
+          mode: candidateMode,
+          side: candidateSide,
+          box: boxFor(item, candidateMode, candidateSide),
+        })))
+        const candidate = candidates.find((entry) => fits(entry.box) && !accepted.some((other) => overlaps(entry.box, other)))
+          ?? candidates.find((entry) => fits(entry.box))
+        if (candidate) ({ mode, side, box } = candidate)
       }
 
-      const finalVisible = fits() || item.selected || item.hovered
+      const finalVisible = fits(box)
       if (finalVisible) accepted.push(box)
       layouts.set(item.id, {
         ...item,
         visible: finalVisible,
-        x,
-        y,
+        x: item.anchorX + (side === 'left' ? -1 : 1) * CONNECTOR_LENGTH_PX * scale,
+        y: item.anchorY,
         scale,
+        side,
         compact: mode === 'compact',
         mode,
         clusterCount: clustered ? group.length : 1,
@@ -251,6 +313,7 @@ export function layoutSceneAnnotations<T extends SceneAnchorProjection>(
     x: item.anchorX,
     y: item.anchorY,
     scale,
+    side: 'right',
     compact: false,
     mode: 'full',
     clusterCount: 1,

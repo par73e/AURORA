@@ -29,10 +29,13 @@
           :name-en="craftBilingual.get(label.id)?.secondary"
           :selected="selectedCraft === label.id"
           :mode="label.mode"
+          :side="label.side"
           :cluster-count="label.clusterCount"
+          :cluster-items="label.memberIds.map((id) => ({ id, name: craftBilingual.get(id)?.primary ?? id }))"
           :aria-label="label.mode === 'cluster' ? `${label.clusterCount} 个相近飞行器` : `${craftBilingual.get(label.id)?.primary}${craftBilingual.get(label.id)?.secondary ? `（${craftBilingual.get(label.id)?.secondary}）` : ''}`"
           @click="selectedCraft = label.id"
-          @pointerenter="hoveredCraftId = label.id"
+          @select-member="selectedCraft = $event"
+          @pointerenter="hoveredCraftId = label.mode === 'cluster' ? null : label.id"
           @pointerleave="hoveredCraftId = null"
         />
 
@@ -50,10 +53,13 @@
           :name-en="siteBilingual.get(label.id)?.secondary"
           :selected="selectedSite === label.id"
           :mode="label.mode"
+          :side="label.side"
           :cluster-count="label.clusterCount"
+          :cluster-items="label.memberIds.map((id) => ({ id, name: siteBilingual.get(id)?.primary ?? id }))"
           :icon-html="siteGlyph(siteById(label.id)?.icon ?? 'lander')"
           :aria-label="`${siteBilingual.get(label.id)?.primary}${siteBilingual.get(label.id)?.secondary ? `（${siteBilingual.get(label.id)?.secondary}）` : ''}`"
           @click="selectSite(label.id)"
+          @select-member="selectSite($event)"
         />
 
         <!-- 选中着陆点的信息卡 -->
@@ -203,7 +209,7 @@ import type { MissionDetail } from '../missionPresentation'
 import { spacecraftFields, spacecraftFocusDistance, surfaceMissionFields } from '../missionPresentation'
 import type { PlanetProfile } from '../planetPages'
 import type { SceneAnnotationLayout, SurfaceAnnotationLayout } from '../surfaceAnnotations'
-import { layoutSceneAnnotations, projectedSphereRadiusPx, orbitMarkerRadiusPx, sceneMarkerWorldRadius, surfaceMarkerRadiusPx, surfaceMarkerWorldRadius } from '../surfaceAnnotations'
+import { layoutSceneAnnotations, sceneAnnotationStyle, projectedSphereRadiusPx, orbitMarkerRadiusPx, sceneMarkerWorldRadius, surfaceMarkerRadiusPx, surfaceMarkerWorldRadius } from '../surfaceAnnotations'
 
 const moonProfile: PlanetProfile = {
   kicker: 'MOON PROFILE',
@@ -970,14 +976,7 @@ watch([craftQuery, craftOperatorFilter, craftSort], () => { craftPage.value = 1 
 watch(siteQuery, () => { sitePage.value = 1 })
 
 /** 所有标签都以圆点为唯一锚点；固定短线与标签一起缩放。 */
-function annotationLabelStyle(label: SceneAnnotationLayout) {
-  return {
-    left: `${label.x}px`,
-    top: `${label.y}px`,
-    transform: `translateY(-50%) scale(${label.scale})`,
-    transformOrigin: 'left center',
-  }
-}
+const annotationLabelStyle = sceneAnnotationStyle
 
 const siteLabelStyle = annotationLabelStyle
 const craftLabelStyle = annotationLabelStyle
@@ -1500,50 +1499,7 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 
-/* 航天器标签（银灰，位于小点右侧，连接线水平指向左侧的圆点） */
-.craft-label {
-  position: absolute;
-  left: 0;
-  top: 0;
-  z-index: 3;
-  display: grid;
-  justify-items: center;
-  gap: 2px;
-  padding: 3px 8px;
-  border: 1px solid var(--moon-line);
-  border-radius: 3px;
-  background: rgba(6, 10, 14, .72);
-  color: var(--moon-text);
-  cursor: pointer;
-  transition: border-color .2s, color .2s, background .2s;
-  backdrop-filter: blur(8px);
-}
-.craft-label strong {
-  font-size: 10px;
-  font-weight: 500;
-  white-space: nowrap;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, .9);
-}
-.craft-label small {
-  color: var(--moon-quiet);
-  font: 400 7px var(--font-mono);
-  letter-spacing: .12em;
-}
-.craft-label::before {
-  content: '';
-  position: absolute;
-  right: 100%;
-  top: 50%;
-  width: 8px;
-  height: 1px;
-  background: var(--moon-accent-dim);
-  transform: translateY(-50%);
-}
-.craft-label:hover,
-.craft-label.selected {
-  border-color: rgba(200, 208, 216, .65);
-  background: rgba(16, 22, 28, .85);
-}
+/* 标注尺寸、布局和左右短线统一由 MissionSceneLabel 管理。 */
 
 /* 着陆点板块行：图标 + 名称两行 */
 .site-row { grid-template-columns: minmax(260px, 1.4fr) minmax(220px, 1fr) 150px !important; }

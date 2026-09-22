@@ -10,7 +10,7 @@ import MissionSceneLabel from './MissionSceneLabel.vue'
 import type { MissionDetail } from '../missionPresentation'
 import { spacecraftFields } from '../missionPresentation'
 import type { SceneAnnotationLayout, SurfaceAnnotationLayout } from '../surfaceAnnotations'
-import { layoutSceneAnnotations, projectedSphereRadiusPx, orbitMarkerRadiusPx, sceneMarkerWorldRadius, surfaceMarkerRadiusPx, surfaceMarkerWorldRadius } from '../surfaceAnnotations'
+import { layoutSceneAnnotations, sceneAnnotationStyle, projectedSphereRadiusPx, orbitMarkerRadiusPx, sceneMarkerWorldRadius, surfaceMarkerRadiusPx, surfaceMarkerWorldRadius } from '../surfaceAnnotations'
 
 const EARTH_AXIAL_TILT_DEGREES = 23.44
 /** 地球入场自转（先做地球，月球后续再说）：
@@ -696,14 +696,7 @@ function updateLabels() {
   observerLabel.value = surfaceLayouts.find((label) => label.kind === 'observer') ?? null
 }
 
-function annotationLabelStyle(label: SceneAnnotationLayout) {
-  return {
-    left: `${label.x}px`,
-    top: `${label.y}px`,
-    transform: `translateY(-50%) scale(${label.scale})`,
-    transformOrigin: 'left center',
-  }
-}
+const annotationLabelStyle = sceneAnnotationStyle
 
 function setupScene() {
   const host = canvasHost.value
@@ -1275,11 +1268,14 @@ onBeforeUnmount(() => {
         :name-en="bName(props.spacecraft.find((item) => item.id === label.id)?.nameZh ?? label.name, props.spacecraft.find((item) => item.id === label.id)?.nameEn ?? '').secondary"
         :selected="activeKey === `${label.kind}:${label.id}`"
         :mode="label.mode"
+        :side="label.side"
         :cluster-count="label.clusterCount"
+        :cluster-items="label.memberIds.map((id) => ({ id, name: props.spacecraft.find((item) => item.id === id)?.nameZh ?? id }))"
         :style="annotationLabelStyle(label)"
-        @pointerenter="onLabelEnter(label)"
+        @pointerenter="label.mode !== 'cluster' && onLabelEnter(label)"
         @pointerleave="onLabelLeave(label)"
         @click="localSelection = { kind: label.kind, id: label.id }; emit('select', { kind: label.kind, id: label.id })"
+        @select-member="localSelection = { kind: 'spacecraft', id: $event }; emit('select', { kind: 'spacecraft', id: $event })"
       />
     </template>
     <MissionSceneLabel
@@ -1292,9 +1288,12 @@ onBeforeUnmount(() => {
       :name-en="bName(props.sites.find((item) => item.id === label.id)?.nameZh ?? label.name, props.sites.find((item) => item.id === label.id)?.nameEn ?? '').secondary"
       :selected="activeKey === `site:${label.id}`"
       :mode="label.mode"
+      :side="label.side"
       :cluster-count="label.clusterCount"
+      :cluster-items="label.memberIds.map((id) => ({ id, name: props.sites.find((item) => item.id === id)?.nameZh ?? id }))"
       :style="annotationLabelStyle(label)"
       @click="localSelection = { kind: 'site', id: label.id }; emit('select', { kind: 'site', id: label.id })"
+      @select-member="localSelection = { kind: 'site', id: $event }; emit('select', { kind: 'site', id: $event })"
     />
     <MissionSceneLabel
       v-if="observerLabel"
@@ -1305,6 +1304,7 @@ onBeforeUnmount(() => {
       :name-zh="observerLabel.name"
       :selected="props.observerActive !== false"
       :mode="observerLabel.mode"
+      :side="observerLabel.side"
       :cluster-count="observerLabel.clusterCount"
       :style="annotationLabelStyle(observerLabel)"
       :tabindex="-1"

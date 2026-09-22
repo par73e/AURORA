@@ -1,35 +1,124 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import {
+  layoutSceneAnnotations,
+  sceneAnnotationScale,
+  sceneAnnotationStyle,
+  orbitMarkerRadiusPx,
+  surfaceMarkerRadiusPx,
+  sceneMarkerWorldRadius,
+} from '../src/surfaceAnnotations.ts'
 
 const source = (path) => readFile(new URL(path, import.meta.url), 'utf8')
 
-test('圆点、固定短线与标签共享一套克制的视觉缩放', async () => {
-  const [annotations, label] = await Promise.all([
-    source('../src/surfaceAnnotations.ts'),
-    source('../src/components/MissionSceneLabel.vue'),
-  ])
+const viewport = (ratio = 1) => ({ width: 1000, height: 700, currentPlanetRadiusPx: 200 * ratio, referencePlanetRadiusPx: 200 })
+const anchor = (id, x = 500, y = 350) => ({ id, anchorX: x, anchorY: y, visible: true })
 
-  assert.match(annotations, /Math\.pow\(ratio, 0\.28\), 0\.75, 1\.05/)
-  assert.match(annotations, /baseRadiusPx \* sceneAnnotationScale/)
-  assert.match(annotations, /export function orbitMarkerRadiusPx/)
-  assert.match(annotations, /export function surfaceMarkerRadiusPx/)
-  assert.match(annotations, /markerRadiusPx \* \(\(2 \* markerDistance \* Math\.tan\(halfFov\)\) \/ viewportHeight\)/)
-  assert.doesNotMatch(annotations, /activeMultiplier|selected \? 1\./)
-  assert.match(label, /\.mission-scene-label\.has-connector::before/)
-  assert.match(label, /width: 10px/)
-  assert.doesNotMatch(label, /is-compact::before \{ display: none/)
+test('远景明显收小，点、线、标签的比例一致且近景不膨胀', () => {
+  const normal = sceneAnnotationScale(200, 200)
+  const far = sceneAnnotationScale(100, 200)
+  assert.ok(far / normal < 0.6)
+  let previousScale = 0
+  for (const ratio of [0.01, 0.2, 0.5, 1, 2, 10, 100]) {
+    const scale = sceneAnnotationScale(200 * ratio, 200)
+    assert.ok(scale >= previousScale && scale >= 0.5 && scale <= 1.05)
+    previousScale = scale
+    const [layout] = layoutSceneAnnotations([anchor('a')], viewport(ratio))
+    assert.equal(layout.scale, scale)
+    assert.equal(orbitMarkerRadiusPx(200 * ratio, 200), 4.5 * scale)
+    assert.equal(surfaceMarkerRadiusPx(200 * ratio, 200), 5 * scale)
+    assert.equal(surfaceMarkerRadiusPx(200 * ratio, 200, true), 5 * scale)
+    assert.ok(Math.abs(Math.abs(layout.x - layout.anchorX) - 10 * scale) < 1e-9)
+  }
+  assert.ok(2 * orbitMarkerRadiusPx(1, 200) >= 4.5, '最远处仍保留可见圆点')
 })
 
-test('标签只切换 full compact cluster，不再移动锚点或生成动态引线', async () => {
-  const annotations = await source('../src/surfaceAnnotations.ts')
+test('不同深度的飞行器换算回像素后半径一致', () => {
+  for (const depth of [1, 5, 50, 500]) {
+    const radiusPx = orbitMarkerRadiusPx(100, 200)
+    const world = sceneMarkerWorldRadius(depth, 42, 700, radiusPx)
+    const pixels = world / (2 * depth * Math.tan(42 * Math.PI / 360) / 700)
+    assert.ok(Math.abs(pixels - radiusPx) < 1e-9)
+  }
+})
 
-  assert.match(annotations, /'full' \| 'compact' \| 'cluster'/)
-  assert.match(annotations, /CLUSTER_ENTER_PX = 16/)
-  assert.match(annotations, /CLUSTER_EXIT_PX = 22/)
-  assert.match(annotations, /x = item\.anchorX \+ CONNECTOR_LENGTH_PX \* scale/)
-  assert.match(annotations, /a\.selected \|\| a\.hovered/)
-  assert.doesNotMatch(annotations, /leaderX|leaderY|side: 'left'/)
+test('完全相同的两个坐标在放大后自动左右展开', () => {
+  const points = [anchor('a'), anchor('b')]
+  const far = layoutSceneAnnotations(points, viewport(0.5))
+  assert.equal(far.filter((item) => item.visible).length, 1)
+  assert.equal(far.find((item) => item.visible).clusterCount, 2)
+  const near = layoutSceneAnnotations(points, viewport(1.4), far)
+  assert.deepEqual(near.map((item) => [item.visible, item.mode, item.side]), [[true, 'full', 'left'], [true, 'full', 'right']])
+  for (const label of near) {
+    assert.equal(label.y, 350)
+    assert.ok(Math.abs(Math.abs(label.x - 500) - 10 * label.scale) < 1e-9)
+  }
+  assert.equal(sceneAnnotationStyle(near[0]).transformOrigin, 'right center')
+  assert.match(sceneAnnotationStyle(near[0]).transform, /translate\(-100%, -50%\)/)
+  assert.equal(sceneAnnotationStyle(near[1]).transformOrigin, 'left center')
+})
+
+test('左右位置在选择、悬停、数据重排时保持稳定，缩放临界点不闪烁', () => {
+  const points = [anchor('a'), anchor('b')]
+  const expanded = layoutSceneAnnotations(points, viewport(1.4))
+  for (const state of [{}, { selected: true }, { hovered: true }]) {
+    const next = layoutSceneAnnotations([{ ...points[1], ...state }, points[0]], viewport(1.02), expanded)
+    assert.equal(next.find((item) => item.id === 'a').side, 'left')
+    assert.equal(next.find((item) => item.id === 'b').side, 'right')
+    assert.ok(next.every((item) => item.visible && item.mode === 'full'))
+  }
+  const collapsed = layoutSceneAnnotations(points, viewport(0.9), expanded)
+  assert.equal(collapsed.filter((item) => item.visible).length, 1)
+  const stillCollapsed = layoutSceneAnnotations(points, viewport(1.02), collapsed)
+  assert.equal(stillCollapsed.filter((item) => item.visible).length, 1)
+  const crossed = layoutSceneAnnotations([anchor('a', 501), anchor('b', 499)], viewport(1.4), expanded)
+  assert.equal(crossed.find((item) => item.id === 'a').side, 'left')
+  assert.equal(crossed.find((item) => item.id === 'b').side, 'right')
+})
+
+test('相近但不同的两点也能展开，且各自保留真实锚点', () => {
+  const points = [anchor('a', 500, 350), anchor('b', 501.2, 351.5)]
+  const layouts = layoutSceneAnnotations(points, viewport(1.4))
+  assert.ok(layouts.every((item) => item.visible && item.mode === 'full'))
+  layouts.forEach((item, index) => {
+    assert.equal(item.anchorX, points[index].anchorX)
+    assert.equal(item.y, points[index].anchorY)
+  })
+})
+
+test('三个同位任务的缩略图保留全部成员，选择任一项都能显示完整标签', () => {
+  const points = [anchor('a'), anchor('b'), anchor('c')]
+  const initial = layoutSceneAnnotations(points, viewport(1.4))
+  assert.deepEqual(initial.find((item) => item.visible).memberIds, ['a', 'b', 'c'])
+  for (const selected of points) {
+    const next = layoutSceneAnnotations(points.map((item) => ({ ...item, selected: item.id === selected.id })), viewport(1.4), initial)
+    const label = next.find((item) => item.id === selected.id)
+    assert.equal(label.visible, true)
+    assert.equal(label.mode, 'full')
+    const remaining = new Set(next.filter((item) => item.visible).flatMap((item) => item.memberIds))
+    assert.equal(remaining.size, 3, '其余成员仍可由缩略图访问')
+  }
+})
+
+test('边缘空间不足时保留可点击的聚合入口，不把标签挪离坐标', () => {
+  const points = [anchor('a', 18), anchor('b', 18)]
+  const labels = layoutSceneAnnotations(points, viewport(1.4))
+  const shown = labels.filter((item) => item.visible)
+  assert.equal(shown.length, 1)
+  assert.equal(shown[0].mode, 'cluster')
+  assert.equal(shown[0].clusterCount, 2)
+  assert.equal(shown[0].y, points[0].anchorY)
+  assert.equal(layoutSceneAnnotations([{ ...anchor('back'), visible: false }], viewport(2))[0].visible, false)
+})
+
+test('金星的表面及飞行器文字使用黑色描边，短线支持镜像', async () => {
+  const label = await source('../src/components/MissionSceneLabel.vue')
+  const scene = await source('../src/components/PlanetScene.vue')
+  assert.match(label, /has-connector\.on-left::before/)
+  assert.match(label, /-webkit-text-stroke: var\(--mission-label-text-stroke/)
+  assert.match(label, /paint-order: stroke fill/)
+  assert.match(scene, /\.planet-section\.venus\s*\{[^}]*--mission-label-text-stroke: 1\.5px #000/s)
 })
 
 test('地球、月球、火星与通用行星共用轨道及表面标注契约', async () => {
@@ -49,6 +138,9 @@ test('地球、月球、火星与通用行星共用轨道及表面标注契约',
     assert.match(scene, /surfaceMarkerWorldRadius/)
     assert.match(scene, /:mode="label\.mode"/)
     assert.match(scene, /cluster-count/)
+    assert.match(scene, /:side="label\.side"/)
+    assert.match(scene, /:cluster-items=/)
+    assert.match(scene, /@select-member=/)
     assert.doesNotMatch(scene, /SurfaceLeaderLayer|missionMarkerScale/)
   }
 
