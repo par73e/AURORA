@@ -12,7 +12,7 @@ defineProps<{
       v-for="label in labels"
       v-show="label.visible"
       :key="label.id"
-      :class="{ selected: label.selected }"
+      :class="{ selected: label.selected, observer: label.variant === 'observer', inactive: label.inactive }"
       :x1="label.anchorX"
       :y1="label.anchorY"
       :x2="label.leaderX"
@@ -39,5 +39,14 @@ defineProps<{
 .surface-leader-layer line.selected {
   stroke: var(--mission-accent, #72d7ff);
   stroke-width: 1.25;
+}
+.surface-leader-layer line.observer {
+  stroke: rgba(121, 227, 189, .48);
+}
+.surface-leader-layer line.observer.selected {
+  stroke: #79e3bd;
+}
+.surface-leader-layer line.inactive {
+  opacity: .34;
 }
 </style>

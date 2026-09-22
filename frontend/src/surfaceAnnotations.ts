@@ -4,6 +4,8 @@ export interface SurfaceAnchorProjection {
   anchorY: number
   visible: boolean
   selected?: boolean
+  variant?: 'default' | 'observer'
+  inactive?: boolean
 }
 
 export interface SurfaceAnnotationLayout extends SurfaceAnchorProjection {

@@ -71,7 +71,10 @@ function emitTexturesReady() {
 const canvasHost = ref<HTMLDivElement | null>(null)
 const labels = ref<Array<{ id: string; kind: 'spacecraft' | 'site'; name: string; x: number; y: number; visible: boolean }>>([])
 const siteLabels = ref<Array<SurfaceAnnotationLayout & { name: string }>>([])
-const observerLabel = ref<{ name: string; x: number; y: number; visible: boolean } | null>(null)
+const observerLabel = ref<(SurfaceAnnotationLayout & { name: string }) | null>(null)
+const surfaceLabels = computed<SurfaceAnnotationLayout[]>(() => observerLabel.value
+  ? [...siteLabels.value, observerLabel.value]
+  : siteLabels.value)
 /** 入场渐亮：进入边界（revealTick 递增）时置 true，0.2s 过渡；直接加载默认已亮 */
 const sceneRevealed = ref(!props.revealTick)
 /** 分阶段揭示是否已排程（revealTick 递增时才启动——与月球同基准：渐亮开始时计时） */
@@ -560,7 +563,7 @@ function rebuildObserverMarker() {
   const position = latLonToVector(
     props.observerTarget.latitude,
     props.observerTarget.longitude,
-    EARTH_RADIUS * 1.008,
+    EARTH_RADIUS,
   )
   observerMarker = new THREE.Group()
   observerMarker.position.copy(position)
@@ -570,12 +573,12 @@ function rebuildObserverMarker() {
   const baseRing = active ? 0.55 : 0.5
 
   const point = new THREE.Mesh(
-    new THREE.SphereGeometry(0.022, 18, 18),
+    new THREE.SphereGeometry(1, 18, 18),
     new THREE.MeshBasicMaterial({ color: 0x79e3bd, transparent: true, opacity: basePoint }),
   )
   point.material.userData.baseOpacity = basePoint
   const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.039, 0.045, 32),
+    new THREE.RingGeometry(1.77, 2.05, 32),
     new THREE.MeshBasicMaterial({ color: 0x79e3bd, transparent: true, opacity: baseRing, side: THREE.DoubleSide }),
   )
   ring.material.userData.baseOpacity = baseRing
@@ -688,36 +691,42 @@ function updateLabels() {
       selected: activeKey.value === `site:${site.id}`,
     })
   }
-  siteLabels.value = layoutSurfaceAnnotations(projectedSites, {
-    width,
-    height,
-    currentPlanetRadiusPx: projectedSphereRadiusPx(EARTH_RADIUS, camera.position.length(), 42, height),
-    referencePlanetRadiusPx: projectedSphereRadiusPx(EARTH_RADIUS, 7.6, 42, height),
-  })
+  const projectedSurfaces: Array<{
+    id: string
+    name: string
+    kind: 'site' | 'observer'
+    anchorX: number
+    anchorY: number
+    visible: boolean
+    selected: boolean
+    variant?: 'observer'
+    inactive?: boolean
+  }> = projectedSites.map((site) => ({ ...site, kind: 'site' as const }))
   if (observerMarker && props.observerTarget) {
     const position = observerMarker.getWorldPosition(labelWorldTmp)
     labelProjTmp.copy(position).project(camera)
     const outward = labelAuxTmp.copy(position).normalize()
     const towardCamera = labelCamTmp.copy(camera.position).sub(position).normalize()
-    const nextObserver = {
+    projectedSurfaces.push({
+      id: 'observer-location',
       name: props.observerTarget.label,
-      x: (labelProjTmp.x * 0.5 + 0.5) * width,
-      y: (-labelProjTmp.y * 0.5 + 0.5) * height,
+      kind: 'observer',
+      anchorX: (labelProjTmp.x * 0.5 + 0.5) * width,
+      anchorY: (-labelProjTmp.y * 0.5 + 0.5) * height,
       visible: labelProjTmp.z > -1 && labelProjTmp.z < 1 && outward.dot(towardCamera) > -0.05 && !isOccludedByEarth(position),
-    }
-    const cur = observerLabel.value
-    if (
-      !cur ||
-      cur.name !== nextObserver.name ||
-      Math.abs(cur.x - nextObserver.x) > 0.5 ||
-      Math.abs(cur.y - nextObserver.y) > 0.5 ||
-      cur.visible !== nextObserver.visible
-    ) {
-      observerLabel.value = nextObserver
-    }
-  } else if (observerLabel.value !== null) {
-    observerLabel.value = null
+      selected: props.observerActive !== false,
+      variant: 'observer',
+      inactive: props.observerActive === false,
+    })
   }
+  const surfaceLayouts = layoutSurfaceAnnotations(projectedSurfaces, {
+    width,
+    height,
+    currentPlanetRadiusPx: projectedSphereRadiusPx(EARTH_RADIUS, camera.position.length(), 42, height),
+    referencePlanetRadiusPx: projectedSphereRadiusPx(EARTH_RADIUS, 7.6, 42, height),
+  })
+  siteLabels.value = surfaceLayouts.filter((label) => label.kind === 'site')
+  observerLabel.value = surfaceLayouts.find((label) => label.kind === 'observer') ?? null
   // 图层关闭等导致条目收缩时移除多余标签（并重建索引）
   if (labels.value.length !== seen.size) {
     labels.value = labels.value.filter((l) => seen.has(`${l.kind}:${l.id}`))
@@ -1208,7 +1217,12 @@ function animate(time = 0) {
     }
     if (observerMarker) {
       const d = observerMarker.getWorldPosition(markerScaleTmp).distanceTo(camera.position)
-      const scale = Math.pow(d / refDistance, 0.6)
+      const scale = surfaceMarkerWorldRadius(
+        d,
+        42,
+        viewportHeight,
+        surfaceMarkerRadiusPx(currentPlanetRadiusPx, referencePlanetRadiusPx, props.observerActive !== false),
+      )
       const opacity = distOpacity(d) * fade
       let st = markerStates.get('observer')
       if (!st) markerStates.set('observer', (st = { scale: -1, opacity: -1 }))
@@ -1294,7 +1308,7 @@ onBeforeUnmount(() => {
         @click="localSelection = { kind: label.kind, id: label.id }; emit('select', { kind: label.kind, id: label.id })"
       />
     </template>
-    <SurfaceLeaderLayer v-show="props.layers.sites && elementsShown" :labels="siteLabels" />
+    <SurfaceLeaderLayer v-show="elementsShown" :labels="surfaceLabels" />
     <MissionSceneLabel
       v-for="label in siteLabels"
       v-show="label.visible && props.layers.sites && elementsShown"
@@ -1312,8 +1326,8 @@ onBeforeUnmount(() => {
       v-if="observerLabel"
       v-show="observerLabel.visible && elementsShown"
       class="scene-observer-label"
-      :class="{ inactive: props.observerActive === false }"
-      :style="{ transform: `translate(${observerLabel.x + 14}px, ${observerLabel.y - 11}px)` }"
+      :class="{ inactive: props.observerActive === false, compact: observerLabel.compact }"
+      :style="{ transform: `translate3d(${observerLabel.x}px, ${observerLabel.y}px, 0) scale(${observerLabel.scale})`, transformOrigin: observerLabel.side === 'right' ? 'left center' : 'right center' }"
     >
       <i />{{ observerLabel.name }}
     </div>
@@ -1423,11 +1437,12 @@ onBeforeUnmount(() => {
 .scene-label:hover { color: #dce9f0; border-color: rgba(124, 184, 216, .4); background: rgba(5, 14, 22, .8); }
 .scene-label.selected { color: #e8f4fb; border-color: rgba(114, 215, 255, .5); background: rgba(6, 17, 26, .82); }
 .scene-label.selected i { box-shadow: 0 0 8px #72d7ff; }
-.scene-observer-label { position: absolute; left: 0; top: 0; z-index: 3; display: flex; align-items: center; gap: 7px; padding: 5px 8px; border: 1px solid rgba(121, 227, 189, .34); background: rgba(3, 10, 17, .78); color: #c7eee1; font: 500 10px/1.2 var(--font-sans); white-space: nowrap; pointer-events: none; backdrop-filter: blur(8px); }
-.scene-observer-label::before { content: ''; position: absolute; right: 100%; top: 50%; width: 14px; height: 1px; background: rgba(121, 227, 189, .4); }
+.scene-observer-label { position: absolute; left: 0; top: 0; z-index: 5; display: flex; align-items: center; gap: 7px; padding: 5px 8px; border: 1px solid rgba(121, 227, 189, .34); background: rgba(3, 10, 17, .78); color: #c7eee1; font: 500 10px/1.2 var(--font-sans); white-space: nowrap; pointer-events: none; backdrop-filter: blur(8px); }
 .scene-observer-label i { width: 5px; height: 5px; border-radius: 50%; background: #79e3bd; box-shadow: 0 0 8px rgba(121, 227, 189, .65); }
 .scene-observer-label.inactive { opacity: .34; }
 .scene-observer-label.inactive i { box-shadow: none; }
+.scene-observer-label.compact { gap: 4px; min-height: 18px; max-width: 112px; padding: 2px 4px; border-color: transparent; background: transparent; backdrop-filter: none; overflow: hidden; text-overflow: ellipsis; }
+.scene-observer-label.compact i { display: none; }
 .texture-warning { position: absolute; z-index: 4; top: 82px; left: 50%; transform: translateX(-50%); color: #e6b985; font: 11px var(--font-mono); }
 @media (prefers-reduced-motion: reduce) {
   .scene-host.revealed.leaving-body { transition: opacity .1s linear .04s; }
