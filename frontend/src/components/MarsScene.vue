@@ -11,7 +11,7 @@
           <label><input v-model="terminatorEnabled" type="checkbox"><i class="terminator" />晨昏线</label>
         </div>
 
-        <div v-if="dataLoading || dataError" class="scene-data-state" :class="{ error: !!dataError, 'stage-late': !elementsVisible }" role="status">
+        <div v-if="dataLoading || dataError" class="scene-data-state" :class="{ error: !!dataError, 'stage-late': !elementsVisible, 'leaving-fade': leaving }" role="status">
           <span>{{ dataError || '正在读取火星飞行器与着陆点数据' }}</span>
           <button v-if="dataError" type="button" @click="loadSceneData">重新加载</button>
         </div>
@@ -22,6 +22,7 @@
           v-show="label.visible && spacecraftEnabled"
           :key="label.id"
           class="craft-label"
+          :leaving="leaving"
           :class="{ selected: selectedCraft === label.id, 'stage-late': !elementsVisible, 'leaving-fade': leaving }"
           :style="craftLabelStyle(label)"
           kind="spacecraft"
@@ -45,6 +46,7 @@
           v-show="label.visible && sitesEnabled"
           :key="label.id"
           class="craft-label site-label"
+          :leaving="leaving"
           :class="{ selected: selectedSite === label.id, 'stage-late': !elementsVisible, 'leaving-fade': leaving }"
           :data-icon="siteById(label.id)?.icon ?? 'lander'"
           :style="siteLabelStyle(label)"
@@ -203,6 +205,7 @@ import { fetchMarsLandingSites, fetchMarsSpacecraft } from '../api'
 import { primaryOperator } from '../operators'
 import { bilingualName } from '../bilingual'
 import { CATALOG_PAGE_SIZE } from '../catalog'
+import { entrySpinAngle, entrySpinFinished } from '../entrySpin'
 import { usePlanetSceneData } from '../composables/usePlanetSceneData'
 import MissionDetailPanel from './MissionDetailPanel.vue'
 import MissionSceneLabel from './MissionSceneLabel.vue'
@@ -293,17 +296,10 @@ const elementsVisible = ref(!props.enterFromSolar)
  *  直接加载/刷新默认全亮（无时间轴）。 */
 let elementsFade = props.enterFromSolar ? 0 : 1
 let elementsAnim: { from: number; to: number; startedAt: number; duration: number } | null = null
-/** 火星入场自转（自西向东 = 火星真实自转方向，绕自转轴）：
- *  转速 14.4°/s（≈1.45s 转正，与地球入场时长相当），渐入开始时从 -18° 偏角匀速转，
- *  角度剩减速位移时线性匀减速，终点 0°（初始姿态），全程线性无突快突慢 */
-const MARS_SPIN_SPEED = THREE.MathUtils.degToRad(14.4) // ≈14.4°/s，自西向东
-const MARS_SPIN_DECEL_MS = 400 // 匀减速段
-const MARS_SPIN_DECEL_SWEEP = (MARS_SPIN_SPEED * MARS_SPIN_DECEL_MS) / 2000 // ≈2.88°（匀减速位移）
-const MARS_SPIN_OFFSET = -THREE.MathUtils.degToRad(18) // 预设偏角（渐入前偏 18°，转正）
-let marsSpinPhase: 'spin' | 'stop' | 'done' = 'done'
+/** 火星从预置偏角自西向东转回初始姿态，时长与其余天体一致。 */
+const MARS_SPIN_OFFSET = -THREE.MathUtils.degToRad(14) // 预设偏角（渐入前偏 14°，转正）
+let marsSpinPhase: 'spin' | 'done' = 'done'
 let marsSpinStartAt = 0
-let marsSpinStopAt = 0
-let marsSpinStopFrom = 0
 /** 标记点距离补偿基准（默认相机距离 ≈ 9）：部分透视补偿（远小近大不过度） */
 const MARS_MARKER_REF_DISTANCE = 9
 /** 距离透明度（与地球统一）：远处（默认视角及更远）70% 半透明，放大到极限后渐变为实色 */
@@ -317,7 +313,7 @@ function animateElements(to: number, duration: number) {
 function updateElementsFade(): number {
   if (!elementsAnim) return elementsFade
   const t = Math.min(1, (performance.now() - elementsAnim.startedAt) / elementsAnim.duration)
-  const eased = 1 - Math.pow(1 - t, 3)
+  const eased = elementsAnim.to < elementsAnim.from ? t : 1 - Math.pow(1 - t, 3)
   elementsFade = elementsAnim.from + (elementsAnim.to - elementsAnim.from) * eased
   if (t >= 1) elementsAnim = null
   return elementsFade
@@ -333,27 +329,15 @@ function startMarsSpin() {
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   marsSpinPhase = reduced ? 'done' : 'spin'
   marsSpinStartAt = performance.now()
-  swingPivot.rotation.y = MARS_SPIN_OFFSET
+  if (reduced) swingPivot.rotation.y = 0
 }
-/** 入场自转推进：匀速（自西向东）→ 角度剩减速位移时线性匀减速 → 终点 0°（初始姿态） */
+/** 入场自转在 800ms 后停稳，并在同一帧揭示附属元素。 */
 function updateMarsSpin(now: number) {
   if (!swingPivot || marsSpinPhase === 'done') return
-  if (marsSpinPhase === 'spin') {
-    const t = Math.max(0, (now - marsSpinStartAt) / 1000)
-    swingPivot.rotation.y = MARS_SPIN_OFFSET + MARS_SPIN_SPEED * t
-    if (swingPivot.rotation.y >= -MARS_SPIN_DECEL_SWEEP) {
-      marsSpinPhase = 'stop'
-      marsSpinStopAt = now
-      // 对齐精确阈值：终点精确落在 0°（初始姿态），不受帧偏差/后台标签页帧迟到影响
-      marsSpinStopFrom = -MARS_SPIN_DECEL_SWEEP
-    }
-  } else {
-    const t = Math.min(1, (now - marsSpinStopAt) / MARS_SPIN_DECEL_MS)
-    swingPivot.rotation.y = marsSpinStopFrom + MARS_SPIN_SPEED * (MARS_SPIN_DECEL_MS / 1000) * (t - (t * t) / 2)
-    if (t >= 1) {
-      marsSpinPhase = 'done'
-      revealSceneElements()
-    }
+  swingPivot.rotation.y = entrySpinAngle(MARS_SPIN_OFFSET, marsSpinStartAt, now)
+  if (entrySpinFinished(marsSpinStartAt, now)) {
+    marsSpinPhase = 'done'
+    revealSceneElements()
   }
 }
 function revealSceneElements() {
@@ -637,6 +621,7 @@ onMounted(() => {
   // 自转轴：火星自西向东慢速自转（真实周期 24.6h，场景做慢速可见旋转）
   swingPivot = new THREE.Object3D()
   swingPivot.name = 'mars-swing-pivot'
+  swingPivot.rotation.y = props.enterFromSolar && !window.matchMedia('(prefers-reduced-motion: reduce)').matches ? MARS_SPIN_OFFSET : 0
   swingPivot.add(marsMesh)
   tiltPivot.add(swingPivot)
   scene.add(tiltPivot)
@@ -1073,21 +1058,18 @@ watch(spacecraftEnabled, (enabled) => {
 watch(orbitsEnabled, (enabled) => {
   for (const runtime of craftRuntimes) if (runtime.line) runtime.line.visible = enabled
 })
-// 返回太阳系：全部多余元素 300ms 一次性淡出（统一 elementsFade），只留裸火星；
+// 返回太阳系：3D 附属元素 250ms 淡出，DOM 标签 300ms 淡出，只留裸火星；
 // host 随后接力渐隐火星本体；离开被中止时 leaving 回 false → 恢复显示
 watch(
   () => props.leaving,
   (leaving) => {
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     if (!leaving) {
-      if (elementsFade < 1) {
-        elementsVisible.value = true
-        animateElements(1, reduced ? 1 : 300)
-      }
+      if (!elementsVisible.value && sceneRevealed.value && marsSpinPhase === 'done') revealSceneElements()
+      else if (elementsVisible.value && elementsFade < 1) animateElements(1, reduced ? 1 : 300)
       return
     }
-    elementsVisible.value = false
-    animateElements(0, reduced ? 1 : 300)
+    animateElements(0, reduced ? 1 : 250)
   },
 )
 
@@ -1537,6 +1519,7 @@ onBeforeUnmount(() => {
 .mars-readout { transition: opacity .3s cubic-bezier(.16, 1, .3, 1); }
 /* 返回渐隐：标签 300ms 淡出 */
 .craft-label.leaving-fade { opacity: 0 !important; pointer-events: none; }
+.scene-data-state.leaving-fade { opacity: 0; pointer-events: none; transition: opacity .3s ease; }
 
 /* 返回渐隐：工具栏与标签同节奏淡出，随后 host 接力渐隐火星本体 */
 .scene-toolbar.leaving-fade { opacity: 0; pointer-events: none; transition: opacity .3s ease; }

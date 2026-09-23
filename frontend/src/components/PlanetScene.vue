@@ -17,6 +17,7 @@
           v-show="label.visible && spacecraftEnabled"
           :key="label.id"
           class="planet-craft-label"
+          :leaving="leaving"
           :class="{ selected: selectedCraft === label.id, 'stage-late': !elementsVisible, 'leaving-fade': leaving }"
           :style="labelStyle(label)"
           kind="spacecraft"
@@ -39,6 +40,7 @@
           v-for="label in siteLabels"
           :key="label.id"
           class="planet-site-label"
+          :leaving="leaving"
           v-show="label.visible && sitesEnabled"
           :data-icon="label.icon"
           :class="{ selected: selectedSite === label.id, 'stage-late': !elementsVisible, 'leaving-fade': leaving }"
@@ -198,6 +200,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { solarTexture } from '../solar/textures'
+import { entrySpinAngle, entrySpinFinished } from '../entrySpin'
 import type { PlanetCraft, PlanetCraftTrajectory, PlanetCraftTrajectoryKind, PlanetPageConfig } from '../planetPages'
 import MissionDetailPanel from './MissionDetailPanel.vue'
 import MissionSceneLabel from './MissionSceneLabel.vue'
@@ -502,7 +505,7 @@ const sceneRevealed = ref(!props.enterFromSolar)
 const elementsVisible = ref(!props.enterFromSolar)
 let elementsFade = props.enterFromSolar ? 0 : 1
 let elementsAnimation: { from: number; to: number; startedAt: number; duration: number } | null = null
-const EXIT_ELEMENTS_MS = 300
+const EXIT_ELEMENTS_MS = 250
 let leavingStartedAt = 0
 
 function animateElements(to: number, duration: number) {
@@ -524,21 +527,13 @@ function exitElementsOpacity(now = performance.now()) {
   return THREE.MathUtils.clamp(1 - (now - leavingStartedAt) / EXIT_ELEMENTS_MS, 0, 1)
 }
 
-/** 入场自转（镜像火星 8014e13）：
- *  转速 14.4°/s（≈1.45s 转正），渐入开始时从 ±18° 偏角匀速转，
- *  角度剩减速位移时线性匀减速，终点 0°（初始姿态）。
- *  方向与太阳系场景一致（绕倾斜后的极轴正方向自转；金星的逆向由 177.4° 轴倾角表达）。 */
-const SPIN_SPEED = THREE.MathUtils.degToRad(14.4) // ≈14.4°/s
-const SPIN_DECEL_MS = 400 // 匀减速段
-const SPIN_DECEL_SWEEP = (SPIN_SPEED * SPIN_DECEL_MS) / 2000 // ≈2.88°（匀减速位移）
+/** 入场沿倾斜后的极轴转到最终姿态，时长与地球、月球和火星一致。 */
 // 预设偏角与速度方向相反（火星 -18° + 正速度 → 转回 0°）；金星 177.4° 轴倾角已表达逆向，
 // 自转方向与太阳系一致（spinSign 恒为 +1，入场与持续方向统一为正方向）
-const SPIN_OFFSET = -THREE.MathUtils.degToRad(18) * props.planet.spinSign
+const SPIN_OFFSET = -THREE.MathUtils.degToRad(14) * props.planet.spinSign
 const craftMotionStartedAt = performance.now()
-let spinPhase: 'spin' | 'stop' | 'done' = 'done'
+let spinPhase: 'spin' | 'done' = 'done'
 let spinStartAt = 0
-let spinStopAt = 0
-let spinStopFrom = 0
 
 watch(
   () => props.revealTick,
@@ -552,27 +547,15 @@ function startSpin() {
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   spinPhase = reduced ? 'done' : 'spin'
   spinStartAt = performance.now()
-  swingPivot.rotation.y = SPIN_OFFSET
+  if (reduced) swingPivot.rotation.y = 0
 }
-/** 入场自转推进：匀速（自西向东）→ 角度剩减速位移时线性匀减速 → 终点 0°（初始姿态） */
+/** 入场自转在 800ms 后停稳，并在同一帧揭示附属元素。 */
 function updateSpin(now: number) {
   if (!swingPivot || spinPhase === 'done') return
-  if (spinPhase === 'spin') {
-    const t = Math.max(0, (now - spinStartAt) / 1000)
-    swingPivot.rotation.y = SPIN_OFFSET + SPIN_SPEED * props.planet.spinSign * t
-    // 终点精确落在 0°（初始姿态）：进入减速段时对齐精确阈值，不受帧偏差/后台标签页帧迟到影响
-    if (Math.abs(swingPivot.rotation.y) <= SPIN_DECEL_SWEEP) {
-      spinPhase = 'stop'
-      spinStopAt = now
-      spinStopFrom = -SPIN_DECEL_SWEEP * props.planet.spinSign
-    }
-  } else {
-    const t = Math.min(1, (now - spinStopAt) / SPIN_DECEL_MS)
-    swingPivot.rotation.y = spinStopFrom + SPIN_SPEED * props.planet.spinSign * (SPIN_DECEL_MS / 1000) * (t - (t * t) / 2)
-    if (t >= 1) {
-      spinPhase = 'done'
-      revealSceneElements()
-    }
+  swingPivot.rotation.y = entrySpinAngle(SPIN_OFFSET, spinStartAt, now)
+  if (entrySpinFinished(spinStartAt, now)) {
+    spinPhase = 'done'
+    revealSceneElements()
   }
 }
 
@@ -829,6 +812,7 @@ onMounted(() => {
   tiltPivot.rotation.z = props.planet.axialTiltDeg * DEG
   swingPivot = new THREE.Object3D()
   swingPivot.name = `${props.planet.key}-swing-pivot`
+  swingPivot.rotation.y = props.enterFromSolar && !window.matchMedia('(prefers-reduced-motion: reduce)').matches ? SPIN_OFFSET : 0
   swingPivot.add(planetMesh)
 
   // 行星环：土星用环带纹理（径向条带 UV），天王星用程序化 13 细环纹理（模拟真实环系）。
@@ -1251,15 +1235,13 @@ watch(
   (leaving) => {
     if (!leaving) {
       leavingStartedAt = 0
-      if (elementsFade < 1) animateElements(1, window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 1 : 300)
-      elementsVisible.value = true
+      if (!elementsVisible.value && sceneRevealed.value && spinPhase === 'done') revealSceneElements()
+      else if (elementsVisible.value && elementsFade < 1) animateElements(1, window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 1 : 300)
       return
     }
     leavingStartedAt = performance.now()
-    elementsVisible.value = false
     elementsAnimation = null
     hoveredCraft.value = null
-    spinPhase = 'done' // 退出时若入场自转仍在进行，立即停住（避免返回过渡期间继续转）
   },
 )
 

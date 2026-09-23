@@ -3,31 +3,19 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { LaunchEvent, LaunchSite, SceneLayers, Selection, Spacecraft } from '../types'
-import { EARTH_DAY_TEXTURE_URL, EARTH_NIGHT_TEXTURE_URL, EARTH_RADIUS, latLonToVector, sampleOrbit, spacecraftPoint } from '../orbit/coordinates'
+import { EARTH_DAY_TEXTURE_URL, EARTH_NIGHT_TEXTURE_URL, EARTH_RADIUS, EARTH_TILT_QUATERNION, latLonToVector, sampleOrbit, spacecraftPoint } from '../orbit/coordinates'
 import { bilingualName } from '../bilingual'
 import MissionDetailPanel from './MissionDetailPanel.vue'
 import MissionSceneLabel from './MissionSceneLabel.vue'
 import type { MissionDetail } from '../missionPresentation'
 import { spacecraftFields } from '../missionPresentation'
+import { ENTRY_SPIN_DURATION_MS, entrySpinAngle, entrySpinFinished } from '../entrySpin'
 import type { SceneAnnotationLayout, SurfaceAnnotationLayout } from '../surfaceAnnotations'
 import { layoutSceneAnnotations, sceneAnnotationStyle, projectedSphereRadiusPx, orbitMarkerRadiusPx, sceneMarkerWorldRadius, surfaceMarkerRadiusPx, surfaceMarkerWorldRadius } from '../surfaceAnnotations'
 
-const EARTH_AXIAL_TILT_DEGREES = 23.44
-/** 地球入场自转：
- *  挂载即开始绕自转轴匀速转（黑幕期间用户看不到起点，渐亮时已在转），
- *  渐亮结束 + 停前等待后快速停下（400ms 线性匀减速，干脆不拖沓）。
- *  自西向东（与月球、火星及太阳系中的地球自转方向一致）。 */
-const SPIN_ANGULAR_SPEED = THREE.MathUtils.degToRad(14.1) // ≈14.1°/s，自西向东
-const SPIN_DECEL_DURATION_MS = 400 // 匀减速段：速度从 ω 线性降到 0（全程线性，无突快突慢）
-/** 匀减速段的总位移 = |ω|·T/2；角度到达该值时开始减速 → 终点精确落在 0°（南海正中） */
-const SPIN_DECEL_SWEEP = (Math.abs(SPIN_ANGULAR_SPEED) * SPIN_DECEL_DURATION_MS) / 2000
-/** 挂载时南海的预设偏角：黑幕中先把南海从中心转开 +15°，
- *  随后匀速自东向西转，转到剩 SPIN_DECEL_SWEEP 时线性匀减速，终点恰好 0°（南海正中） */
-const SPIN_INITIAL_OFFSET = -THREE.MathUtils.degToRad(15)
-const EARTH_TILT = new THREE.Quaternion().setFromAxisAngle(
-  new THREE.Vector3(0, 0, 1),
-  THREE.MathUtils.degToRad(EARTH_AXIAL_TILT_DEGREES),
-)
+/** 挂载时南海的预设偏角：黑幕中先把南海从中心转开 12°，
+ *  随后自西向东转，终点恰好 0°（南海正中） */
+const SPIN_INITIAL_OFFSET = -THREE.MathUtils.degToRad(12)
 
 const props = defineProps<{
   spacecraft: Spacecraft[]
@@ -41,6 +29,7 @@ const props = defineProps<{
   observerActive?: boolean
   dayNightEnabled?: boolean
   revealTick?: number
+  enterFromSolar?: boolean
   /** 离开信号：所有多余元素（自转轴/轨道/航天器/发射场/观测标记）统一淡出，只留裸地球 */
   leaving?: boolean
 }>()
@@ -229,26 +218,22 @@ let earthSystemGroup: THREE.Group | undefined
 let spinGroup: THREE.Group | undefined
 /** 减弱动态效果下不转（与太阳系 timeScale 同策略） */
 const spinReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-/** 入场自转状态机：spin（匀速）→ stop（线性匀减速）→ done（停住） */
-let spinPhase: 'spin' | 'stop' | 'done' = 'done'
+let spinPhase: 'spin' | 'done' = 'done'
 let spinStartAt = 0
-let spinStopAt = 0 // 匀减速开始时刻（角度到达 SPIN_DECEL_SWEEP 时触发）
-let spinStopFrom = 0 // 匀减速起点角度
-/** 元素入场揭示延迟（旋转 1.27s 停住 + ~50ms 缓冲） */
-const ELEMENTS_REVEAL_DELAY_MS = 1320
+/** 800ms 转动后留一帧余量，再显示轨道、标签和界面信息。 */
+const ELEMENTS_REVEAL_DELAY_MS = ENTRY_SPIN_DURATION_MS + 20
 
 function startEarthSpin() {
-  if (!spinGroup || spinPhase !== 'done') return
+  if (!spinGroup || spinPhase !== 'done' || !props.enterFromSolar) return
   spinPhase = spinReduced ? 'done' : 'spin'
   spinStartAt = performance.now()
-  spinGroup.rotation.y = spinReduced ? 0 : SPIN_INITIAL_OFFSET
 }
 /** 元素揭示是否已完成（进入时 false，全部淡入任务完成后 true；直接加载默认 true） */
 let elementsShown = true
 /** 退出淡出开始时刻（leaving 置 true 时记录，用于每帧元素可见度计算） */
 let elementsLeavingAt = 0
 /** 元素整体可见度（0..1）：observerMarker 每帧强制应用，任何重建都无法绕过隐藏。
- *  进入：revealTickAt 起延迟 1500ms 后 300ms 淡入到 1；退出：250ms 淡出到 0；
+ *  进入：revealTickAt 起延迟入场自转时长再加 20ms，随后 300ms 淡入到 1；退出：250ms 淡出到 0；
  *  直接加载（revealTickAt=0）只跳过入场，不得跳过退出；reduced 退出压缩为 1ms。 */
 function elementsFadeNow(now = performance.now()): number {
   if (props.leaving) {
@@ -394,12 +379,12 @@ function scheduleRestoreAll(duration: number) {
   revealTasks.push({ started: now, delay: 0, duration, entries })
 }
 
-/** 统一入场（revealTick 递增时调用）：裸地球先 0.3s 渐入（scene-host）并线性旋转至完全停住
- *  （≈1.45s），再缓冲 ~50ms 后自转轴/轨道/航天器/发射场/观测标记一次性 0.3s 淡入——
+/** 统一入场（revealTick 递增时调用）：裸地球先 0.3s 渐入（scene-host）并减速旋转至完全停住
+ *  （800ms），再缓冲约一帧后自转轴/轨道/航天器/发射场/观测标记一次性 0.3s 淡入——
  *  元素弹出严格发生在旋转静止之后。与月球页基准一致：从"遮罩渐亮开始"计时 */
 function scheduleRevealLayers() {
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  const delay = reduced ? 0 : ELEMENTS_REVEAL_DELAY_MS // 旋转 1.27s 停住 + ~50ms 缓冲，停稳后立刻弹出
+  const delay = reduced ? 0 : ELEMENTS_REVEAL_DELAY_MS
   const duration = reduced ? 1 : 300
   elementsShown = false // 进入揭示期：标签隐藏，3D 元素归零待淡入
   // 标签与 3D 淡入同刻出现：在淡入开始（delay）时置 true，而非淡入完成（delay+duration）后——
@@ -716,22 +701,22 @@ function setupScene() {
   scene = new THREE.Scene()
   earthSystemGroup = new THREE.Group()
   earthSystemGroup.name = 'earth-equatorial-frame'
-  earthSystemGroup.quaternion.copy(EARTH_TILT)
+  earthSystemGroup.quaternion.copy(EARTH_TILT_QUATERNION)
   scene.add(earthSystemGroup)
   // 自转参考系挂在倾斜参考系下：局部 Y = 自转轴（23.44° 倾角由父级承担）
   spinGroup = new THREE.Group()
   spinGroup.name = 'earth-spin-frame'
   earthSystemGroup.add(spinGroup)
-  // 挂载即开始入场自转（黑幕期间已在转，渐亮时用户看到转动中段）；
-  // 初始把南海从中心偏开 +15°（黑幕中不可见）——匀速转 + 线性匀减速，终点 0° 即南海正中；
-  // 直接加载（无 revealTick）同样生效：角度到达减速点时自动匀减速停下。reduced-motion 不转，保持 0°
+  // 黑幕中的第一帧就放在自转起点；揭幕后只向东转，不再从 0° 突然拨回 -15°。
+  // 直接打开 #earth 和 reduced-motion 均保持最终朝向 0°。
+  spinGroup.rotation.y = props.enterFromSolar && !spinReduced ? SPIN_INITIAL_OFFSET : 0
   if (revealTickAt > 0) startEarthSpin()
   camera = new THREE.PerspectiveCamera(42, host.clientWidth / host.clientHeight, 0.1, 400) // far 400：容纳 60–150 星空壳层
   // 默认视角：对准东亚大陆，以南海为中心（约 12°N, 115°E）；
   // 自转轴仍保持黄道面参考的 23.44° 倾角（公转平面平行关系不变）
   const defaultDirection = latLonToVector(12, 115, 1)
     .normalize()
-    .applyQuaternion(earthSystemGroup?.quaternion ?? EARTH_TILT)
+    .applyQuaternion(earthSystemGroup?.quaternion ?? EARTH_TILT_QUATERNION)
   camera.position.copy(defaultDirection.multiplyScalar(7.6))
 
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' })
@@ -920,17 +905,8 @@ function setupScene() {
   rebuildObserverMarker()
   // 分阶段入场：由 revealTick 递增触发（scheduleRevealLayers），与月球页同基准
   beginFocus()
-  if (!props.focusTarget) {
-    // 入场微转：无焦点目标时，从绕地球略微偏转的角度平滑回到默认视角（不硬切到当前位置）
-    const defaultPosition = camera.position.clone()
-    focusAnimation = {
-      from: defaultPosition.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), -0.5),
-      to: defaultPosition,
-      startedAt: performance.now(),
-      duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 1 : 1400,
-    }
-    if (controls) controls.enabled = false
-  }
+  // 默认相机保持静止：原先绕世界 Y 轴回摆 0.5 rad，会盖过地球向东自转，
+  // 视觉上先向西再扭回来。仅用户明确选择目标时才运行 beginFocus 的运镜。
   animate()
   // 构建完成后的兜底排程：仅当 watch 已触发（revealTickAt > 0）但被 axisGuide 判空跳过时补上——
   // 用 revealTickAt 作计时基准，避免从挂载时刻起算导致元素提前入场；
@@ -954,7 +930,7 @@ function beginFocus() {
     1,
   )
     .normalize()
-    .applyQuaternion(earthSystemGroup?.quaternion ?? EARTH_TILT)
+    .applyQuaternion(earthSystemGroup?.quaternion ?? EARTH_TILT_QUATERNION)
     // 不叠加自转相位：聚焦目标按自转终态（0° 南海相位）计算——
     // 自转进行中时 marker 与相机相向会合，自转结束即精确对准
   focusAnimation = {
@@ -974,7 +950,7 @@ function updateSun(date: Date) {
   const utcHours = date.getUTCHours() + date.getUTCMinutes() / 60 + date.getUTCSeconds() / 3600
   const subsolarLongitude = 180 - utcHours * 15
   const localSunDirection = latLonToVector(declination, subsolarLongitude, 12)
-  localSunDirection.applyQuaternion(earthSystemGroup?.quaternion ?? EARTH_TILT)
+  localSunDirection.applyQuaternion(earthSystemGroup?.quaternion ?? EARTH_TILT_QUATERNION)
   sunLight.position.copy(localSunDirection)
   nightLightsMaterial?.uniforms.sunDirection.value.copy(sunLight.position).normalize()
 }
@@ -1080,25 +1056,10 @@ function onPointerUp(event: PointerEvent) {
 
 function animate(time = 0) {
   frameId = requestAnimationFrame(animate)
-  // 入场自转：挂载即从 -15° 匀速转（自西向东，全程线性）→ 角度剩 SPIN_DECEL_SWEEP 时
-  // 线性匀减速（速度 ω→0）→ 终点精确 0°（南海正中）完全停住
+  // 共享 800ms 时间轴：只从 -12° 向东到 0°，相机保持静止。
   if (spinGroup && spinPhase !== 'done') {
-    if (spinPhase === 'spin') {
-      const t = Math.max(0, (time - spinStartAt) / 1000) // 首帧 time=0 时钳制为 0
-      spinGroup.rotation.y = SPIN_INITIAL_OFFSET + SPIN_ANGULAR_SPEED * t
-      // 角度锚定减速点：匀减速位移 = |ω|·T/2，此时开始减速，终点恰好落在 0°
-      if (spinGroup.rotation.y >= -SPIN_DECEL_SWEEP) {
-        spinPhase = 'stop'
-        spinStopAt = time
-        // 对齐精确阈值：终点精确 0°（南海正中），不受帧偏差/后台标签页帧迟到影响
-        spinStopFrom = -SPIN_DECEL_SWEEP
-      }
-    } else {
-      const t = Math.min(1, (time - spinStopAt) / SPIN_DECEL_DURATION_MS)
-      // 线性匀减速位移积分：θ = θ₀ + ω·T·(t − t²/2)，速度 ω(1−t) 线性降到 0
-      spinGroup.rotation.y = spinStopFrom + SPIN_ANGULAR_SPEED * (SPIN_DECEL_DURATION_MS / 1000) * (t - (t * t) / 2)
-      if (t >= 1) spinPhase = 'done'
-    }
+    spinGroup.rotation.y = entrySpinAngle(SPIN_INITIAL_OFFSET, spinStartAt, time)
+    if (entrySpinFinished(spinStartAt, time)) spinPhase = 'done'
   }
   if (focusAnimation && camera) {
     const progress = Math.min(1, (time - focusAnimation.startedAt) / focusAnimation.duration)
@@ -1273,6 +1234,7 @@ onBeforeUnmount(() => {
         v-if="label.kind === 'spacecraft'"
         v-show="label.visible && elementsShown"
         class="scene-spacecraft-label"
+        :leaving="leaving"
         kind="spacecraft"
         :name-zh="bName(props.spacecraft.find((item) => item.id === label.id)?.nameZh ?? label.name, props.spacecraft.find((item) => item.id === label.id)?.nameEn ?? '').primary"
         :name-en="bName(props.spacecraft.find((item) => item.id === label.id)?.nameZh ?? label.name, props.spacecraft.find((item) => item.id === label.id)?.nameEn ?? '').secondary"
@@ -1293,6 +1255,7 @@ onBeforeUnmount(() => {
       v-show="label.visible && props.layers.sites && elementsShown"
       :key="`site:${label.id}`"
       class="scene-site-label"
+      :leaving="leaving"
       kind="surface"
       :name-zh="bName(props.sites.find((item) => item.id === label.id)?.nameZh ?? label.name, props.sites.find((item) => item.id === label.id)?.nameEn ?? '').primary"
       :name-en="bName(props.sites.find((item) => item.id === label.id)?.nameZh ?? label.name, props.sites.find((item) => item.id === label.id)?.nameEn ?? '').secondary"

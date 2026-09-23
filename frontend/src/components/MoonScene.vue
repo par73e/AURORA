@@ -11,7 +11,7 @@
           <label><input v-model="terminatorEnabled" type="checkbox"><i class="terminator" />晨昏线</label>
         </div>
 
-        <div v-if="dataLoading || dataError" class="scene-data-state" :class="{ error: !!dataError, 'stage-late': !elementsVisible }" role="status">
+        <div v-if="dataLoading || dataError" class="scene-data-state" :class="{ error: !!dataError, 'stage-late': !elementsVisible, 'leaving-fade': leaving }" role="status">
           <span>{{ dataError || '正在读取月球飞行器与着陆点数据' }}</span>
           <button v-if="dataError" type="button" @click="loadSceneData">重新加载</button>
         </div>
@@ -22,6 +22,7 @@
           v-show="label.visible && spacecraftEnabled"
           :key="label.id"
           class="craft-label"
+          :leaving="leaving"
           :class="{ selected: selectedCraft === label.id, 'stage-late': !elementsVisible, 'leaving-fade': leaving }"
           :style="craftLabelStyle(label)"
           kind="spacecraft"
@@ -45,6 +46,7 @@
           v-show="label.visible && sitesEnabled"
           :key="label.id"
           class="craft-label site-label"
+          :leaving="leaving"
           :class="{ selected: selectedSite === label.id, 'stage-late': !elementsVisible, 'leaving-fade': leaving }"
           :data-icon="siteById(label.id)?.icon ?? 'lander'"
           :style="siteLabelStyle(label)"
@@ -202,6 +204,7 @@ import { fetchMoonLandingSites, fetchMoonSpacecraft } from '../api'
 import { primaryOperator } from '../operators'
 import { bilingualName } from '../bilingual'
 import { CATALOG_PAGE_SIZE } from '../catalog'
+import { entrySpinAngle, entrySpinFinished } from '../entrySpin'
 import { usePlanetSceneData } from '../composables/usePlanetSceneData'
 import MissionDetailPanel from './MissionDetailPanel.vue'
 import MissionSceneLabel from './MissionSceneLabel.vue'
@@ -299,24 +302,17 @@ watch(
 )
 
 const sceneRevealed = ref(!props.enterFromSolar)
-/** 元素整体可见标记（DOM 标签用）：星球渐入完成后置 true；退出时立即 false */
+/** 元素入场揭示标记（DOM 标签用）：退出时保持原值，由 leaving-fade 完成淡出。 */
 const elementsVisible = ref(!props.enterFromSolar)
 /** 统一元素淡入淡出进度（0..1）：1 = 全部元素可见；0 = 只剩裸月球。
- *  进入：星球渐入完成后 0→1（300ms）；退出：leaving 时 1→0（300ms）。
+ *  进入：星球渐入完成后 0→1（300ms）；退出：leaving 时 1→0（250ms，与地球标记一致）。
  *  直接加载/刷新默认全亮（无时间轴）。 */
 let elementsFade = props.enterFromSolar ? 0 : 1
 let elementsAnim: { from: number; to: number; startedAt: number; duration: number } | null = null
-/** 月球入场慢转（自西向东 = 月球真实自转方向，慢转）：
- *  转速 9.4°/s（地球的 2/3，比例 1.5:1 参照真实方向），渐入开始时从 -15° 偏角匀速转，
- *  角度剩减速位移时线性匀减速，终点 0° = 潮汐锁定位（近地面朝相机），全程线性无突快突慢 */
-const MOON_SPIN_SPEED = THREE.MathUtils.degToRad(9.4) // ≈9.4°/s，自西向东
-const MOON_SPIN_DECEL_MS = 400 // 匀减速段
-const MOON_SPIN_DECEL_SWEEP = (MOON_SPIN_SPEED * MOON_SPIN_DECEL_MS) / 2000 // ≈1.88°（匀减速位移）
-const MOON_SPIN_OFFSET = -THREE.MathUtils.degToRad(15) // 预设偏角（渐入前偏 15°，转正）
-let moonSpinPhase: 'spin' | 'stop' | 'done' = 'done'
+/** 月球从预置偏角自西向东转回潮汐锁定位，时长与其余天体一致。 */
+const MOON_SPIN_OFFSET = -THREE.MathUtils.degToRad(12) // 预设偏角（渐入前偏 12°，转正）
+let moonSpinPhase: 'spin' | 'done' = 'done'
 let moonSpinStartAt = 0
-let moonSpinStopAt = 0
-let moonSpinStopFrom = 0
 /** 标记点距离补偿基准（默认相机距离 ≈ 9）：部分透视补偿（远小近大不过度） */
 const MOON_MARKER_REF_DISTANCE = 9
 /** 距离透明度（与地球统一）：远处（默认视角及更远）70% 半透明，放大到极限后渐变为实色 */
@@ -330,7 +326,7 @@ function animateElements(to: number, duration: number) {
 function updateElementsFade(): number {
   if (!elementsAnim) return elementsFade
   const t = Math.min(1, (performance.now() - elementsAnim.startedAt) / elementsAnim.duration)
-  const eased = 1 - Math.pow(1 - t, 3)
+  const eased = elementsAnim.to < elementsAnim.from ? t : 1 - Math.pow(1 - t, 3)
   elementsFade = elementsAnim.from + (elementsAnim.to - elementsAnim.from) * eased
   if (t >= 1) elementsAnim = null
   return elementsFade
@@ -346,27 +342,15 @@ function startMoonSpin() {
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   moonSpinPhase = reduced ? 'done' : 'spin'
   moonSpinStartAt = performance.now()
-  swingPivot.rotation.y = MOON_SPIN_OFFSET
+  if (reduced) swingPivot.rotation.y = 0
 }
-/** 入场慢转推进：匀速（自西向东）→ 角度剩减速位移时线性匀减速 → 终点 0°（潮汐锁定位） */
+/** 入场自转在 800ms 后停稳，并在同一帧揭示附属元素。 */
 function updateMoonSpin(now: number) {
   if (!swingPivot || moonSpinPhase === 'done') return
-  if (moonSpinPhase === 'spin') {
-    const t = Math.max(0, (now - moonSpinStartAt) / 1000)
-    swingPivot.rotation.y = MOON_SPIN_OFFSET + MOON_SPIN_SPEED * t
-    if (swingPivot.rotation.y >= -MOON_SPIN_DECEL_SWEEP) {
-      moonSpinPhase = 'stop'
-      moonSpinStopAt = now
-      // 对齐精确阈值：终点精确落在 0°（潮汐锁定位），不受帧偏差/后台标签页帧迟到影响
-      moonSpinStopFrom = -MOON_SPIN_DECEL_SWEEP
-    }
-  } else {
-    const t = Math.min(1, (now - moonSpinStopAt) / MOON_SPIN_DECEL_MS)
-    swingPivot.rotation.y = moonSpinStopFrom + MOON_SPIN_SPEED * (MOON_SPIN_DECEL_MS / 1000) * (t - (t * t) / 2)
-    if (t >= 1) {
-      moonSpinPhase = 'done'
-      revealSceneElements()
-    }
+  swingPivot.rotation.y = entrySpinAngle(MOON_SPIN_OFFSET, moonSpinStartAt, now)
+  if (entrySpinFinished(moonSpinStartAt, now)) {
+    moonSpinPhase = 'done'
+    revealSceneElements()
   }
 }
 function revealSceneElements() {
@@ -636,6 +620,7 @@ onMounted(() => {
   // 入场慢转轴：自西向东转回潮汐锁定位（不直接动 quaternion，避免覆盖潮汐锁定朝向）
   swingPivot = new THREE.Object3D()
   swingPivot.name = 'moon-swing-pivot'
+  swingPivot.rotation.y = props.enterFromSolar && !window.matchMedia('(prefers-reduced-motion: reduce)').matches ? MOON_SPIN_OFFSET : 0
   swingPivot.add(moonMesh)
   scene.add(swingPivot)
 
@@ -1056,21 +1041,18 @@ watch(spacecraftEnabled, (enabled) => {
 watch(orbitsEnabled, (enabled) => {
   for (const runtime of craftRuntimes) if (runtime.line) runtime.line.visible = enabled
 })
-// 返回太阳系：全部多余元素 300ms 一次性淡出（统一 elementsFade），只留裸月球；
+// 返回太阳系：3D 附属元素 250ms 淡出，DOM 标签 300ms 淡出，只留裸月球；
 // host 随后接力渐隐月球本体；离开被中止时 leaving 回 false → 恢复显示
 watch(
   () => props.leaving,
   (leaving) => {
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     if (!leaving) {
-      if (elementsFade < 1) {
-        elementsVisible.value = true
-        animateElements(1, reduced ? 1 : 300)
-      }
+      if (!elementsVisible.value && sceneRevealed.value && moonSpinPhase === 'done') revealSceneElements()
+      else if (elementsVisible.value && elementsFade < 1) animateElements(1, reduced ? 1 : 300)
       return
     }
-    elementsVisible.value = false
-    animateElements(0, reduced ? 1 : 300)
+    animateElements(0, reduced ? 1 : 250)
   },
 )
 
@@ -1512,6 +1494,7 @@ onBeforeUnmount(() => {
 .moon-readout { transition: opacity .3s cubic-bezier(.16, 1, .3, 1); }
 /* 返回渐隐：标签 300ms 淡出 */
 .craft-label.leaving-fade { opacity: 0 !important; pointer-events: none; }
+.scene-data-state.leaving-fade { opacity: 0; pointer-events: none; transition: opacity .3s ease; }
 
 /* 返回渐隐：工具栏与标签同节奏淡出，随后 host 接力渐隐月球本体 */
 .scene-toolbar.leaving-fade { opacity: 0; pointer-events: none; transition: opacity .3s ease; }

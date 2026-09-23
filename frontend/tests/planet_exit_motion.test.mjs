@@ -46,6 +46,7 @@ test('地球直接进入时仍优先执行飞行器退出淡出', async () => {
   assert.ok(leavingGuard >= 0 && leavingGuard < directLoadGuard, '退出透明度必须优先于直接加载的入场短路')
   assert.match(orbitSource, /class="scene-spacecraft-label"/)
   assert.match(styleSource, /\.orbit-section\.leaving \.scene-spacecraft-label,[\s\S]*?opacity: 0;/)
+  assert.match(styleSource, /\.orbit-section\.leaving \.scene-site-label,[\s\S]*?opacity: 0;/)
 })
 
 test('太阳系返回镜头只保留一个来源，旧行星状态不能污染后续返回', async () => {

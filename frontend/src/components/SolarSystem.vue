@@ -63,6 +63,9 @@ let scene: SolarSystemScene | undefined
 let flightPlanet: 'moon' | 'mars' | 'venus' | 'saturn' | 'jupiter' | 'mercury' | 'uranus' | 'neptune' | 'sun' | null = null
 /** 组件已卸载标记（fetch 回调守卫，避免向已 dispose 的 scene 写数据） */
 let unmounted = false
+let resolveUnmounted!: () => void
+const unmountedPromise = new Promise<void>((resolve) => { resolveUnmounted = resolve })
+let texturePreparation: Promise<void> | null = null
 let probesRequest: AbortController | undefined
 /** 深空探测器（JPL Horizons 日同步，/api/v1/voyage/probes） */
 const probes = ref<DeepSpaceProbe[]>([])
@@ -365,6 +368,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   unmounted = true
+  resolveUnmounted()
   probesRequest?.abort()
   probesRequest = undefined
   window.removeEventListener('keydown', onKeydown)
@@ -447,7 +451,20 @@ function toggleSpacecraftVisibility() {
   spacecraftEnabled.value = !spacecraftEnabled.value
 }
 
-defineExpose({ resetView })
+/** App 在封面已收暗后调用：等待图像并上传到当前画布，随后留两帧完成合成。 */
+function waitForTexturesReady(): Promise<void> {
+  if (!texturePreparation) {
+    texturePreparation = (async () => {
+      await Promise.race([solarTexturesReady(), unmountedPromise])
+      if (unmounted || !scene) return
+      scene.prepareTextures()
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+    })()
+  }
+  return texturePreparation
+}
+
+defineExpose({ resetView, waitForTexturesReady })
 </script>
 
 <template>

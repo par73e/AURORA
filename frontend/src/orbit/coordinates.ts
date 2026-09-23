@@ -141,9 +141,9 @@ function closeRing(points: THREE.Vector3[]): THREE.Vector3[] {
 
 export const AU_KM = 149_597_870.7
 
-/** 场景惯性系中的地球轴倾（与 OrbitScene EARTH_TILT 同轴角，保证太阳方向一致） */
+/** 与太阳系总览一致：地球极轴绕 X 倾斜，指向 +Z；地表仍绕局部 +Y 自西向东转。 */
 export const EARTH_TILT_QUATERNION = new THREE.Quaternion().setFromAxisAngle(
-  new THREE.Vector3(0, 0, 1),
+  new THREE.Vector3(1, 0, 0),
   THREE.MathUtils.degToRad(23.44),
 )
 

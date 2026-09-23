@@ -14,6 +14,7 @@ const props = withDefaults(defineProps<{
   mode?: 'full' | 'compact' | 'cluster'
   clusterCount?: number
   connector?: boolean
+  leaving?: boolean
   side?: 'left' | 'right'
   clusterItems?: Array<{ id: string; name: string }>
 }>(), {
@@ -91,6 +92,7 @@ function selectMember(id: string) {
 }
 
 watch(() => `${props.mode}:${props.clusterItems.map((item) => item.id).join(',')}`, closeMenu)
+watch(() => props.leaving, (leaving) => { if (leaving) closeMenu() })
 onBeforeUnmount(closeMenu)
 
 function isCompact() {

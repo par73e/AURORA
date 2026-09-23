@@ -23,7 +23,7 @@ test('太阳系在封面后预挂载，双向都只在完全变黑后揭示目�
   assert.match(enterFlow, /waitUntilFullBlack\(resolve, reduced \? 0 : SOLAR_HOME_ENTRY_DWELL_MS\)/)
   assert.match(enterFlow, /const solarReady = \(async \(\) => \{[\s\S]*?await setSurface\('solar-system'\)[\s\S]*?requestAnimationFrame\(\(\) => requestAnimationFrame/)
   assert.doesNotMatch(enterFlow, /const solarReady = \(async \(\) => \{[\s\S]*?await loadSolarSystem\(\)/)
-  assert.match(enterFlow, /await Promise\.all\(\[solarReady, fullBlack\]\)[\s\S]*?coverLingering\.value = false[\s\S]*?veilActive\.value = false/)
+  assert.match(enterFlow, /await Promise\.all\(\[solarReady, fullBlack, solarComponentReady\]\)[\s\S]*?await solarSystemRef\.value\?\.waitForTexturesReady\?\.\(\)[\s\S]*?solarEntryFly\.value = true[\s\S]*?coverLingering\.value = false[\s\S]*?veilActive\.value = false/)
   assert.match(exitFlow, /auroraCoverRef\.value\?\.resetLaunchState\(\)[\s\S]*?solarHomeLeaving\.value = true/)
   assert.match(exitFlow, /veilDuration\.value = reduced \? '0\.04s' : SOLAR_HOME_EXIT_VEIL_SECONDS/)
   assert.match(exitFlow, /veilActive\.value = true[\s\S]*?waitUntilFullBlack\(resolve, reduced \? 0 : SOLAR_HOME_EXIT_DWELL_MS\)[\s\S]*?await setSurface\('cover'\)[\s\S]*?coverHomeRevealing\.value = true[\s\S]*?veilActive\.value = false/)

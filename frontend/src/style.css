@@ -588,6 +588,7 @@ button { cursor: pointer; }
    直接挂载渲染（黑幕中完成），用户滚动到时已就绪 */
 .orbit-section .scene-label,
 .orbit-section .scene-spacecraft-label,
+.orbit-section .scene-site-label,
 .orbit-section .scene-observer-label,
 .orbit-section .scene-toolbar,
 .orbit-section .scene-location,
@@ -598,6 +599,7 @@ button { cursor: pointer; }
 }
 .orbit-section.elements-revealed .scene-label,
 .orbit-section.elements-revealed .scene-spacecraft-label,
+.orbit-section.elements-revealed .scene-site-label,
 .orbit-section.elements-revealed .scene-observer-label,
 .orbit-section.elements-revealed .scene-toolbar,
 .orbit-section.elements-revealed .scene-location,
@@ -607,13 +609,14 @@ button { cursor: pointer; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .orbit-section .scene-label, .orbit-section .scene-spacecraft-label, .orbit-section .scene-observer-label, .orbit-section .scene-toolbar,
+  .orbit-section .scene-label, .orbit-section .scene-spacecraft-label, .orbit-section .scene-site-label, .orbit-section .scene-observer-label, .orbit-section .scene-toolbar,
   .orbit-section .scene-location, .orbit-section .scene-readout, .orbit-section .system-message { transition: none; }
 }
 
 /* ORBIT 离开第一拍：页面信息淡出；第二拍由 OrbitScene host 渐隐地球本体 */
 .orbit-section.leaving .scene-label,
 .orbit-section.leaving .scene-spacecraft-label,
+.orbit-section.leaving .scene-site-label,
 .orbit-section.leaving .scene-observer-label,
 .orbit-section.leaving .scene-toolbar,
 .orbit-section.leaving .scene-location,
@@ -627,6 +630,7 @@ button { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   .orbit-section.leaving .scene-label,
   .orbit-section.leaving .scene-spacecraft-label,
+  .orbit-section.leaving .scene-site-label,
   .orbit-section.leaving .scene-observer-label,
   .orbit-section.leaving .scene-toolbar,
   .orbit-section.leaving .scene-location,

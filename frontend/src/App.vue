@@ -68,9 +68,11 @@ type AppSurface = 'cover' | 'sky' | 'solar-system' | 'orbit' | 'moon' | 'mars' |
 // 初始页面：纯 hash 决定（无 hash = 首页；#earth/#moon/#solar-system = 对应页）。
 // 不用 sessionStorage 恢复——打开网站应总是首页（上次会话的页面残留会导致"打开就是 #solar-system"）
 const surface = ref<AppSurface>(surfaceFromHash())
-const solarSystemRef = ref<{ resetView?: () => void } | null>(null)
+const solarSystemRef = ref<{ resetView?: () => void; waitForTexturesReady?: () => Promise<void> } | null>(null)
 /** 地球界面"进入边界"信号：遮罩开始淡出时递增，OrbitScene 据此播放入场渐亮 */
 const orbitRevealTick = ref(0)
+/** 仅太阳系转入地球时预置入场自转；直接打开 #earth 保持最终朝向。 */
+const orbitEnterFromSolar = ref(false)
 const headerExpanded = ref(true)
 /** 工具栏/位置按钮：被页头"推下/推回"——rAF 逐帧插值动画。
  *  CSS transition 在该环境被系统减弱动态效果禁用（跳变），JS 动画不受影响 */
@@ -779,6 +781,7 @@ function timeOnly(value: Date | string) {
 async function setSurface(nextSurface: AppSurface) {
   // 入场动画是一次性的上升沿触发。回到首页先复位，下一次点击才能再次从 false 切到 true。
   if (nextSurface === 'cover') solarEntryFly.value = false
+  if (nextSurface !== 'orbit') orbitEnterFromSolar.value = false
   surface.value = nextSurface
   document.title = nextSurface === 'cover'
     ? 'AURORA'
@@ -888,12 +891,12 @@ function enterSolarSystem() {
   veilTarget.value = 'solar-system'
   veilDuration.value = reduced ? '0.04s' : SOLAR_HOME_ENTRY_VEIL_SECONDS
   veilActive.value = true
+  const solarComponentReady = loadSolarSystem()
 
   void (async () => {
     const solarReady = (async () => {
       if (!isCurrentNavigation(generation)) return
-      // 不等待异步组件：先切换到已具备背景与页头的太阳系外壳，
-      // 组件继续在外壳内解析，黑幕时长不再受模块/WebGL 就绪速度影响。
+      // 先切换到封面后方的太阳系外壳，贴图上传要等黑幕完全盖住后才开始。
       await setSurface('solar-system')
       // v-if 条件由 prewarming 平滑切换为正式 surface，不卸载或重建 Three.js 实例。
       solarHomePrewarming.value = false
@@ -902,11 +905,14 @@ function enterSolarSystem() {
     })()
     const fullBlack = new Promise<void>((resolve) => waitUntilFullBlack(resolve, reduced ? 0 : SOLAR_HOME_ENTRY_DWELL_MS))
     try {
-      await Promise.all([solarReady, fullBlack])
+      await Promise.all([solarReady, fullBlack, solarComponentReady])
     } catch {
       cancelPendingTransition()
       return
     }
+    if (!isCurrentNavigation(generation)) return
+    await nextTick()
+    await solarSystemRef.value?.waitForTexturesReady?.()
     if (!isCurrentNavigation(generation)) return
     solarHomeEntering.value = true
     solarEntryFly.value = true
@@ -1193,6 +1199,7 @@ function onEarthFlyZoom() {
 function onEarthSelect(generation = navigationGeneration) {
   if (!isCurrentNavigation(generation) || surface.value !== 'solar-system') return
   veilActive.value = true
+  orbitEnterFromSolar.value = true
   void setSurface('orbit')
   let revealDone = false
   const reveal = () => {
@@ -1785,6 +1792,7 @@ function onPopState() {
     void setSurface('sky')
   } else if (target === 'orbit') {
     cancelPendingTransition()
+    orbitEnterFromSolar.value = false
     void setSurface('orbit')
   } else if (target === 'moon') {
     cancelPendingTransition()
@@ -2160,6 +2168,7 @@ onBeforeUnmount(() => {
               :observer-active="observerViewActive"
               :day-night-enabled="dayNightEnabled"
               :reveal-tick="orbitRevealTick"
+              :enter-from-solar="orbitEnterFromSolar"
               :leaving="orbitSectionLeaving"
               @textures-ready="onOrbitSceneReady"
               @elements-reveal="onOrbitElementsReveal"

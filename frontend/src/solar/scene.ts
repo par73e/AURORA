@@ -212,6 +212,8 @@ export class SolarSystemScene {
   private hoverSelectedId: string | null = null
   /** 深空探测器运行时（标记点 + 轨迹线 + 位置插值） */
   private probeRuntimes = new Map<string, ProbeRuntime>()
+  /** 接口可能在运镜中返回；延后创建几何体，避免随机打断可见的镜头推进。 */
+  private pendingProbes: ProbeData[] | null = null
   /** 点击选中的探测器（其轨道保持点亮；点击空白/关闭面板时清除） */
   private probeSelectedId: string | null = null
   private probeMeshes: THREE.Mesh[] = []
@@ -338,6 +340,15 @@ export class SolarSystemScene {
     this.renderer.render(this.scene, this.camera)
 
     this.animate()
+  }
+
+  /** 封面仍遮挡太阳系时，将已加载的纹理送入当前 WebGL 上下文。 */
+  prepareTextures() {
+    if (this.disposed) return
+    for (const texture of this.textures) {
+      if (texture.image) this.renderer.initTexture(texture)
+    }
+    this.renderer.render(this.scene, this.camera)
   }
 
   dispose() {
@@ -938,6 +949,14 @@ export class SolarSystemScene {
 
   /** 设置深空探测器数据（SolarSystem.vue 挂载后 fetch 传入）：构建标记点、轨迹线与标签 */
   setProbes(probes: ProbeData[]) {
+    if (this.flyState) {
+      this.pendingProbes = probes
+      return
+    }
+    this.installProbes(probes)
+  }
+
+  private installProbes(probes: ProbeData[]) {
     // 清空旧数据并释放其资源（防御：重复调用时先移除旧对象）
     for (const runtime of this.probeRuntimes.values()) {
       this.scene.remove(runtime.marker)
@@ -1013,6 +1032,13 @@ export class SolarSystemScene {
     }
     this.updateProbes()
     this.updateLabels()
+  }
+
+  private flushPendingProbes() {
+    if (!this.pendingProbes || this.disposed || this.flyState) return
+    const probes = this.pendingProbes
+    this.pendingProbes = null
+    this.installProbes(probes)
   }
 
   setProbesVisible(visible: boolean) {
@@ -1695,6 +1721,7 @@ export class SolarSystemScene {
     if (this.flyState) {
       this.flyState = undefined
       this.controls.enabled = true
+      this.flushPendingProbes()
     }
   }
 
@@ -1796,6 +1823,7 @@ export class SolarSystemScene {
       // 白名单：仅 flyToEarth/flyToMoon（enterPlanet）完成时触发进入回调——
       // 入场推镜/模式切换构图飞行/返回运镜一律不得触发（否则自动进入地球）
       if (fly.enterPlanet) this.callbacks.onFlyComplete?.()
+      else this.flushPendingProbes()
     }
   }
 
