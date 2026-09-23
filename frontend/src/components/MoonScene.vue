@@ -1233,6 +1233,7 @@ function updateLabels() {
     height,
     currentPlanetRadiusPx: projectedSphereRadiusPx(MOON_RADIUS, camera.position.length(), MOON_FOV, height),
     referencePlanetRadiusPx: projectedSphereRadiusPx(MOON_RADIUS, MOON_MARKER_REF_DISTANCE, MOON_FOV, height),
+    clusterOverlappingLabels: true,
   }
   craftLabels.value = layoutSceneAnnotations(next, annotationViewport, craftLabels.value)
 

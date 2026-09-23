@@ -32,6 +32,8 @@ export interface SceneAnnotationViewport {
   height: number
   currentPlanetRadiusPx: number
   referencePlanetRadiusPx: number
+  /** 密集表面目标在远景时按紧凑标签占用空间提前聚合。 */
+  clusterOverlappingLabels?: boolean
 }
 
 export type SurfaceAnnotationViewport = SceneAnnotationViewport
@@ -48,6 +50,9 @@ const CLUSTER_ENTER_PX = 16
 const CLUSTER_EXIT_PX = 22
 const PAIR_EXPAND_RATIO = 1.1
 const PAIR_COLLAPSE_RATIO = 0.95
+const DENSE_CLUSTER_ENTER_RATIO = 0.86
+const DENSE_CLUSTER_EXIT_RATIO = 0.98
+const DENSE_CLUSTER_GAP_PX = 4
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
@@ -160,7 +165,7 @@ export function layoutSceneAnnotations<T extends SceneAnchorProjection>(
   const previousById = new Map(previous.map((item) => [item.id, item]))
   const previousClusterById = new Map<string, Set<string>>()
   for (const item of previous) {
-    if (item.memberIds.length < 2) continue
+    if (item.mode !== 'cluster' || item.memberIds.length < 2) continue
     const members = new Set(item.memberIds)
     for (const id of members) previousClusterById.set(id, members)
   }
@@ -188,7 +193,13 @@ export function layoutSceneAnnotations<T extends SceneAnchorProjection>(
       if (b.variant === 'observer') continue
       const wasTogether = previousClusterById.get(a.id)?.has(b.id) ?? false
       const threshold = (wasTogether ? CLUSTER_EXIT_PX : CLUSTER_ENTER_PX) * scale
-      if (distance(a, b) <= threshold) union(a.id, b.id)
+      const denseRatioThreshold = wasTogether ? DENSE_CLUSTER_EXIT_RATIO : DENSE_CLUSTER_ENTER_RATIO
+      const compactBoxesWouldOverlap = Math.abs(a.anchorX - b.anchorX) < (COMPACT_WIDTH + DENSE_CLUSTER_GAP_PX) * scale
+        && Math.abs(a.anchorY - b.anchorY) < (COMPACT_HEIGHT + DENSE_CLUSTER_GAP_PX) * scale
+      const shouldClusterDenseLabels = viewport.clusterOverlappingLabels
+        && ratio <= denseRatioThreshold
+        && compactBoxesWouldOverlap
+      if (distance(a, b) <= threshold || shouldClusterDenseLabels) union(a.id, b.id)
     }
   }
 

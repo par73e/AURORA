@@ -112,6 +112,24 @@ test('边缘空间不足时保留可点击的聚合入口，不把标签挪离�
   assert.equal(layoutSceneAnnotations([{ ...anchor('back'), visible: false }], viewport(2))[0].visible, false)
 })
 
+test('月球远景按紧凑标签占用空间聚合，并用滞回边界避免临界闪烁', () => {
+  const points = [anchor('a', 500, 350), anchor('b', 540, 350)]
+  const defaultLayout = layoutSceneAnnotations(points, viewport(0.5))
+  assert.equal(defaultLayout.filter((item) => item.visible).length, 2, '普通场景不扩大聚合范围')
+
+  const moonViewport = { ...viewport(0.5), clusterOverlappingLabels: true }
+  const clustered = layoutSceneAnnotations(points, moonViewport)
+  const thumbnail = clustered.find((item) => item.visible)
+  assert.equal(clustered.filter((item) => item.visible).length, 1)
+  assert.equal(thumbnail.mode, 'cluster')
+  assert.deepEqual(thumbnail.memberIds, ['a', 'b'])
+
+  const held = layoutSceneAnnotations(points, { ...viewport(0.92), clusterOverlappingLabels: true }, clustered)
+  assert.equal(held.filter((item) => item.visible).length, 1, '略微回拉仍保持缩略态')
+  const released = layoutSceneAnnotations(points, { ...viewport(1), clusterOverlappingLabels: true }, held)
+  assert.equal(released.filter((item) => item.visible).length, 2)
+})
+
 test('金星的表面及飞行器文字使用黑色描边，短线支持镜像', async () => {
   const label = await source('../src/components/MissionSceneLabel.vue')
   const scene = await source('../src/components/PlanetScene.vue')
