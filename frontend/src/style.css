@@ -591,7 +591,8 @@ button { cursor: pointer; }
 .orbit-section .scene-observer-label,
 .orbit-section .scene-toolbar,
 .orbit-section .scene-location,
-.orbit-section .scene-readout {
+.orbit-section .scene-readout,
+.orbit-section .system-message {
   opacity: 0;
   transition: opacity .3s ease;
 }
@@ -600,13 +601,14 @@ button { cursor: pointer; }
 .orbit-section.elements-revealed .scene-observer-label,
 .orbit-section.elements-revealed .scene-toolbar,
 .orbit-section.elements-revealed .scene-location,
-.orbit-section.elements-revealed .scene-readout {
+.orbit-section.elements-revealed .scene-readout,
+.orbit-section.elements-revealed .system-message {
   opacity: 1;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .orbit-section .scene-label, .orbit-section .scene-spacecraft-label, .orbit-section .scene-observer-label, .orbit-section .scene-toolbar,
-  .orbit-section .scene-location, .orbit-section .scene-readout { transition: none; }
+  .orbit-section .scene-location, .orbit-section .scene-readout, .orbit-section .system-message { transition: none; }
 }
 
 /* ORBIT 离开第一拍：页面信息淡出；第二拍由 OrbitScene host 渐隐地球本体 */

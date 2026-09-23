@@ -3,7 +3,7 @@
     <div id="moon-scene" class="moon-scene-frame">
       <div ref="canvasHost" class="moon-scene-host" :class="{ revealed: sceneRevealed, 'leaving-body': leaving }" role="group" aria-label="月球三维视图，左上角可返回太阳系">
         <!-- 工具栏：与地球页同一套 scene-toolbar 结构（仅颜色走银灰覆盖） -->
-        <div ref="sceneToolbarRef" class="scene-toolbar" :class="{ 'leaving-fade': leaving }" aria-label="场景图层">
+        <div ref="sceneToolbarRef" class="scene-toolbar" :class="{ 'stage-late': !elementsVisible, 'leaving-fade': leaving }" aria-label="场景图层">
           <span>图层</span>
           <label><input v-model="spacecraftEnabled" type="checkbox"><i />飞行器</label>
           <label><input v-model="orbitsEnabled" type="checkbox"><i />轨道</label>
@@ -11,7 +11,7 @@
           <label><input v-model="terminatorEnabled" type="checkbox"><i class="terminator" />晨昏线</label>
         </div>
 
-        <div v-if="dataLoading || dataError" class="scene-data-state" :class="{ error: !!dataError }" role="status">
+        <div v-if="dataLoading || dataError" class="scene-data-state" :class="{ error: !!dataError, 'stage-late': !elementsVisible }" role="status">
           <span>{{ dataError || '正在读取月球飞行器与着陆点数据' }}</span>
           <button v-if="dataError" type="button" @click="loadSceneData">重新加载</button>
         </div>
@@ -45,7 +45,7 @@
           v-show="label.visible && sitesEnabled"
           :key="label.id"
           class="craft-label site-label"
-          :class="{ selected: selectedSite === label.id, 'leaving-fade': leaving }"
+          :class="{ selected: selectedSite === label.id, 'stage-late': !elementsVisible, 'leaving-fade': leaving }"
           :data-icon="siteById(label.id)?.icon ?? 'lander'"
           :style="siteLabelStyle(label)"
           kind="surface"
@@ -65,14 +65,14 @@
         <!-- 选中着陆点的信息卡 -->
         <MissionDetailPanel
           v-if="selectedSiteDetail"
-          :class="{ 'leaving-fade': leaving }"
+          :class="{ 'stage-late': !elementsVisible, 'leaving-fade': leaving }"
           :detail="selectedSiteDetail"
           :style="headerExpanded ? { '--header-overlay-offset': '76px' } : undefined"
           @close="selectedSite = null"
         />
 
         <!-- 左下角读数：常驻月球（返回时随元素一起淡出） -->
-        <div class="moon-readout" :class="{ 'leaving-fade': leaving }" aria-live="polite">
+        <div class="moon-readout" :class="{ 'stage-late': !elementsVisible, 'leaving-fade': leaving }" aria-live="polite">
           <span>LUNAR ORBIT</span>
           <strong>月球</strong>
         </div>
@@ -83,7 +83,7 @@
         <!-- 右侧信息面板：与地球 context-panel 同结构，内容详尽 -->
         <MissionDetailPanel
           v-if="selectedCraftDetail"
-          :class="{ 'leaving-fade': leaving }"
+          :class="{ 'stage-late': !elementsVisible, 'leaving-fade': leaving }"
           :detail="selectedCraftDetail"
           :style="headerExpanded ? { '--header-overlay-offset': '76px' } : undefined"
           @close="selectedCraft = null"
@@ -317,8 +317,6 @@ let moonSpinPhase: 'spin' | 'stop' | 'done' = 'done'
 let moonSpinStartAt = 0
 let moonSpinStopAt = 0
 let moonSpinStopFrom = 0
-/** 元素弹出延迟 = 旋转停稳（≈1.80s）+ 50ms 缓冲 */
-const MOON_ELEMENTS_DELAY_MS = 1850
 /** 标记点距离补偿基准（默认相机距离 ≈ 9）：部分透视补偿（远小近大不过度） */
 const MOON_MARKER_REF_DISTANCE = 9
 /** 距离透明度（与地球统一）：远处（默认视角及更远）70% 半透明，放大到极限后渐变为实色 */
@@ -365,22 +363,23 @@ function updateMoonSpin(now: number) {
   } else {
     const t = Math.min(1, (now - moonSpinStopAt) / MOON_SPIN_DECEL_MS)
     swingPivot.rotation.y = moonSpinStopFrom + MOON_SPIN_SPEED * (MOON_SPIN_DECEL_MS / 1000) * (t - (t * t) / 2)
-    if (t >= 1) moonSpinPhase = 'done'
+    if (t >= 1) {
+      moonSpinPhase = 'done'
+      revealSceneElements()
+    }
   }
 }
-// 进入：裸月球先 0.3s 渐入（scene-host）并自西向东慢转，旋转完全停住（≈2.075s）后再缓冲 125ms，
-// 所有元素（着陆点+飞行器+轨道+标签）一次性淡入
-let elementsRevealTimer: number | undefined
+function revealSceneElements() {
+  if (elementsVisible.value || props.leaving) return
+  elementsVisible.value = true
+  animateElements(1, window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 1 : 300)
+}
+// 进入：裸月球渐入并按真实方向慢转；状态机确认停稳的同一帧统一揭示全部附属元素。
 let focusTimer: number | undefined
 watch(sceneRevealed, (revealed) => {
   if (!revealed || elementsVisible.value) return
   startMoonSpin()
-  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  elementsRevealTimer = window.setTimeout(() => {
-    elementsRevealTimer = undefined
-    elementsVisible.value = true
-    animateElements(1, reduced ? 1 : 300)
-  }, reduced ? 0 : MOON_ELEMENTS_DELAY_MS)
+  if (moonSpinPhase === 'done') revealSceneElements()
 })
 
 /** 月球数据：两个端点成功后再一起写入场景，避免半套数据造成误读。 */
@@ -1070,10 +1069,6 @@ watch(
       }
       return
     }
-    if (elementsRevealTimer !== undefined) {
-      clearTimeout(elementsRevealTimer) // 防止入场延迟定时器在退出后把元素拉回
-      elementsRevealTimer = undefined
-    }
     elementsVisible.value = false
     animateElements(0, reduced ? 1 : 300)
   },
@@ -1259,7 +1254,6 @@ function updateLabels() {
 
 onBeforeUnmount(() => {
   abortSceneData()
-  if (elementsRevealTimer !== undefined) clearTimeout(elementsRevealTimer)
   if (focusTimer !== undefined) clearTimeout(focusTimer)
   cancelAnimationFrame(frameId)
   resizeObserver?.disconnect()
@@ -1511,8 +1505,11 @@ onBeforeUnmount(() => {
 .site-row-name { display: flex; align-items: center; gap: 10px; }
 
 /* 分阶段揭示：阶段 3 前的标签淡入（透明度过渡，不抢占点击） */
-.craft-label.stage-late { opacity: 0 !important; pointer-events: none; }
-.craft-label { transition: opacity .45s ease; }
+.stage-late { opacity: 0 !important; pointer-events: none; }
+.craft-label,
+.scene-toolbar,
+.scene-data-state,
+.moon-readout { transition: opacity .3s cubic-bezier(.16, 1, .3, 1); }
 /* 返回渐隐：标签 300ms 淡出 */
 .craft-label.leaving-fade { opacity: 0 !important; pointer-events: none; }
 

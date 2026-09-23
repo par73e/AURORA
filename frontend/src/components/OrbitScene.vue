@@ -13,17 +13,17 @@ import type { SceneAnnotationLayout, SurfaceAnnotationLayout } from '../surfaceA
 import { layoutSceneAnnotations, sceneAnnotationStyle, projectedSphereRadiusPx, orbitMarkerRadiusPx, sceneMarkerWorldRadius, surfaceMarkerRadiusPx, surfaceMarkerWorldRadius } from '../surfaceAnnotations'
 
 const EARTH_AXIAL_TILT_DEGREES = 23.44
-/** 地球入场自转（先做地球，月球后续再说）：
+/** 地球入场自转：
  *  挂载即开始绕自转轴匀速转（黑幕期间用户看不到起点，渐亮时已在转），
  *  渐亮结束 + 停前等待后快速停下（400ms 线性匀减速，干脆不拖沓）。
- *  自东向西（从北极俯视顺时针，rotation.y 递减）；真实地球自西向东，方向不符可翻转符号 */
-const SPIN_ANGULAR_SPEED = -THREE.MathUtils.degToRad(14.1) // ≈14.1°/s，自东向西（比月球快 1.5 倍，参照真实转速方向）
+ *  自西向东（与月球、火星及太阳系中的地球自转方向一致）。 */
+const SPIN_ANGULAR_SPEED = THREE.MathUtils.degToRad(14.1) // ≈14.1°/s，自西向东
 const SPIN_DECEL_DURATION_MS = 400 // 匀减速段：速度从 ω 线性降到 0（全程线性，无突快突慢）
 /** 匀减速段的总位移 = |ω|·T/2；角度到达该值时开始减速 → 终点精确落在 0°（南海正中） */
 const SPIN_DECEL_SWEEP = (Math.abs(SPIN_ANGULAR_SPEED) * SPIN_DECEL_DURATION_MS) / 2000
 /** 挂载时南海的预设偏角：黑幕中先把南海从中心转开 +15°，
  *  随后匀速自东向西转，转到剩 SPIN_DECEL_SWEEP 时线性匀减速，终点恰好 0°（南海正中） */
-const SPIN_INITIAL_OFFSET = THREE.MathUtils.degToRad(15)
+const SPIN_INITIAL_OFFSET = -THREE.MathUtils.degToRad(15)
 const EARTH_TILT = new THREE.Quaternion().setFromAxisAngle(
   new THREE.Vector3(0, 0, 1),
   THREE.MathUtils.degToRad(EARTH_AXIAL_TILT_DEGREES),
@@ -51,6 +51,8 @@ const emit = defineEmits<{
   'blank-click': []
   /** 场景首帧贴图渲染完成（解码 + GPU 上传后）——过渡遮罩等待此信号再揭示 */
   'textures-ready': []
+  /** 入场自转停稳后的统一元素揭示边界，供 App 的工具栏/读数与 3D 元素同帧启动。 */
+  'elements-reveal': []
   /** 面板关闭（同步 App 的 selection） */
   'clear-selection': []
 }>()
@@ -84,6 +86,7 @@ watch(
     if (tick) {
       sceneRevealed.value = true
       revealTickAt = performance.now()
+      startEarthSpin()
     }
     // axisGuide 等场景对象在 onMounted 构建——watch 可能早于构建触发（首次进入路径），
     // 提前调用 scheduleRevealLayers 会 ReferenceError 并损坏渲染器（信息栏不弹的根因）
@@ -227,12 +230,19 @@ let spinGroup: THREE.Group | undefined
 /** 减弱动态效果下不转（与太阳系 timeScale 同策略） */
 const spinReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 /** 入场自转状态机：spin（匀速）→ stop（线性匀减速）→ done（停住） */
-let spinPhase: 'spin' | 'stop' | 'done' = spinReduced ? 'done' : 'spin'
+let spinPhase: 'spin' | 'stop' | 'done' = 'done'
 let spinStartAt = 0
 let spinStopAt = 0 // 匀减速开始时刻（角度到达 SPIN_DECEL_SWEEP 时触发）
 let spinStopFrom = 0 // 匀减速起点角度
 /** 元素入场揭示延迟（旋转 1.27s 停住 + ~50ms 缓冲） */
 const ELEMENTS_REVEAL_DELAY_MS = 1320
+
+function startEarthSpin() {
+  if (!spinGroup || spinPhase !== 'done') return
+  spinPhase = spinReduced ? 'done' : 'spin'
+  spinStartAt = performance.now()
+  spinGroup.rotation.y = spinReduced ? 0 : SPIN_INITIAL_OFFSET
+}
 /** 元素揭示是否已完成（进入时 false，全部淡入任务完成后 true；直接加载默认 true） */
 let elementsShown = true
 /** 退出淡出开始时刻（leaving 置 true 时记录，用于每帧元素可见度计算） */
@@ -396,6 +406,7 @@ function scheduleRevealLayers() {
   // 否则标签会比点晚 300ms 出现
   window.setTimeout(() => {
     elementsShown = true
+    emit('elements-reveal')
   }, delay)
   // 航天器/发射场/观测标记的隐藏与淡入由每帧 elementsFadeNow 统一驱动（含距离透明度），
   // 不再进 revealTasks——避免两套写入互相覆盖
@@ -714,8 +725,7 @@ function setupScene() {
   // 挂载即开始入场自转（黑幕期间已在转，渐亮时用户看到转动中段）；
   // 初始把南海从中心偏开 +15°（黑幕中不可见）——匀速转 + 线性匀减速，终点 0° 即南海正中；
   // 直接加载（无 revealTick）同样生效：角度到达减速点时自动匀减速停下。reduced-motion 不转，保持 0°
-  spinStartAt = performance.now()
-  if (!spinReduced) spinGroup.rotation.y = SPIN_INITIAL_OFFSET
+  if (revealTickAt > 0) startEarthSpin()
   camera = new THREE.PerspectiveCamera(42, host.clientWidth / host.clientHeight, 0.1, 400) // far 400：容纳 60–150 星空壳层
   // 默认视角：对准东亚大陆，以南海为中心（约 12°N, 115°E）；
   // 自转轴仍保持黄道面参考的 23.44° 倾角（公转平面平行关系不变）
@@ -1070,18 +1080,18 @@ function onPointerUp(event: PointerEvent) {
 
 function animate(time = 0) {
   frameId = requestAnimationFrame(animate)
-  // 入场自转：挂载即从 +15° 匀速转（自东向西，全程线性）→ 角度剩 SPIN_DECEL_SWEEP 时
+  // 入场自转：挂载即从 -15° 匀速转（自西向东，全程线性）→ 角度剩 SPIN_DECEL_SWEEP 时
   // 线性匀减速（速度 ω→0）→ 终点精确 0°（南海正中）完全停住
   if (spinGroup && spinPhase !== 'done') {
     if (spinPhase === 'spin') {
       const t = Math.max(0, (time - spinStartAt) / 1000) // 首帧 time=0 时钳制为 0
       spinGroup.rotation.y = SPIN_INITIAL_OFFSET + SPIN_ANGULAR_SPEED * t
       // 角度锚定减速点：匀减速位移 = |ω|·T/2，此时开始减速，终点恰好落在 0°
-      if (spinGroup.rotation.y <= SPIN_DECEL_SWEEP) {
+      if (spinGroup.rotation.y >= -SPIN_DECEL_SWEEP) {
         spinPhase = 'stop'
         spinStopAt = time
         // 对齐精确阈值：终点精确 0°（南海正中），不受帧偏差/后台标签页帧迟到影响
-        spinStopFrom = SPIN_DECEL_SWEEP
+        spinStopFrom = -SPIN_DECEL_SWEEP
       }
     } else {
       const t = Math.min(1, (time - spinStopAt) / SPIN_DECEL_DURATION_MS)

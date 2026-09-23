@@ -47,3 +47,33 @@ test('地球直接进入时仍优先执行飞行器退出淡出', async () => {
   assert.match(orbitSource, /class="scene-spacecraft-label"/)
   assert.match(styleSource, /\.orbit-section\.leaving \.scene-spacecraft-label,[\s\S]*?opacity: 0;/)
 })
+
+test('太阳系返回镜头只保留一个来源，旧行星状态不能污染后续返回', async () => {
+  const appSource = await readFile(new URL('../src/App.vue', import.meta.url), 'utf8')
+
+  assert.match(appSource, /const solarReturnSource = ref<SolarReturnSource \| null>\(null\)/)
+  assert.doesNotMatch(appSource, /solarEnterFrom(?:Orbit|Moon|Mars|Venus|Saturn|Jupiter|Mercury|Uranus|Neptune|Sun)/)
+  for (const source of ['earth', 'moon', 'mars', 'venus', 'saturn', 'jupiter', 'mercury', 'uranus', 'neptune', 'sun']) {
+    assert.match(appSource, new RegExp(`:enter-from-[a-z]+="solarReturnSource === '${source}'"`))
+  }
+})
+
+test('所有天体都在停转边界统一揭示附属元素，版权文字不参与隐藏', async () => {
+  const appSource = await readFile(new URL('../src/App.vue', import.meta.url), 'utf8')
+  const orbitSource = await readFile(new URL('../src/components/OrbitScene.vue', import.meta.url), 'utf8')
+
+  assert.match(orbitSource, /emit\('elements-reveal'\)/)
+  assert.match(appSource, /@elements-reveal="onOrbitElementsReveal"/)
+  assert.doesNotMatch(appSource, /orbitElementsTimer/)
+
+  for (const component of ['MoonScene.vue', 'MarsScene.vue', 'PlanetScene.vue']) {
+    const source = await readFile(new URL(`../src/components/${component}`, import.meta.url), 'utf8')
+    assert.match(source, /function revealSceneElements\(\)/, `${component} 应由同一函数揭示 DOM 与 3D 元素`)
+    assert.match(source, /(?:moonSpinPhase|marsSpinPhase|spinPhase) = 'done'[\s\S]{0,160}revealSceneElements\(\)/, `${component} 应在自转停稳后揭示`)
+    assert.match(source, /'stage-late': !elementsVisible/, `${component} 的界面元素应在停转前隐藏`)
+    assert.doesNotMatch(source, /credits[^\n]*stage-late/, `${component} 的右下角版权信息应始终保留`)
+  }
+
+  const planetSource = await readFile(new URL('../src/components/PlanetScene.vue', import.meta.url), 'utf8')
+  assert.match(planetSource, /entryElementsOpacity\(now\) \* exitElementsOpacity\(now\)/)
+})

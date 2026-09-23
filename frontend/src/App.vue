@@ -127,26 +127,18 @@ let suppressHeaderReveal = false
  *  旋转完全停住（+900ms）后再缓冲 100ms 置 true，transition 淡入。
  *  不能用 CSS animation-delay：动画从元素挂载起算，与 revealTick 错位（黑幕时长不定） */
 const orbitElementsRevealed = ref(!orbitRevealTick.value) // 直接加载（tick=0）默认全显
-let orbitElementsTimer: number | undefined
 watch(orbitRevealTick, (tick) => {
   if (!tick) return
   orbitElementsRevealed.value = false
-  if (orbitElementsTimer !== undefined) clearTimeout(orbitElementsTimer)
-  orbitElementsTimer = window.setTimeout(() => {
-    orbitElementsRevealed.value = true
-  }, 1500) // 与 OrbitScene scheduleRevealLayers 的 3D 弹出延迟一致（旋转 1.45s 停住 + ~50ms 缓冲）
 })
+/** 地球停转后由 OrbitScene 发出唯一揭示信号，DOM 与 3D 元素从同一帧开始淡入。 */
+function onOrbitElementsReveal() {
+  orbitElementsRevealed.value = true
+}
 /** 是否从 ORBIT 返回太阳系（太阳系场景挂载后从地球近景拉回默认构图） */
-const solarEnterFromOrbit = ref(false)
-const solarEnterFromMoon = ref(false)
-const solarEnterFromMars = ref(false)
-const solarEnterFromVenus = ref(false)
-const solarEnterFromSaturn = ref(false)
-const solarEnterFromJupiter = ref(false)
-const solarEnterFromMercury = ref(false)
-const solarEnterFromUranus = ref(false)
-const solarEnterFromNeptune = ref(false)
-const solarEnterFromSun = ref(false)
+type SolarReturnSource = 'earth' | 'moon' | 'mars' | 'venus' | 'saturn' | 'jupiter' | 'mercury' | 'uranus' | 'neptune' | 'sun'
+/** 单值来源消除多个布尔值并存造成的错误返回镜头。 */
+const solarReturnSource = ref<SolarReturnSource | null>(null)
 /** 月球页面"进入边界"信号：遮罩开始淡出时递增，MoonScene 据此渐亮 */
 const moonRevealTick = ref(0)
 /** 从太阳系进入月球：true 时月球页从"纯月球"开始分阶段揭示 */
@@ -878,16 +870,7 @@ function enterSolarSystem() {
     enterSolarSystemFromSun()
     return
   }
-  solarEnterFromOrbit.value = false
-  solarEnterFromMoon.value = false // 封面进入：两个来源标志都清空
-  solarEnterFromMars.value = false // 封面进入：火星来源标志同样清空
-  solarEnterFromVenus.value = false
-  solarEnterFromSaturn.value = false
-  solarEnterFromJupiter.value = false
-  solarEnterFromMercury.value = false
-  solarEnterFromUranus.value = false
-  solarEnterFromNeptune.value = false
-  solarEnterFromSun.value = false
+  solarReturnSource.value = null
   window.history.pushState(null, '', '#solar-system')
   preloadSurfaceComponent('solar-system')
   preloadSolarTextures()
@@ -1008,12 +991,7 @@ function enterSolarSystemFromOrbit(skipPush = false) {
   orbitSectionLeaving.value = true
   headerExpanded.value = false
   suppressHeaderReveal = true
-  solarEnterFromOrbit.value = true
-  solarEnterFromMoon.value = false // 关键：清空月球来源遗留——否则 SolarSystem 误执行 flyFromMoon（起点=放大月球）
-  solarEnterFromMars.value = false // 清空火星来源遗留（同理）
-  solarEnterFromVenus.value = false // 清空金星来源遗留（同理）
-  solarEnterFromSaturn.value = false // 清空土星来源遗留（同理）
-  solarEnterFromJupiter.value = false // 清空木星来源遗留（同理）
+  solarReturnSource.value = 'earth'
   // 阶段 2：附属元素清空后，地球本体继续渐隐；完全退入黑场再由遮罩接管
   transitionTimer = window.setTimeout(() => {
     if (surfaceFromHash() !== 'solar-system') {
@@ -1268,7 +1246,7 @@ function onMoonFlyZoom() {
 function onMoonSelect(generation = navigationGeneration) {
   if (!isCurrentNavigation(generation) || surface.value !== 'solar-system') return
   veilActive.value = true
-  solarEnterFromMoon.value = false
+  solarReturnSource.value = null
   void setSurface('moon')
   let revealDone = false
   const reveal = () => {
@@ -1321,7 +1299,7 @@ function onMarsFlyZoom() {
 function onMarsSelect(generation = navigationGeneration) {
   if (!isCurrentNavigation(generation) || surface.value !== 'solar-system') return
   veilActive.value = true
-  solarEnterFromMars.value = false
+  solarReturnSource.value = null
   void setSurface('mars')
   let revealDone = false
   const reveal = () => {
@@ -1377,17 +1355,6 @@ function setPendingReveal(key: OuterPlanetKey2, fn: (() => void) | null) {
   else pendingSunReveal = fn
 }
 
-/** 太阳系来源标志（SolarSystem 据此恢复初始选中）：置当前行星 true，其余全部清空 */
-function setSolarEnterFromOuter(key: OuterPlanetKey2) {
-  solarEnterFromMercury.value = key === 'mercury'
-  solarEnterFromVenus.value = key === 'venus'
-  solarEnterFromSaturn.value = key === 'saturn'
-  solarEnterFromJupiter.value = key === 'jupiter'
-  solarEnterFromUranus.value = key === 'uranus'
-  solarEnterFromNeptune.value = key === 'neptune'
-  solarEnterFromSun.value = key === 'sun'
-}
-
 function createOuterPlanetHandlers(key: OuterPlanetKey2) {
   const enterFromSolar = { mercury: mercuryEnterFromSolar, venus: venusEnterFromSolar, saturn: saturnEnterFromSolar, jupiter: jupiterEnterFromSolar, uranus: uranusEnterFromSolar, neptune: neptuneEnterFromSolar, sun: sunEnterFromSolar }[key]
   const leaving = { mercury: mercuryLeaving, venus: venusLeaving, saturn: saturnLeaving, jupiter: jupiterLeaving, uranus: uranusLeaving, neptune: neptuneLeaving, sun: sunLeaving }[key]
@@ -1413,7 +1380,7 @@ function createOuterPlanetHandlers(key: OuterPlanetKey2) {
   const onSelect = (generation = navigationGeneration) => {
     if (!isCurrentNavigation(generation) || surface.value !== 'solar-system') return
     veilActive.value = true
-    setSolarEnterFromOuter(key)
+    solarReturnSource.value = null
     void setSurface(key)
     let revealDone = false
     const reveal = () => {
@@ -1486,12 +1453,7 @@ function enterSolarSystemFromMars(skipPush = false) {
   preloadSolarTextures()
   cancelPendingTransition()
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  solarEnterFromMars.value = true
-  solarEnterFromOrbit.value = false // 清空地球来源遗留
-  solarEnterFromMoon.value = false // 清空月球来源遗留
-  solarEnterFromVenus.value = false // 清空金星来源遗留
-  solarEnterFromSaturn.value = false // 清空土星来源遗留
-  solarEnterFromJupiter.value = false // 清空木星来源遗留
+  solarReturnSource.value = 'mars'
   // 阶段 1：滚回火星主视图 + 清空火星以外的所有元素（标记/飞行器/标签），只留火星球体；
   // 页头若展开则随之上滑消失（与地球/月球返回一致），过渡期间 hover 不唤回
   window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' })
@@ -1526,10 +1488,7 @@ function enterSolarSystemFromOuterPlanet(key: 'venus' | 'saturn' | 'jupiter' | '
   cancelPendingTransition()
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   // 来源标志：置当前行星 true，其余全部清空（SolarSystem 据此恢复初始选中）
-  setSolarEnterFromOuter(key)
-  solarEnterFromOrbit.value = false
-  solarEnterFromMoon.value = false
-  solarEnterFromMars.value = false
+  solarReturnSource.value = key
   window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' })
   const leavingRefs: Record<string, ReturnType<typeof ref<boolean>>> = {
     venus: venusLeaving, saturn: saturnLeaving, jupiter: jupiterLeaving,
@@ -1599,12 +1558,7 @@ function enterSolarSystemFromMoon(skipPush = false) {
   preloadSolarTextures()
   cancelPendingTransition()
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  solarEnterFromMoon.value = true
-  solarEnterFromOrbit.value = false // 清空地球来源遗留
-  solarEnterFromMars.value = false // 清空火星来源遗留
-  solarEnterFromVenus.value = false // 清空金星来源遗留
-  solarEnterFromSaturn.value = false // 清空土星来源遗留
-  solarEnterFromJupiter.value = false // 清空木星来源遗留
+  solarReturnSource.value = 'moon'
   // 阶段 1：滚回月球主视图 + 清空月球以外的所有元素（标记/飞行器/标签），只留月球球体；
   // 页头若展开则随之上滑消失（与地球返回一致），过渡期间 hover 不唤回
   window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' })
@@ -2145,16 +2099,16 @@ onBeforeUnmount(() => {
         v-if="surface === 'solar-system' || (surface === 'cover' && solarHomePrewarming)"
         :class="{ 'home-entering': solarHomeEntering, 'home-leaving': solarHomeLeaving, 'home-prewarming': surface === 'cover' && solarHomePrewarming }"
         v-model:spacecraft-visible="solarSpacecraftVisible"
-        :enter-from-orbit="solarEnterFromOrbit"
-        :enter-from-moon="solarEnterFromMoon"
-        :enter-from-mars="solarEnterFromMars"
-        :enter-from-venus="solarEnterFromVenus"
-        :enter-from-saturn="solarEnterFromSaturn"
-        :enter-from-jupiter="solarEnterFromJupiter"
-        :enter-from-mercury="solarEnterFromMercury"
-        :enter-from-uranus="solarEnterFromUranus"
-        :enter-from-neptune="solarEnterFromNeptune"
-        :enter-from-sun="solarEnterFromSun"
+        :enter-from-orbit="solarReturnSource === 'earth'"
+        :enter-from-moon="solarReturnSource === 'moon'"
+        :enter-from-mars="solarReturnSource === 'mars'"
+        :enter-from-venus="solarReturnSource === 'venus'"
+        :enter-from-saturn="solarReturnSource === 'saturn'"
+        :enter-from-jupiter="solarReturnSource === 'jupiter'"
+        :enter-from-mercury="solarReturnSource === 'mercury'"
+        :enter-from-uranus="solarReturnSource === 'uranus'"
+        :enter-from-neptune="solarReturnSource === 'neptune'"
+        :enter-from-sun="solarReturnSource === 'sun'"
         :fly-delay="solarFlyDelay"
         :play-entry-fly="solarEntryFly"
         @select-earth="onEarthSelect"
@@ -2208,6 +2162,7 @@ onBeforeUnmount(() => {
               :reveal-tick="orbitRevealTick"
               :leaving="orbitSectionLeaving"
               @textures-ready="onOrbitSceneReady"
+              @elements-reveal="onOrbitElementsReveal"
               @select="selectFromScene"
               @clear-selection="selection = null"
               @view-change="leaveObserverView"

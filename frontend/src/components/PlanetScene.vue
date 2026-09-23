@@ -3,7 +3,7 @@
     <div :id="`${planet.key}-scene`" class="planet-scene-frame">
       <div ref="canvasHost" class="planet-scene-host" :class="{ revealed: sceneRevealed, 'leaving-body': leaving }" role="group" :aria-label="`${planet.name}三维视图，左上角可返回太阳系`">
         <!-- 工具栏：行星页统一图层控制；只为确实存在的数据提供开关 -->
-        <div ref="sceneToolbarRef" class="scene-toolbar" :class="{ 'leaving-fade': leaving }" aria-label="场景图层">
+        <div ref="sceneToolbarRef" class="scene-toolbar" :class="{ 'stage-late': !elementsVisible, 'leaving-fade': leaving }" aria-label="场景图层">
           <span>图层</span>
           <label v-if="planet.spacecraft"><input v-model="spacecraftEnabled" type="checkbox"><i />飞行器</label>
           <label v-if="planet.spacecraft"><input v-model="orbitsEnabled" type="checkbox"><i class="orbits" />轨道</label>
@@ -17,7 +17,7 @@
           v-show="label.visible && spacecraftEnabled"
           :key="label.id"
           class="planet-craft-label"
-          :class="{ selected: selectedCraft === label.id, 'leaving-fade': leaving }"
+          :class="{ selected: selectedCraft === label.id, 'stage-late': !elementsVisible, 'leaving-fade': leaving }"
           :style="labelStyle(label)"
           kind="spacecraft"
           :name-zh="label.name"
@@ -41,7 +41,7 @@
           class="planet-site-label"
           v-show="label.visible && sitesEnabled"
           :data-icon="label.icon"
-          :class="{ selected: selectedSite === label.id, 'leaving-fade': leaving }"
+          :class="{ selected: selectedSite === label.id, 'stage-late': !elementsVisible, 'leaving-fade': leaving }"
           :style="surfaceLabelStyle(label)"
           kind="surface"
           :name-zh="label.name"
@@ -60,7 +60,7 @@
         <!-- 选中探测器的信息卡：与月球/火星场景保持同一互斥选择逻辑 -->
         <MissionDetailPanel
           v-if="selectedCraftDetail"
-          :class="{ 'leaving-fade': leaving }"
+          :class="{ 'stage-late': !elementsVisible, 'leaving-fade': leaving }"
           :detail="selectedCraftDetail"
           :style="panelHeaderOffset"
           @close="selectedCraft = null"
@@ -69,14 +69,14 @@
         <!-- 选中着陆点/撞击点的信息卡 -->
         <MissionDetailPanel
           v-if="selectedSiteDetail"
-          :class="{ 'leaving-fade': leaving }"
+          :class="{ 'stage-late': !elementsVisible, 'leaving-fade': leaving }"
           :detail="selectedSiteDetail"
           :style="panelHeaderOffset"
           @close="selectedSite = null"
         />
 
         <!-- 左下角读数：常驻行星（返回时随元素一起淡出） -->
-        <div class="planet-readout" :class="{ 'leaving-fade': leaving }" aria-live="polite">
+        <div class="planet-readout" :class="{ 'stage-late': !elementsVisible, 'leaving-fade': leaving }" aria-live="polite">
           <span>{{ planet.nameEn }} ORBIT</span>
           <strong>{{ planet.name }}</strong>
         </div>
@@ -499,8 +499,24 @@ let focusTimer: number | undefined
 /** 入场渐亮：从太阳系进入（enterFromSolar）时等待 revealTick 递增；直接加载默认已亮。
  *  不能用 revealTick 判初始态——它只增不减，第二次进入时非 0 会误判为"直接加载" */
 const sceneRevealed = ref(!props.enterFromSolar)
+const elementsVisible = ref(!props.enterFromSolar)
+let elementsFade = props.enterFromSolar ? 0 : 1
+let elementsAnimation: { from: number; to: number; startedAt: number; duration: number } | null = null
 const EXIT_ELEMENTS_MS = 300
 let leavingStartedAt = 0
+
+function animateElements(to: number, duration: number) {
+  elementsAnimation = { from: elementsFade, to, startedAt: performance.now(), duration }
+}
+
+function entryElementsOpacity(now = performance.now()) {
+  if (!elementsAnimation) return elementsFade
+  const t = Math.min(1, (now - elementsAnimation.startedAt) / elementsAnimation.duration)
+  const eased = 1 - Math.pow(1 - t, 3)
+  elementsFade = elementsAnimation.from + (elementsAnimation.to - elementsAnimation.from) * eased
+  if (t >= 1) elementsAnimation = null
+  return elementsFade
+}
 
 /** 第一拍只清退轨道、飞行器与表面标记；天体本体由 host 的延迟 opacity 接力。 */
 function exitElementsOpacity(now = performance.now()) {
@@ -553,14 +569,24 @@ function updateSpin(now: number) {
   } else {
     const t = Math.min(1, (now - spinStopAt) / SPIN_DECEL_MS)
     swingPivot.rotation.y = spinStopFrom + SPIN_SPEED * props.planet.spinSign * (SPIN_DECEL_MS / 1000) * (t - (t * t) / 2)
-    if (t >= 1) spinPhase = 'done'
+    if (t >= 1) {
+      spinPhase = 'done'
+      revealSceneElements()
+    }
   }
 }
 
-// 进入：星球渐入（scene-host）完成即启动入场自转（无航天器/着陆点，无元素弹出阶段）
+function revealSceneElements() {
+  if (elementsVisible.value || props.leaving) return
+  elementsVisible.value = true
+  animateElements(1, window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 1 : 300)
+}
+
+// 进入：只展示星球与背景，按自身方向转动；停稳的同一帧统一揭示轨道、标记、标签和界面信息。
 watch(sceneRevealed, (revealed) => {
   if (!revealed) return
   startSpin()
+  if (spinPhase === 'done') revealSceneElements()
 })
 
 /** 工具栏被页头"推下/推回"：rAF 逐帧插值（CSS transition 被系统减弱动态效果禁用，JS 动画不受影响） */
@@ -1076,7 +1102,7 @@ onMounted(() => {
     if (!renderer || !scene || !camera) return
     const now = performance.now()
     lastTime = now
-    const elementsOpacity = exitElementsOpacity(now)
+    const elementsOpacity = entryElementsOpacity(now) * exitElementsOpacity(now)
 
     // 入场自转（按行星真实自转方向，停稳后静止）
     updateSpin(now)
@@ -1225,9 +1251,13 @@ watch(
   (leaving) => {
     if (!leaving) {
       leavingStartedAt = 0
+      if (elementsFade < 1) animateElements(1, window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 1 : 300)
+      elementsVisible.value = true
       return
     }
     leavingStartedAt = performance.now()
+    elementsVisible.value = false
+    elementsAnimation = null
     hoveredCraft.value = null
     spinPhase = 'done' // 退出时若入场自转仍在进行，立即停住（避免返回过渡期间继续转）
   },
@@ -1695,6 +1725,11 @@ onBeforeUnmount(() => {
 }
 
 /* 返回渐隐：工具栏/读数/署名与标签同节奏淡出（只留裸行星，随后由遮罩完成星球渐暗） */
+.stage-late { opacity: 0 !important; pointer-events: none; }
+.scene-toolbar,
+.planet-craft-label,
+.planet-site-label,
+.planet-readout { transition: opacity .3s cubic-bezier(.16, 1, .3, 1); }
 .scene-toolbar.leaving-fade { opacity: 0; pointer-events: none; transition: opacity .3s ease; }
 .planet-site-label.leaving-fade,
 .planet-craft-label.leaving-fade { opacity: 0; pointer-events: none; transition: opacity .3s ease; }
