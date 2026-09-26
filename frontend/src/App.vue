@@ -1986,12 +1986,12 @@ onBeforeUnmount(() => {
           <nav v-else-if="surface === 'uranus'" aria-label="页面导航">
             <a href="#uranus-scene"><i class="nav-num">Ⅰ</i>天王星</a>
             <a href="#uranus-profile"><i class="nav-num">Ⅱ</i>档案</a>
-            <a href="#uranus-objects"><i class="nav-num">Ⅲ</i>飞掠器</a>
+            <a href="#uranus-objects"><i class="nav-num">Ⅲ</i>飞行器</a>
           </nav>
           <nav v-else-if="surface === 'neptune'" aria-label="页面导航">
             <a href="#neptune-scene"><i class="nav-num">Ⅰ</i>海王星</a>
             <a href="#neptune-profile"><i class="nav-num">Ⅱ</i>档案</a>
-            <a href="#neptune-objects"><i class="nav-num">Ⅲ</i>飞掠器</a>
+            <a href="#neptune-objects"><i class="nav-num">Ⅲ</i>飞行器</a>
           </nav>
           <nav v-else-if="surface === 'sun'" aria-label="页面导航">
             <a href="#sun-scene"><i class="nav-num">Ⅰ</i>太阳</a>

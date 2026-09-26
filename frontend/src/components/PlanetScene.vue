@@ -136,14 +136,14 @@
       <div class="catalog-workspace" :class="{ compact: planet.spacecraft.compact }">
         <div v-if="!planet.spacecraft.compact" class="catalog-controls">
           <label class="search-field">
-            <span>名称、任务、机构或正则表达式</span>
+            <span>名称、任务、运营方或正则表达式</span>
             <input v-model="craftQuery" type="search" :placeholder="craftSearchPlaceholder" spellcheck="false" />
           </label>
           <label><span>状态</span><select v-model="craftStatusFilter"><option value="all">全部状态</option><option v-for="status in craftStatuses" :key="status" :value="status">{{ status }}</option></select></label>
-          <label><span>排序</span><select v-model="craftSort"><option value="name">名称</option><option value="type">类型</option><option value="operator">机构</option></select></label>
+          <label><span>排序</span><select v-model="craftSort"><option value="name">名称</option><option value="type">类型</option><option value="operator">运营方</option></select></label>
         </div>
         <div class="object-table planet-craft-table" role="table" :aria-label="`${planet.name}探测器列表`">
-          <div class="object-table-head" role="row"><span>对象</span><span>机构</span><span>状态</span><span>类型</span></div>
+          <div class="object-table-head" role="row"><span>对象</span><span>运营方</span><span>状态</span><span>类型</span></div>
           <button v-for="craft in pagedCrafts" :key="craft.id" class="object-row planet-craft-row" role="row" @click="focusCraft(craft.id)">
             <span><strong>{{ craft.name }}</strong><small v-if="craft.nameEn !== craft.name">{{ craft.nameEn }}</small></span>
             <span>{{ craft.operator }}</span>
@@ -153,6 +153,7 @@
           <div v-if="!filteredCrafts.length" class="catalog-empty">没有符合条件的飞行器。请修改搜索词。</div>
         </div>
         <div v-if="!planet.spacecraft.compact" class="pagination-space"><span>第 {{ craftPage }} / {{ craftPageCount }} 页 · {{ filteredCrafts.length }} 个飞行器</span><div><button :disabled="craftPage <= 1" @click="craftGotoPage(-1)">上一页</button><button :disabled="craftPage >= craftPageCount" @click="craftGotoPage(1)">下一页</button></div></div>
+        <div v-else class="pagination-space"><span>{{ filteredCrafts.length }} 个飞行器</span></div>
       </div>
     </div>
   </section>
@@ -166,7 +167,7 @@
       <div class="catalog-workspace" :class="{ compact: planet.exploration.compact }">
         <div v-if="!planet.exploration.compact" class="catalog-controls">
           <label class="search-field">
-            <span>名称、任务或机构</span>
+            <span>名称、任务或运营方</span>
             <input v-model="siteQuery" type="search" :placeholder="`输入 ${planet.exploration.sites[0]?.name ?? ''}…`" spellcheck="false" />
           </label>
         </div>
@@ -183,6 +184,8 @@
           </button>
           <div v-if="!filteredSites.length" class="catalog-empty">没有符合条件的记录。请修改搜索词。</div>
         </div>
+        <div v-if="!planet.exploration.compact" class="pagination-space"><span>第 {{ sitePage }} / {{ sitePageCount }} 页 · {{ filteredSites.length }} 个{{ planet.exploration.title }}</span><div><button :disabled="sitePage <= 1" @click="siteGotoPage(-1)">上一页</button><button :disabled="sitePage >= sitePageCount" @click="siteGotoPage(1)">下一页</button></div></div>
+        <div v-else class="pagination-space"><span>{{ filteredSites.length }} 个{{ planet.exploration.title }}</span></div>
       </div>
     </div>
   </section>
@@ -323,6 +326,10 @@ const filteredSites = computed(() => {
 })
 const PAGE_SIZE = 8
 const sitePage = ref(1)
+const sitePageCount = computed(() => Math.max(1, Math.ceil(filteredSites.value.length / PAGE_SIZE)))
+function siteGotoPage(delta: number) {
+  sitePage.value = Math.min(sitePageCount.value, Math.max(1, sitePage.value + delta))
+}
 const pagedSites = computed(() => {
   const start = (sitePage.value - 1) * PAGE_SIZE
   return filteredSites.value.slice(start, start + PAGE_SIZE)
@@ -344,7 +351,7 @@ const selectedCraftDetail = computed<MissionDetail | null>(() => {
     kind: 'spacecraft',
     typeZh: '飞行器',
     typeEn: 'SPACECRAFT',
-    status: `${craft.status} · ${craft.type}`,
+    meta: [{ label: '状态', value: craft.status }, { label: '类型', value: craft.type }],
     nameZh: craft.name,
     nameEn: craft.nameEn,
     description: craft.description,
@@ -761,7 +768,7 @@ onMounted(() => {
     renderer.setSize(width, height)
   })
   resizeObserver.observe(host)
-  renderer.domElement.addEventListener('wheel', onSceneWheel, { passive: false })
+  host.addEventListener('wheel', onSceneWheel, { passive: false })
   renderer.domElement.addEventListener('pointerdown', onPointerDown)
   renderer.domElement.addEventListener('pointerup', onPointerUp)
   renderer.domElement.addEventListener('pointermove', onPointerMove)
@@ -1322,7 +1329,7 @@ function onPointerUp(event: PointerEvent) {
 }
 
 /** 鼠标是否在行星投影范围内（镜像火星 isNearMars） */
-function isNearPlanet(clientX: number, clientY: number) {
+function isNearPlanet(clientX: number, clientY: number, exactDisk = false) {
   if (!renderer || !camera) return false
   const bounds = renderer.domElement.getBoundingClientRect()
   const projectedCenter = new THREE.Vector3(0, 0, 0).project(camera)
@@ -1332,13 +1339,16 @@ function isNearPlanet(clientX: number, clientY: number) {
     .project(camera)
   const centerX = bounds.left + (projectedCenter.x * 0.5 + 0.5) * bounds.width
   const centerY = bounds.top + (-projectedCenter.y * 0.5 + 0.5) * bounds.height
-  const radius = Math.abs(cameraRight.x - projectedCenter.x) * bounds.width * 0.5
-  return Math.hypot(clientX - centerX, clientY - centerY) <= radius * 1.12
+  const radius = exactDisk
+    ? projectedSphereRadiusPx(props.planet.radius, camera.position.length(), camera.fov, bounds.height)
+    : Math.abs(cameraRight.x - projectedCenter.x) * bounds.width * 0.5 * 1.12
+  return Math.hypot(clientX - centerX, clientY - centerY) <= radius
 }
 
 /** 滚轮：在行星上 → 缩放行星；在边缘区域 → 交给页面滚动（与地球/火星一致） */
 function onSceneWheel(event: WheelEvent) {
-  if (!camera || !controls || !isNearPlanet(event.clientX, event.clientY)) return
+  if ((event.target as Element).closest('.mission-detail-panel, .context-panel')) return
+  if (!camera || !controls || !isNearPlanet(event.clientX, event.clientY, true)) return
   event.preventDefault()
   const normalizedDelta = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? event.deltaY * 16 : event.deltaY
   const nextDistance = THREE.MathUtils.clamp(
@@ -1354,7 +1364,7 @@ onBeforeUnmount(() => {
   if (focusTimer !== undefined) clearTimeout(focusTimer)
   cancelAnimationFrame(frameId)
   resizeObserver?.disconnect()
-  renderer?.domElement.removeEventListener('wheel', onSceneWheel)
+  canvasHost.value?.removeEventListener('wheel', onSceneWheel)
   renderer?.domElement.removeEventListener('pointerdown', onPointerDown)
   renderer?.domElement.removeEventListener('pointerup', onPointerUp)
   renderer?.domElement.removeEventListener('pointermove', onPointerMove)
@@ -1826,9 +1836,12 @@ onBeforeUnmount(() => {
 .planet-spacecraft-section .object-row strong { color: var(--planet-text); }
 .planet-spacecraft-section .object-row small { color: var(--planet-quiet); }
 .planet-spacecraft-section .catalog-empty { color: var(--planet-quiet); }
-.planet-spacecraft-section .pagination-space { color: var(--planet-quiet); }
-.planet-spacecraft-section .pagination-space button { border-color: var(--planet-line); color: var(--planet-quiet); }
-.planet-spacecraft-section .pagination-space button:hover { border-color: var(--planet-accent); color: var(--planet-text); }
+.planet-spacecraft-section .pagination-space,
+.planet-sites-section .pagination-space { border-top: 1px solid var(--planet-line); color: var(--planet-quiet); }
+.planet-spacecraft-section .pagination-space button,
+.planet-sites-section .pagination-space button { border-color: var(--planet-line); color: var(--planet-quiet); }
+.planet-spacecraft-section .pagination-space button:hover,
+.planet-sites-section .pagination-space button:hover { border-color: var(--planet-accent); color: var(--planet-text); }
 .planet-spacecraft-section .catalog-controls label > span { color: var(--planet-quiet); }
 .planet-spacecraft-section .catalog-controls input,
 .planet-spacecraft-section .catalog-controls select { border-color: var(--planet-line); color: var(--planet-text); }

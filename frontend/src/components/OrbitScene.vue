@@ -173,7 +173,7 @@ const selectedSpacecraftDetail = computed<MissionDetail | null>(() => {
     kind: 'spacecraft',
     typeZh: '飞行器',
     typeEn: 'SPACECRAFT',
-    status: `NORAD ${craft.noradCatalogId}`,
+    meta: [{ label: 'NORAD', value: String(craft.noradCatalogId) }],
     nameZh: name.primary,
     nameEn: name.secondary,
     description: craft.description,
@@ -898,7 +898,7 @@ function setupScene() {
   renderer.domElement.addEventListener('pointerup', onPointerUp)
   renderer.domElement.addEventListener('pointermove', onPointerMove)
   renderer.domElement.addEventListener('pointerleave', onPointerLeave)
-  renderer.domElement.addEventListener('wheel', onSceneWheel, { passive: false })
+  host.addEventListener('wheel', onSceneWheel, { passive: false })
   resizeObserver = new ResizeObserver(resize)
   resizeObserver.observe(host)
   rebuildDataLayers()
@@ -972,7 +972,7 @@ function onPointerDown(event: PointerEvent) {
   if (isNearEarth(event.clientX, event.clientY)) emit('blank-click')
 }
 
-function isNearEarth(clientX: number, clientY: number) {
+function isNearEarth(clientX: number, clientY: number, exactDisk = false) {
   if (!renderer || !camera) return false
   const bounds = renderer.domElement.getBoundingClientRect()
   const projectedCenter = new THREE.Vector3(0, 0, 0).project(camera)
@@ -982,8 +982,10 @@ function isNearEarth(clientX: number, clientY: number) {
     .project(camera)
   const centerX = bounds.left + (projectedCenter.x * 0.5 + 0.5) * bounds.width
   const centerY = bounds.top + (-projectedCenter.y * 0.5 + 0.5) * bounds.height
-  const radius = Math.abs(cameraRight.x - projectedCenter.x) * bounds.width * 0.5
-  return Math.hypot(clientX - centerX, clientY - centerY) <= radius * 1.12
+  const radius = exactDisk
+    ? projectedSphereRadiusPx(EARTH_RADIUS, camera.position.length(), camera.fov, bounds.height)
+    : Math.abs(cameraRight.x - projectedCenter.x) * bounds.width * 0.5 * 1.12
+  return Math.hypot(clientX - centerX, clientY - centerY) <= radius
 }
 
 function onPointerMove(event: PointerEvent) {
@@ -1022,7 +1024,8 @@ function onLabelLeave(label: { kind: 'spacecraft' | 'site'; id: string }) {
 }
 
 function onSceneWheel(event: WheelEvent) {
-  if (!camera || !controls || !isNearEarth(event.clientX, event.clientY)) return
+  if ((event.target as Element).closest('.mission-detail-panel, .context-panel')) return
+  if (!camera || !controls || !isNearEarth(event.clientX, event.clientY, true)) return
   event.preventDefault()
   emit('view-change')
   focusAnimation = undefined
@@ -1219,7 +1222,7 @@ onBeforeUnmount(() => {
     renderer.domElement.removeEventListener('pointerup', onPointerUp)
     renderer.domElement.removeEventListener('pointermove', onPointerMove)
     renderer.domElement.removeEventListener('pointerleave', onPointerLeave)
-    renderer.domElement.removeEventListener('wheel', onSceneWheel)
+    canvasHost.value?.removeEventListener('wheel', onSceneWheel)
     renderer.dispose()
     renderer.domElement.remove()
   }

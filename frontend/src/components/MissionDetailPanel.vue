@@ -13,7 +13,9 @@ defineEmits<{ close: [] }>()
         <p class="mission-detail-type">
           <span>{{ detail.typeZh }}</span>
           <small>{{ detail.typeEn }}</small>
-          <em v-if="detail.status">{{ detail.status }}</em>
+        </p>
+        <p v-if="detail.meta?.length" class="mission-detail-meta">
+          <span v-for="item in detail.meta" :key="item.label"><small>{{ item.label }}</small>{{ item.value }}</span>
         </p>
         <h2>{{ detail.nameZh }}</h2>
         <p v-if="detail.nameEn && detail.nameEn !== detail.nameZh" class="mission-detail-name-en">（{{ detail.nameEn }}）</p>
@@ -87,12 +89,9 @@ defineEmits<{ close: [] }>()
   letter-spacing: .08em;
 }
 .mission-detail-type small { color: var(--mission-quiet, #7f98a7); font: inherit; }
-.mission-detail-type em {
-  padding-inline-start: 9px;
-  border-inline-start: 1px solid var(--mission-line, rgba(139, 180, 202, .18));
-  color: var(--mission-text, #ecf5f9);
-  font-style: normal;
-}
+.mission-detail-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: -3px 0 10px; color: var(--mission-text, #ecf5f9); font: 400 10px/1.5 var(--font-sans); }
+.mission-detail-meta > span { display: inline-flex; gap: 5px; align-items: baseline; }
+.mission-detail-meta small { color: var(--mission-quiet, #7f98a7); font: inherit; }
 .mission-detail-head h2 { max-width: 320px; margin: 0; color: inherit; font-size: 24px; font-weight: 500; line-height: 1.18; letter-spacing: -.025em; }
 .mission-detail-name-en { margin: 6px 0 0; color: var(--mission-quiet, #7f98a7); font: 400 11px/1.5 var(--font-mono); }
 .mission-detail-description { max-width: 68ch; margin: 22px 0; color: var(--mission-body, #a2b4bd); font-size: 12px; line-height: 1.75; }

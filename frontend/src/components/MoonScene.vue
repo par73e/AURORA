@@ -132,15 +132,12 @@
           <label><span>运营方</span><select v-model="craftOperatorFilter"><option value="all">全部运营方</option><option v-for="operator in craftOperators" :key="operator" :value="operator">{{ operator }}</option></select></label>
           <label><span>排序</span><select v-model="craftSort"><option value="name">名称</option><option value="type">类型</option><option value="operator">运营方</option></select></label>
         </div>
-        <div class="catalog-meta">
-          <span>{{ filteredCrafts.length }} 个飞行器</span>
-        </div>
         <div class="object-table" role="table" aria-label="月球飞行器列表">
           <div class="object-table-head" role="row"><span>对象</span><span>运营方</span><span>类型</span></div>
           <button v-for="craft in pagedCrafts" :key="craft.id" class="object-row" role="row" @click="focusCraft(craft.id)">
             <span><strong>{{ craftBilingual.get(craft.id)?.primary }}</strong><small v-if="craftBilingual.get(craft.id)?.secondary">（{{ craftBilingual.get(craft.id)?.secondary }}）</small></span>
             <span>{{ craft.operatorName }}</span>
-            <span>{{ craft.type }}</span>
+            <span>{{ spacecraftTypeLabel(craft.type) }}</span>
           </button>
           <div v-if="!filteredCrafts.length" class="catalog-empty">没有符合条件的飞行器。请修改搜索词。</div>
         </div>
@@ -161,9 +158,6 @@
             <span>地点、任务或机构</span>
             <input v-model="siteQuery" type="search" placeholder="输入 静海基地、Apollo 11、嫦娥…" spellcheck="false" />
           </label>
-        </div>
-        <div class="catalog-meta">
-          <span>{{ filteredSites.length }} 个着陆点</span>
         </div>
         <div class="object-table" role="table" aria-label="月球着陆点列表">
           <div class="object-table-head" role="row"><span>地点</span><span>任务</span><span>着陆日期</span></div>
@@ -207,7 +201,7 @@ import { usePlanetSceneData } from '../composables/usePlanetSceneData'
 import MissionDetailPanel from './MissionDetailPanel.vue'
 import MissionSceneLabel from './MissionSceneLabel.vue'
 import type { MissionDetail } from '../missionPresentation'
-import { spacecraftFields, spacecraftFocusDistance, surfaceMissionFields } from '../missionPresentation'
+import { spacecraftFields, spacecraftFocusDistance, surfaceMissionFields, spacecraftTypeLabel, landingCategoryLabel } from '../missionPresentation'
 import type { PlanetProfile } from '../planetPages'
 import type { SceneAnnotationLayout, SurfaceAnnotationLayout } from '../surfaceAnnotations'
 import { layoutSceneAnnotations, sceneAnnotationStyle, projectedSphereRadiusPx, orbitMarkerRadiusPx, sceneMarkerWorldRadius, surfaceMarkerRadiusPx, surfaceMarkerWorldRadius } from '../surfaceAnnotations'
@@ -389,7 +383,7 @@ const selectedCraftDetail = computed<MissionDetail | null>(() => {
     kind: 'spacecraft',
     typeZh: '飞行器',
     typeEn: 'SPACECRAFT',
-    status: craft.type,
+    meta: [{ label: '类型', value: spacecraftTypeLabel(craft.type) }],
     nameZh: name.primary,
     nameEn: name.secondary,
     description: craft.description,
@@ -587,7 +581,7 @@ onMounted(() => {
     renderer.setSize(width, height)
   })
   resizeObserver.observe(host)
-  renderer.domElement.addEventListener('wheel', onSceneWheel, { passive: false })
+  host.addEventListener('wheel', onSceneWheel, { passive: false })
   renderer.domElement.addEventListener('pointerdown', onPointerDown)
   renderer.domElement.addEventListener('pointerup', onPointerUp)
   renderer.domElement.addEventListener('pointermove', onPointerMove)
@@ -918,7 +912,7 @@ const selectedSiteDetail = computed<MissionDetail | null>(() => {
       operator: site.operatorName,
       region: `${site.region} · ${site.side === 'FAR_SIDE' ? '月球背面' : '月球正面'}`,
       coordinates,
-      category: site.category,
+      category: landingCategoryLabel(site.category),
     }),
     hardware: site.hardware,
   }
@@ -1136,7 +1130,7 @@ function onPointerUp(event: PointerEvent) {
 }
 
 /** 鼠标是否在月球投影范围内（镜像地球 isNearEarth） */
-function isNearMoon(clientX: number, clientY: number) {
+function isNearMoon(clientX: number, clientY: number, exactDisk = false) {
   if (!renderer || !camera) return false
   const bounds = renderer.domElement.getBoundingClientRect()
   const projectedCenter = new THREE.Vector3(0, 0, 0).project(camera)
@@ -1146,8 +1140,10 @@ function isNearMoon(clientX: number, clientY: number) {
     .project(camera)
   const centerX = bounds.left + (projectedCenter.x * 0.5 + 0.5) * bounds.width
   const centerY = bounds.top + (-projectedCenter.y * 0.5 + 0.5) * bounds.height
-  const radius = Math.abs(cameraRight.x - projectedCenter.x) * bounds.width * 0.5
-  return Math.hypot(clientX - centerX, clientY - centerY) <= radius * 1.12
+  const radius = exactDisk
+    ? projectedSphereRadiusPx(MOON_RADIUS, camera.position.length(), camera.fov, bounds.height)
+    : Math.abs(cameraRight.x - projectedCenter.x) * bounds.width * 0.5 * 1.12
+  return Math.hypot(clientX - centerX, clientY - centerY) <= radius
 }
 
 /** 飞行器是否被月球遮挡：视线段（相机→飞行器）与月球球体（半径 MOON_RADIUS）相交 */
@@ -1165,7 +1161,8 @@ function isCraftOccluded(world: THREE.Vector3) {
 
 /** 滚轮：在月球上 → 缩放月球；在边缘区域 → 交给页面滚动（与地球一致） */
 function onSceneWheel(event: WheelEvent) {
-  if (!camera || !controls || !isNearMoon(event.clientX, event.clientY)) return
+  if ((event.target as Element).closest('.mission-detail-panel, .context-panel')) return
+  if (!camera || !controls || !isNearMoon(event.clientX, event.clientY, true)) return
   event.preventDefault()
   const normalizedDelta = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? event.deltaY * 16 : event.deltaY
   const nextDistance = THREE.MathUtils.clamp(
@@ -1210,8 +1207,6 @@ function updateLabels() {
     referencePlanetRadiusPx: projectedSphereRadiusPx(MOON_RADIUS, MOON_MARKER_REF_DISTANCE, MOON_FOV, height),
     clusterOverlappingLabels: true,
   }
-  craftLabels.value = layoutSceneAnnotations(next, annotationViewport, craftLabels.value)
-
   // 着陆点标签：背面隐藏（圆点本体由材质深度测试自然遮挡）
   const siteNext: Array<{ id: string; anchorX: number; anchorY: number; visible: boolean; selected: boolean }> = []
   const siteTmp = new THREE.Vector3()
@@ -1229,7 +1224,13 @@ function updateLabels() {
       selected: selectedSite.value === site.id,
     })
   }
-  siteLabels.value = layoutSceneAnnotations(siteNext, annotationViewport, siteLabels.value)
+  if ((selectedCraft.value || hoveredCraftId.value) && !selectedSite.value) {
+    craftLabels.value = layoutSceneAnnotations(next, annotationViewport, craftLabels.value)
+    siteLabels.value = layoutSceneAnnotations(siteNext, annotationViewport, siteLabels.value, spacecraftEnabled.value ? craftLabels.value : [])
+  } else {
+    siteLabels.value = layoutSceneAnnotations(siteNext, annotationViewport, siteLabels.value)
+    craftLabels.value = layoutSceneAnnotations(next, annotationViewport, craftLabels.value, sitesEnabled.value ? siteLabels.value : [])
+  }
 }
 
 onBeforeUnmount(() => {
@@ -1237,7 +1238,7 @@ onBeforeUnmount(() => {
   if (focusTimer !== undefined) clearTimeout(focusTimer)
   cancelAnimationFrame(frameId)
   resizeObserver?.disconnect()
-  renderer?.domElement.removeEventListener('wheel', onSceneWheel)
+  canvasHost.value?.removeEventListener('wheel', onSceneWheel)
   renderer?.domElement.removeEventListener('pointerdown', onPointerDown)
   renderer?.domElement.removeEventListener('pointerup', onPointerUp)
   renderer?.domElement.removeEventListener('pointermove', onPointerMove)
@@ -1388,11 +1389,6 @@ onBeforeUnmount(() => {
   border-color: rgba(200, 208, 216, .6);
   box-shadow: 0 0 0 3px rgba(200, 208, 216, .08);
 }
-.moon-objects-section .catalog-meta,
-.moon-sites-section .catalog-meta {
-  border-top-color: rgba(200, 208, 216, .15);
-  color: #8b959f;
-}
 .moon-objects-section .object-table-head,
 .moon-objects-section .object-row {
   grid-template-columns: minmax(260px, 1.6fr) minmax(200px, 1.1fr) minmax(180px, 1fr);
@@ -1512,6 +1508,7 @@ onBeforeUnmount(() => {
 
 /* 着陆点标签：图标着色 + 银灰主题 */
 .site-label { gap: 5px !important; }
+.moon-section :deep(.craft-label.is-compact strong) { font-size: 9px; letter-spacing: .025em; }
 .site-label .site-glyph { display: inline-flex; flex-shrink: 0; }
 .site-label strong { color: #e2e8ee !important; }
 .site-label small { color: var(--moon-quiet) !important; }

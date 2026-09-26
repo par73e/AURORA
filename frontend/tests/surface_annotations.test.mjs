@@ -124,10 +124,19 @@ test('月球远景按紧凑标签占用空间聚合，并用滞回边界避免�
   assert.equal(thumbnail.mode, 'cluster')
   assert.deepEqual(thumbnail.memberIds, ['a', 'b'])
 
-  const held = layoutSceneAnnotations(points, { ...viewport(0.92), clusterOverlappingLabels: true }, clustered)
-  assert.equal(held.filter((item) => item.visible).length, 1, '略微回拉仍保持缩略态')
-  const released = layoutSceneAnnotations(points, { ...viewport(1), clusterOverlappingLabels: true }, held)
+  const held = layoutSceneAnnotations(points, { ...viewport(1.15), clusterOverlappingLabels: true }, clustered)
+  assert.equal(held.filter((item) => item.visible).length, 1, '默认视距附近仍保持缩略态')
+  const released = layoutSceneAnnotations(points, { ...viewport(1.25), clusterOverlappingLabels: true }, held)
   assert.equal(released.filter((item) => item.visible).length, 2)
+})
+
+test('月球着陆点避开已排布的飞行器标签', () => {
+  const moonViewport = { ...viewport(1), clusterOverlappingLabels: true }
+  const craft = layoutSceneAnnotations([anchor('craft', 500, 350)], moonViewport)
+  const [site] = layoutSceneAnnotations([anchor('site', 510, 350)], moonViewport, [], craft)
+  assert.equal(craft[0].side, 'right')
+  assert.equal(site.side, 'left')
+  assert.equal(site.mode, 'compact')
 })
 
 test('金星的表面及飞行器文字使用黑色描边，短线支持镜像', async () => {

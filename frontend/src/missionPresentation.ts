@@ -9,7 +9,7 @@ export interface MissionDetail {
   kind: MissionEntityKind
   typeZh: string
   typeEn: string
-  status?: string
+  meta?: MissionDetailField[]
   nameZh: string
   nameEn?: string
   description?: string
@@ -17,6 +17,32 @@ export interface MissionDetail {
   hardware?: string[]
   source?: string
   iconHtml?: string
+}
+
+const SPACECRAFT_TYPE_LABELS: Record<string, string> = {
+  'LUNAR ORBITER': '月球轨道器',
+  'MARS ORBITER': '火星轨道器',
+  'RELAY SATELLITE': '中继卫星',
+}
+
+export function spacecraftTypeLabel(type: string): string {
+  const normalized = type.trim().toUpperCase()
+  const suffix = Object.keys(SPACECRAFT_TYPE_LABELS).find((item) => normalized === item || normalized.endsWith(` ${item}`))
+  return suffix ? SPACECRAFT_TYPE_LABELS[suffix] : type
+}
+
+const LANDING_CATEGORY_LABELS: Record<string, string> = {
+  ROBOTIC_LANDER: '无人着陆',
+  SAMPLE_RETURN: '采样返回',
+  CREWED_LANDING: '载人登月',
+  COMMERCIAL_LANDER: '商业着陆',
+  ROVER_LANDING: '巡视探测',
+  STATIC_LANDER: '静态着陆',
+  AERIAL: '动力飞行',
+}
+
+export function landingCategoryLabel(category: string): string {
+  return LANDING_CATEGORY_LABELS[category] ?? category
 }
 
 type OptionalValue = string | number | null | undefined

@@ -50,8 +50,7 @@ const CLUSTER_ENTER_PX = 16
 const CLUSTER_EXIT_PX = 22
 const PAIR_EXPAND_RATIO = 1.1
 const PAIR_COLLAPSE_RATIO = 0.95
-const DENSE_CLUSTER_ENTER_RATIO = 0.86
-const DENSE_CLUSTER_EXIT_RATIO = 0.98
+const DENSE_CLUSTER_EXIT_RATIO = 1.2
 const DENSE_CLUSTER_GAP_PX = 4
 
 function clamp(value: number, min: number, max: number) {
@@ -159,6 +158,7 @@ export function layoutSceneAnnotations<T extends SceneAnchorProjection>(
   anchors: T[],
   viewport: SceneAnnotationViewport,
   previous: SceneAnnotationLayout[] = [],
+  reserved: SceneAnnotationLayout[] = [],
 ): Array<T & SceneAnnotationLayout> {
   const scale = sceneAnnotationScale(viewport.currentPlanetRadiusPx, viewport.referencePlanetRadiusPx)
   const ratio = Math.max(viewport.currentPlanetRadiusPx, 0.001) / Math.max(viewport.referencePlanetRadiusPx, 0.001)
@@ -193,11 +193,9 @@ export function layoutSceneAnnotations<T extends SceneAnchorProjection>(
       if (b.variant === 'observer') continue
       const wasTogether = previousClusterById.get(a.id)?.has(b.id) ?? false
       const threshold = (wasTogether ? CLUSTER_EXIT_PX : CLUSTER_ENTER_PX) * scale
-      const denseRatioThreshold = wasTogether ? DENSE_CLUSTER_EXIT_RATIO : DENSE_CLUSTER_ENTER_RATIO
       const compactBoxesWouldOverlap = Math.abs(a.anchorX - b.anchorX) < (COMPACT_WIDTH + DENSE_CLUSTER_GAP_PX) * scale
         && Math.abs(a.anchorY - b.anchorY) < (COMPACT_HEIGHT + DENSE_CLUSTER_GAP_PX) * scale
       const shouldClusterDenseLabels = viewport.clusterOverlappingLabels
-        && ratio <= denseRatioThreshold
         && compactBoxesWouldOverlap
       if (distance(a, b) <= threshold || shouldClusterDenseLabels) union(a.id, b.id)
     }
@@ -211,7 +209,16 @@ export function layoutSceneAnnotations<T extends SceneAnchorProjection>(
     groups.set(root, group)
   }
 
-  const accepted: Array<{ x: number; y: number; width: number; height: number }> = []
+  const accepted: Array<{ x: number; y: number; width: number; height: number }> = reserved
+    .filter((item) => item.visible)
+    .map((item) => {
+      const size = annotationSize(item.mode, item.scale)
+      return {
+        x: item.side === 'left' ? item.x - size.width : item.x,
+        y: item.y - size.height / 2,
+        ...size,
+      }
+    })
   const layouts = new Map<string, T & SceneAnnotationLayout>()
 
   const orderedGroups = [...groups.values()].flatMap((group) => {
@@ -233,7 +240,8 @@ export function layoutSceneAnnotations<T extends SceneAnchorProjection>(
       return before?.visible && before.mode !== 'cluster' && before.memberIds.length === 2
     })
     const expandPair = group.length === 2
-      && (ratio >= (wasExpanded ? PAIR_COLLAPSE_RATIO : PAIR_EXPAND_RATIO)
+      && ((ratio >= (wasExpanded ? PAIR_COLLAPSE_RATIO : PAIR_EXPAND_RATIO)
+        && (!viewport.clusterOverlappingLabels || ratio > DENSE_CLUSTER_EXIT_RATIO))
         || group.some((item) => item.selected || item.hovered))
     let clustered = group.length > 1 && !expandPair
     const representative = group.find((item) => item.selected || item.hovered)
@@ -268,7 +276,7 @@ export function layoutSceneAnnotations<T extends SceneAnchorProjection>(
 
     for (const [index, item] of group.entries()) {
       let side: SceneAnnotationSide = expandPair && !clustered ? sides[index] : 'right'
-      let mode: SceneAnnotationMode = clustered ? 'cluster' : expandPair ? pairMode : (ratio < 0.82 && !item.selected && !item.hovered ? 'compact' : 'full')
+      let mode: SceneAnnotationMode = clustered ? 'cluster' : expandPair ? pairMode : ((ratio < 0.82 || viewport.clusterOverlappingLabels) && !item.selected && !item.hovered ? 'compact' : 'full')
       const isRepresentative = item.id === representative.id
       if (clustered && !isRepresentative) {
         layouts.set(item.id, {
@@ -298,11 +306,12 @@ export function layoutSceneAnnotations<T extends SceneAnchorProjection>(
           box: boxFor(item, candidateMode, candidateSide),
         })))
         const candidate = candidates.find((entry) => fits(entry.box) && !accepted.some((other) => overlaps(entry.box, other)))
-          ?? candidates.find((entry) => fits(entry.box))
+          ?? (viewport.clusterOverlappingLabels ? undefined : candidates.find((entry) => fits(entry.box)))
         if (candidate) ({ mode, side, box } = candidate)
       }
 
       const finalVisible = fits(box)
+        && (!viewport.clusterOverlappingLabels || !accepted.some((other) => overlaps(box, other)))
       if (finalVisible) accepted.push(box)
       layouts.set(item.id, {
         ...item,

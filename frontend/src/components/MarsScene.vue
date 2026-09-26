@@ -132,15 +132,12 @@
           <label><span>运营方</span><select v-model="craftOperatorFilter"><option value="all">全部运营方</option><option v-for="operator in craftOperators" :key="operator" :value="operator">{{ operator }}</option></select></label>
           <label><span>排序</span><select v-model="craftSort"><option value="name">名称</option><option value="type">类型</option><option value="operator">运营方</option></select></label>
         </div>
-        <div class="catalog-meta">
-          <span>{{ filteredCrafts.length }} 个飞行器</span>
-        </div>
         <div class="object-table" role="table" aria-label="火星飞行器列表">
           <div class="object-table-head" role="row"><span>对象</span><span>运营方</span><span>类型</span></div>
           <button v-for="craft in pagedCrafts" :key="craft.id" class="object-row" role="row" @click="focusCraft(craft.id)">
             <span><strong>{{ craftBilingual.get(craft.id)?.primary }}</strong><small v-if="craftBilingual.get(craft.id)?.secondary">（{{ craftBilingual.get(craft.id)?.secondary }}）</small></span>
             <span>{{ craft.operatorName }}</span>
-            <span>{{ craft.type }}</span>
+            <span>{{ spacecraftTypeLabel(craft.type) }}</span>
           </button>
           <div v-if="!filteredCrafts.length" class="catalog-empty">没有符合条件的飞行器。请修改搜索词。</div>
         </div>
@@ -162,9 +159,6 @@
             <input v-model="siteQuery" type="search" placeholder="输入 杰泽罗、Perseverance、天问一号…" spellcheck="false" />
           </label>
         </div>
-        <div class="catalog-meta">
-          <span>{{ filteredSites.length }} 个着陆点</span>
-        </div>
         <div class="object-table" role="table" aria-label="火星着陆点列表">
           <div class="object-table-head" role="row"><span>地点</span><span>任务</span><span>着陆日期</span></div>
           <button v-for="site in pagedSites" :key="site.id" class="object-row site-row" :data-icon="site.icon" role="row" @click="focusSite(site.id)">
@@ -173,7 +167,7 @@
               <span><strong>{{ siteBilingual.get(site.id)?.primary }}</strong><small v-if="siteBilingual.get(site.id)?.secondary">（{{ siteBilingual.get(site.id)?.secondary }}）</small></span>
             </span>
             <span>{{ site.missionName }}<small>{{ site.operatorName }}</small></span>
-            <span>{{ site.landingDate }}<small>{{ site.category === 'ROVER_LANDING' ? '巡视探测' : site.category === 'SAMPLE_RETURN' ? '采样返回' : site.category === 'AERIAL' ? '动力飞行' : '静态着陆' }}</small></span>
+            <span>{{ site.landingDate }}<small>{{ landingCategoryLabel(site.category) }}</small></span>
           </button>
           <div v-if="!filteredSites.length" class="catalog-empty">没有符合条件的着陆点。请修改搜索词。</div>
         </div>
@@ -208,7 +202,7 @@ import { usePlanetSceneData } from '../composables/usePlanetSceneData'
 import MissionDetailPanel from './MissionDetailPanel.vue'
 import MissionSceneLabel from './MissionSceneLabel.vue'
 import type { MissionDetail } from '../missionPresentation'
-import { spacecraftFields, spacecraftFocusDistance, surfaceMissionFields } from '../missionPresentation'
+import { spacecraftFields, spacecraftFocusDistance, surfaceMissionFields, spacecraftTypeLabel, landingCategoryLabel } from '../missionPresentation'
 import type { SceneAnnotationLayout, SurfaceAnnotationLayout } from '../surfaceAnnotations'
 import { layoutSceneAnnotations, sceneAnnotationStyle, projectedSphereRadiusPx, orbitMarkerRadiusPx, sceneMarkerWorldRadius, surfaceMarkerRadiusPx, surfaceMarkerWorldRadius } from '../surfaceAnnotations'
 
@@ -379,7 +373,7 @@ const selectedCraftDetail = computed<MissionDetail | null>(() => {
     kind: 'spacecraft',
     typeZh: '飞行器',
     typeEn: 'SPACECRAFT',
-    status: craft.type,
+    meta: [{ label: '类型', value: spacecraftTypeLabel(craft.type) }],
     nameZh: name.primary,
     nameEn: name.secondary,
     description: craft.description,
@@ -581,7 +575,7 @@ onMounted(() => {
     renderer.setSize(width, height)
   })
   resizeObserver.observe(host)
-  renderer.domElement.addEventListener('wheel', onSceneWheel, { passive: false })
+  host.addEventListener('wheel', onSceneWheel, { passive: false })
   renderer.domElement.addEventListener('pointerdown', onPointerDown)
   renderer.domElement.addEventListener('pointerup', onPointerUp)
   renderer.domElement.addEventListener('pointermove', onPointerMove)
@@ -908,10 +902,6 @@ function siteById(id: string) {
   return landingSites.value.find((site) => site.id === id)
 }
 
-function siteCategoryLabel(category: string) {
-  return category === 'ROVER_LANDING' ? '巡视探测' : category === 'SAMPLE_RETURN' ? '采样返回' : category === 'AERIAL' ? '动力飞行' : '静态着陆'
-}
-
 const selectedSiteDetail = computed<MissionDetail | null>(() => {
   if (!selectedSite.value) return null
   const site = siteById(selectedSite.value)
@@ -932,7 +922,7 @@ const selectedSiteDetail = computed<MissionDetail | null>(() => {
       operator: site.operatorName,
       region: site.region,
       coordinates,
-      category: siteCategoryLabel(site.category),
+      category: landingCategoryLabel(site.category),
     }),
     hardware: site.hardware,
   }
@@ -1153,7 +1143,7 @@ function onPointerUp(event: PointerEvent) {
 }
 
 /** 鼠标是否在火星投影范围内（镜像地球 isNearEarth） */
-function isNearMars(clientX: number, clientY: number) {
+function isNearMars(clientX: number, clientY: number, exactDisk = false) {
   if (!renderer || !camera) return false
   const bounds = renderer.domElement.getBoundingClientRect()
   const projectedCenter = new THREE.Vector3(0, 0, 0).project(camera)
@@ -1163,8 +1153,10 @@ function isNearMars(clientX: number, clientY: number) {
     .project(camera)
   const centerX = bounds.left + (projectedCenter.x * 0.5 + 0.5) * bounds.width
   const centerY = bounds.top + (-projectedCenter.y * 0.5 + 0.5) * bounds.height
-  const radius = Math.abs(cameraRight.x - projectedCenter.x) * bounds.width * 0.5
-  return Math.hypot(clientX - centerX, clientY - centerY) <= radius * 1.12
+  const radius = exactDisk
+    ? projectedSphereRadiusPx(MARS_RADIUS, camera.position.length(), camera.fov, bounds.height)
+    : Math.abs(cameraRight.x - projectedCenter.x) * bounds.width * 0.5 * 1.12
+  return Math.hypot(clientX - centerX, clientY - centerY) <= radius
 }
 
 /** 飞行器是否被火星遮挡：视线段（相机→飞行器）与火星球体（半径 MARS_RADIUS）相交 */
@@ -1192,7 +1184,8 @@ function isCraftOccluded(world: THREE.Vector3) {
 
 /** 滚轮：在火星上 → 缩放火星；在边缘区域 → 交给页面滚动（与地球一致） */
 function onSceneWheel(event: WheelEvent) {
-  if (!camera || !controls || !isNearMars(event.clientX, event.clientY)) return
+  if ((event.target as Element).closest('.mission-detail-panel, .context-panel')) return
+  if (!camera || !controls || !isNearMars(event.clientX, event.clientY, true)) return
   event.preventDefault()
   const normalizedDelta = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? event.deltaY * 16 : event.deltaY
   const nextDistance = THREE.MathUtils.clamp(
@@ -1263,7 +1256,7 @@ onBeforeUnmount(() => {
   if (focusTimer !== undefined) clearTimeout(focusTimer)
   cancelAnimationFrame(frameId)
   resizeObserver?.disconnect()
-  renderer?.domElement.removeEventListener('wheel', onSceneWheel)
+  canvasHost.value?.removeEventListener('wheel', onSceneWheel)
   renderer?.domElement.removeEventListener('pointerdown', onPointerDown)
   renderer?.domElement.removeEventListener('pointerup', onPointerUp)
   renderer?.domElement.removeEventListener('pointermove', onPointerMove)
@@ -1412,11 +1405,6 @@ onBeforeUnmount(() => {
 .mars-sites-section .catalog-controls input:focus {
   border-color: rgba(224, 168, 120, .6);
   box-shadow: 0 0 0 3px rgba(224, 168, 120, .08);
-}
-.mars-objects-section .catalog-meta,
-.mars-sites-section .catalog-meta {
-  border-top-color: rgba(224, 168, 120, .15);
-  color: #a89078;
 }
 .mars-objects-section .object-table-head,
 .mars-objects-section .object-row {

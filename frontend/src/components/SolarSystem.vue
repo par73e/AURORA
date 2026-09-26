@@ -93,7 +93,7 @@ const selectedProbeDetail = computed<MissionDetail | null>(() => {
     kind: 'spacecraft',
     typeZh: '飞行器',
     typeEn: 'SPACECRAFT',
-    status: probe.missionType,
+    meta: [{ label: '任务类别', value: probe.missionType }],
     nameZh: name.primary,
     nameEn: name.secondary,
     description: probe.description,
@@ -122,7 +122,25 @@ const activeNameEn = computed(() => {
 })
 
 const planetLabels = computed(() => labels.value.filter((l) => l.kind === 'planet'))
-const probeLabels = computed(() => spacecraftEnabled.value ? labels.value.filter((l) => l.kind === 'probe') : [])
+type PositionedProbeLabel = SolarLabel & { offsetY: number }
+const probeLabels = computed<PositionedProbeLabel[]>(() => {
+  if (!spacecraftEnabled.value) return []
+  const probes = labels.value.filter((label) => label.kind === 'probe')
+  const placed: Array<{ x: number; y: number; width: number; height: number }> = []
+  const offsets = new Map<string, number>()
+  for (const label of [...probes].filter((item) => item.visible).sort((a, b) => a.y - b.y || a.x - b.x)) {
+    const offset = label.radiusPx + 14
+    const x = label.x + offset * LABEL_OFFSET_X - 62
+    const y = label.y + offset * LABEL_OFFSET_Y
+    const candidates = [0, -22, 22, -44, 44, -66, 66]
+    const chosen = candidates.find((shift) => placed.every((box) =>
+      x + 124 <= box.x || x >= box.x + box.width || y + shift + 20 <= box.y || y + shift >= box.y + box.height,
+    )) ?? 0
+    offsets.set(label.id, chosen)
+    placed.push({ x, y: y + chosen, width: 124, height: 20 })
+  }
+  return probes.map((label) => ({ ...label, offsetY: offsets.get(label.id) ?? 0 }))
+})
 const sunLabel = computed(() => labels.value.find((l) => l.kind === 'sun') ?? null)
 const beltLabels = computed(() => labels.value.filter((l) => l.kind === 'belt'))
 const earthLabel = computed(() => labels.value.find((l) => l.kind === 'planet' && l.id === 'earth') ?? null)
@@ -244,7 +262,7 @@ function planetLabelStyle(label: SolarLabel) {
     return { opacity: label.opacity, transform: `translate(calc(${label.x - 24}px - 50%), ${label.y - label.radiusPx - 18}px)` }
   }
   const offset = label.radiusPx + 14
-  return { opacity: label.opacity, transform: `translate(calc(${label.x + offset * LABEL_OFFSET_X}px - 50%), ${label.y + offset * LABEL_OFFSET_Y}px)` }
+  return { opacity: label.opacity, transform: `translate(calc(${label.x + offset * LABEL_OFFSET_X}px - 50%), ${label.y + offset * LABEL_OFFSET_Y + ('offsetY' in label ? Number(label.offsetY) : 0)}px)` }
 }
 
 function sunLabelStyle(label: SolarLabel) {
@@ -607,6 +625,9 @@ defineExpose({ resetView, waitForTexturesReady })
   pointer-events: none;
   background: linear-gradient(156deg, transparent 36%, rgba(32, 96, 128, .035) 59%, transparent 60%);
 }
+
+.solar-system :deep(.probe-label.is-compact) { max-width: 124px; padding: 3px 5px; }
+.solar-system :deep(.probe-label.is-compact strong) { max-width: 104px; font-size: 9px; letter-spacing: .025em; }
 
 /* 首页交接的第二拍：Three.js 负责真实镜头推进，这里只让场景容器与信息层
    从同一空间方向接稳，避免整页同时“啪”地出现。 */
