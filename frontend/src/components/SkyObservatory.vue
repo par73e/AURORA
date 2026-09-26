@@ -1702,9 +1702,9 @@ onBeforeUnmount(() => {
 
 /* ---------- 主题令牌与整体框架 ---------- */
 .sky-shell {
-  --sky-ink:#e3e9f1; --sky-muted:#8a96ab; --sky-line:rgba(165,188,222,.16);
-  --sky-panel:#131d2e; --sky-sunken:#0d1828; --sky-deep:#0b1322;
-  --sky-lunar:#dde3ec; --sky-amber:#c8a361; --sky-cyan:#9db8e8;
+  --sky-ink:#e5effa; --sky-muted:#a2b4ca; --sky-line:rgba(145,191,226,.18);
+  --sky-panel:#142039; --sky-sunken:#0e1b2e; --sky-deep:#0b1527;
+  --sky-lunar:#e0ecf8; --sky-amber:#8fd5ff; --sky-cyan:#a7ddff;
   display:grid; grid-template-columns:210px minmax(0,1fr); min-height:100dvh;
   color:var(--sky-ink); background:var(--sky-deep); font-family:var(--font-sans,system-ui,sans-serif);
 }
@@ -1835,7 +1835,7 @@ onBeforeUnmount(() => {
 .instrument-grid strong { display:block; margin:16px 0 8px; font:21px var(--font-mono,monospace); font-weight:500; letter-spacing:-.025em; white-space:nowrap; }
 .instrument-grid strong b { color:var(--sky-muted); font-size:10px; font-weight:500; letter-spacing:0; }
 .instrument-grid small { line-height:1.4; }
-.instrument-grid .light-reading { background:rgba(234,196,120,.025); }
+.instrument-grid .light-reading { background:rgba(143,213,255,.025); }
 .instrument-grid .light-reading strong { color:var(--sky-amber); font-size:18px; }
 .forecast-section,.window-section,.curated-events { margin-top:54px; }
 .night-analysis { margin-top:54px; }
@@ -1904,8 +1904,8 @@ onBeforeUnmount(() => {
 .catalog-star > span,.catalog-messier > span { position:absolute; top:6px; left:5px; padding:2px 4px; color:rgba(224,234,247,.72); font:8px var(--font-mono,monospace); white-space:nowrap; background:rgba(7,17,30,.58); }
 .catalog-star:hover > i,.catalog-star:focus-visible > i,.catalog-star.selected > i { background:#fff; box-shadow:0 0 12px #d8e8ff; transform:translate(-50%,-50%) scale(1.5); }
 .catalog-star:focus-visible,.catalog-messier:focus-visible { outline:1px solid var(--sky-cyan); outline-offset:7px; }
-.catalog-messier > i { position:absolute; color:rgba(200,163,97,.9); font:15px var(--font-mono,monospace); font-style:normal; transform:translate(-50%,-50%); }
-.catalog-messier:hover > i,.catalog-messier.selected > i { color:#f0c777; text-shadow:0 0 12px rgba(240,199,119,.7); }
+.catalog-messier > i { position:absolute; color:#8fd5ff; font:15px var(--font-mono,monospace); font-style:normal; transform:translate(-50%,-50%); }
+.catalog-messier:hover > i,.catalog-messier.selected > i { color:#a7ddff; text-shadow:0 0 12px rgba(143,213,255,.55); }
 .sky-trajectory .trajectory-past { stroke:var(--trajectory-tint); stroke-width:1.35; stroke-dasharray:3 5; opacity:.3; }
 .sky-trajectory .trajectory-future { stroke:var(--trajectory-tint); stroke-width:1.65; opacity:.72; }
 .altitude-label { position:absolute; z-index:2; margin-left:4px; padding:2px 4px; color:color-mix(in srgb,rgba(10,20,36,.88) calc(var(--sky-daylight,0) * 100%),rgba(184,202,227,.78)); font:8px var(--font-mono,monospace); white-space:nowrap; background:color-mix(in srgb,rgba(236,243,249,.72) calc(var(--sky-daylight,0) * 100%),rgba(7,17,30,.62)); border-radius:2px; pointer-events:none; transform:translateY(-50%); }
@@ -2016,7 +2016,7 @@ onBeforeUnmount(() => {
 .altitude-current.is-below { fill:var(--sky-muted); opacity:.76; }
 
 /* ---------- 天象 ---------- */
-.events-lead { display:grid; grid-template-columns:minmax(0,1fr) 184px; align-items:end; gap:36px; padding:34px 0 30px; border-top:2px solid var(--sky-amber); }
+.events-lead { display:grid; grid-template-columns:minmax(0,1fr) 184px; align-items:end; gap:36px; padding:34px 0 30px; border-top:1px solid var(--sky-amber); }
 .events-lead > div { min-width:0; }
 .events-lead h2 { max-width:620px; margin:0 0 10px; font-size:34px; font-weight:500; }
 .events-lead span { display:block; max-width:620px; color:var(--sky-muted); font-size:12px; line-height:1.6; }
