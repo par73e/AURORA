@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { projectAltitudeGuide, projectHorizontalDirection } from '../src/skyProjection.ts'
+import { projectAltitudeGuide, projectHorizontalDirection, projectSkyTrajectoryBranch } from '../src/skyProjection.ts'
 
 const baseCamera = { heading: 180, horizontalFov: 120 }
 
@@ -60,4 +60,31 @@ test('地平线下方和水平视野外的天体不会进入当前画面', () =>
   assert.equal(projectHorizontalDirection(baseCamera.heading, -1, baseCamera).inViewport, false)
   assert.equal(projectHorizontalDirection(baseCamera.heading + 61, 30, baseCamera).inViewport, false)
   assert.equal(projectHorizontalDirection(baseCamera.heading + 60, 30, baseCamera).inViewport, true)
+})
+
+test('星轨跨过稀疏采样点时仍连续画到视野边界', () => {
+  const path = projectSkyTrajectoryBranch([
+    { azimuth: 180, altitude: 30 },
+    { azimuth: 220, altitude: 30 },
+    { azimuth: 250, altitude: 30 },
+    { azimuth: 280, altitude: 30 },
+  ], baseCamera)
+  assert.ok(path)
+  assert.match(path, /^M 500\.00 /)
+  assert.match(path, /833\.33 /)
+  assert.match(path, / L 1000\.00 /)
+  assert.doesNotMatch(path, /L 1083\.33 /)
+})
+
+test('星轨落到地平线下时精确结束在地平线，后续时段不接到下一次升起', () => {
+  const path = projectSkyTrajectoryBranch([
+    { azimuth: 180, altitude: 20 },
+    { azimuth: 190, altitude: -20 },
+    { azimuth: 200, altitude: -30 },
+    { azimuth: 210, altitude: 20 },
+  ], baseCamera)
+  assert.ok(path)
+  const horizon = projectHorizontalDirection(185, 0, baseCamera)
+  assert.ok(path.endsWith(`L ${(horizon.x * 1000).toFixed(2)} ${(horizon.y * 1000).toFixed(2)}`))
+  assert.doesNotMatch(path, /750\.00/)
 })

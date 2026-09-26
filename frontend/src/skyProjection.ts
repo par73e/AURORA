@@ -27,6 +27,11 @@ export interface ProjectedAltitudeGuide {
   label: ProjectedAltitudePoint | null
 }
 
+export interface SkyTrackSample {
+  azimuth: number
+  altitude: number
+}
+
 export function normalizeSkyAngle(value: number) {
   return (value % 360 + 360) % 360
 }
@@ -95,4 +100,70 @@ export function projectAltitudeGuide(altitude: number, camera: SkyCamera, step =
   const label = points.find((point) => point.x >= .035 && point.x <= .965 && point.y >= .045 && point.y <= .93) ?? null
 
   return { altitude, points, path, label }
+}
+
+/** 从当前时刻向一个时间方向绘制，直到轨迹真正离开视野或落到地平线下。 */
+export function projectSkyTrajectoryBranch(samples: SkyTrackSample[], camera: SkyCamera): string | null {
+  const points: Array<{ x: number; y: number }> = []
+  const inside = (point: { x: number; y: number }) => point.x >= 0 && point.x <= 1 && point.y >= 0 && point.y <= 1
+
+  for (let index = 1; index < samples.length; index++) {
+    const previous = samples[index - 1]
+    const next = samples[index]
+    if (!previous || !next || (previous.altitude < 0 && next.altitude < 0)) {
+      if (points.length) break
+      continue
+    }
+
+    // 地平线交点由真实高度角插值，再经过与天体相同的投影。
+    const horizonFraction = previous.altitude / (previous.altitude - next.altitude)
+    const crossing = (previous.altitude < 0) !== (next.altitude < 0)
+      ? { altitude: 0, azimuth: previous.azimuth + (normalizeSkyAngle(next.azimuth - previous.azimuth + 180) - 180) * horizonFraction }
+      : null
+    const start = projectHorizontalDirection(
+      previous.altitude < 0 ? crossing!.azimuth : previous.azimuth,
+      previous.altitude < 0 ? 0 : previous.altitude,
+      camera,
+    )
+    const end = projectHorizontalDirection(
+      next.altitude < 0 ? crossing!.azimuth : next.azimuth,
+      next.altitude < 0 ? 0 : next.altitude,
+      camera,
+    )
+    if (!start.inFront || !end.inFront) {
+      if (points.length) break
+      continue
+    }
+
+    // 用线段与画框求交；不能简单丢掉第一个框外采样点，否则线会提前停在画面内。
+    const dx = end.x - start.x
+    const dy = end.y - start.y
+    let enter = 0
+    let exit = 1
+    let clipped = false
+    for (const [p, q] of [[-dx, start.x], [dx, 1 - start.x], [-dy, start.y], [dy, 1 - start.y]]) {
+      if (Math.abs(p) < 1e-12) {
+        if (q < 0) { clipped = true; break }
+      } else {
+        const fraction = q / p
+        if (p < 0) enter = Math.max(enter, fraction)
+        else exit = Math.min(exit, fraction)
+      }
+    }
+    if (clipped || enter > exit || exit < 0 || enter > 1) {
+      if (points.length) break
+      continue
+    }
+    const from = { x: start.x + dx * enter, y: start.y + dy * enter }
+    const to = { x: start.x + dx * exit, y: start.y + dy * exit }
+    const last = points[points.length - 1]
+    if (last && Math.hypot(last.x - from.x, last.y - from.y) > 1e-5) break
+    if (!last) points.push(from)
+    if (Math.hypot(to.x - from.x, to.y - from.y) > 1e-8) points.push(to)
+    if (exit < 1 || next.altitude < 0 || !inside(end)) break
+  }
+
+  return points.length >= 2
+    ? `M ${points.map((point) => `${(point.x * 1000).toFixed(2)} ${(point.y * 1000).toFixed(2)}`).join(' L ')}`
+    : null
 }

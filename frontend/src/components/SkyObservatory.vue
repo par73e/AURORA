@@ -10,7 +10,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { fetchObserverPlace, searchObserverPlaces, fetchObservingConditions, fetchMoonDay, fetchLightPollution, fetchAstronomyEvents, fetchImageWall, type ObservingConditions, type MoonDay, type LightPollution, type AstronomyEvent, type AstronomyEventSourceStatus, type ImageWall, type ObserverPlaceCandidate } from '../api'
 import { analyzeNight, bearing, bodies, calculateFixedObjectPosition, calculatePosition, calculateTrack, calculateTwilight, dateFromZonedLocalTime, daylightFactor, moonPhase, observeTips, observingStatus, upcomingMoonPhases, zonedDateAtMinute, zonedDateKey, zonedDateKeyAfterDays, zonedMinuteOfDay, type BodyId, type BodyTrack, type NightAnalysis } from '../astronomy'
 import { conditionDescription, forecastHoursThroughTomorrow, weatherGlyph } from '../observatoryWeather'
-import { projectAltitudeGuide, projectHorizontalDirection, type SkyCamera } from '../skyProjection'
+import { projectAltitudeGuide, projectHorizontalDirection, projectSkyTrajectoryBranch, type SkyCamera } from '../skyProjection'
 import { easeOutExpo, normalizeAzimuth, shortestAzimuthDelta, skyTurnDuration } from '../skyMotion'
 import { constellationLines, skyCatalog, type SkyCatalogObject } from '../skyCatalog'
 import moonNearsideTexture from '../assets/solar/2k_moon.jpg'
@@ -67,6 +67,7 @@ const conditionsStatus = ref<'idle' | 'loading' | 'ready' | 'error'>('idle')
 const moonDay = ref<MoonDay | null>(null)
 const lightPollution = ref<LightPollution | null>(null)
 const expandedBodyId = ref<BodyId | null>(null)
+const selectedSkyBodyId = ref<BodyId | null>(null)
 const expandedEventId = ref<string | null>(null)
 const showAllCuratedEvents = ref(false)
 const imageWall = ref<ImageWall | null>(null)
@@ -243,41 +244,31 @@ const altitudeGuides = computed(() => [30, 60].map((altitude) => projectAltitude
 const horizonFieldStyle = computed(() => ({
   '--sky-daylight': String(daylight.value),
 }))
-// 按选中日期缓存跨日星历点；额外两小时覆盖夏令时换日，拖动时只裁取连续 24 小时。
+// 以所选日期正午为中心预取前后 36 小时，保证当天任一时刻都有至少 24 小时的跨日轨迹。
 const selectedTrajectorySamples = computed(() => {
-  const body = bodies.find((item) => item.id === expandedBodyId.value)
+  const body = bodies.find((item) => item.id === selectedSkyBodyId.value)
   const coords = activeCoordinates.value
   if (!body || !coords) return []
-  const start = skyDateAnchor.value.getTime() - 26 * 60 * 60_000
-  return Array.from({ length: 209 }, (_, index) => {
+  const start = skyDateAnchor.value.getTime() - 36 * 60 * 60_000
+  return Array.from({ length: 289 }, (_, index) => {
     const at = new Date(start + index * 15 * 60_000)
     const { altitude, azimuth } = calculatePosition(body, at, coords.latitude, coords.longitude, elevation.value)
     return { at, altitude, azimuth }
   })
 })
 const selectedSkyTrajectory = computed(() => {
-  const track = expandedBodyId.value ? tracks.value.find((item) => item.id === expandedBodyId.value) : null
-  const coords = activeCoordinates.value
-  if (!track || !coords) return null
+  const track = selectedSkyBodyId.value ? tracks.value.find((item) => item.id === selectedSkyBodyId.value) : null
+  if (!track) return null
   const currentTime = simulatedTime.value.getTime()
-  const halfWindow = 12 * 60 * 60_000
   const current = { at: simulatedTime.value, altitude: track.altitude, azimuth: track.azimuth }
-  const body = bodies.find((item) => item.id === track.id)!
-  const positionAt = (at: Date) => ({ at, ...calculatePosition(body, at, coords.latitude, coords.longitude, elevation.value) })
-  const past = [
-    positionAt(new Date(currentTime - halfWindow)),
-    ...selectedTrajectorySamples.value.filter((sample) => sample.at.getTime() > currentTime - halfWindow && sample.at.getTime() < currentTime),
-    current,
-  ]
-  const future = [
-    current,
-    ...selectedTrajectorySamples.value.filter((sample) => sample.at.getTime() > currentTime && sample.at.getTime() < currentTime + halfWindow),
-    positionAt(new Date(currentTime + halfWindow)),
-  ]
+  const past = [current, ...selectedTrajectorySamples.value.filter((sample) => sample.at.getTime() < currentTime).reverse()]
+  const future = [current, ...selectedTrajectorySamples.value.filter((sample) => sample.at.getTime() > currentTime)]
+  const pastPath = projectSkyTrajectoryBranch(past, skyCamera.value)
+  const futurePath = projectSkyTrajectoryBranch(future, skyCamera.value)
   return {
     tint: track.tint,
-    pastPaths: projectSkyTrackRuns(past, skyCamera.value),
-    futurePaths: projectSkyTrackRuns(future, skyCamera.value),
+    pastPaths: pastPath ? [pastPath] : [],
+    futurePaths: futurePath ? [futurePath] : [],
   }
 })
 const skyViewDirection = computed(() => bearing(skyViewAzimuth.value))
@@ -413,6 +404,7 @@ function locateRecommendedBody(target: { id: BodyId; bestAt: Date }) {
   minuteOfDay.value = Math.floor(zonedMinuteOfDay(target.bestAt, observatoryTimezone.value))
   if (activePage.value !== 'sky') selectPage('sky')
   expandedBodyId.value = target.id
+  selectedSkyBodyId.value = target.id
   const body = bodies.find((item) => item.id === target.id)
   if (body) revealSkyDirection(calculatePosition(body, target.bestAt, coords.latitude, coords.longitude, elevation.value).azimuth)
 }
@@ -895,30 +887,6 @@ function altitudeLabelStyle(label: { x: number; y: number } | null) {
   return label ? { left: `${label.x * 100}%`, top: `${label.y * 100}%` } : undefined
 }
 
-function projectSkyTrackRuns(samples: Array<{ altitude: number; azimuth: number }>, camera: SkyCamera) {
-  const paths: string[] = []
-  let run: Array<{ x: number; y: number }> = []
-  const flush = () => {
-    if (run.length >= 2) paths.push(`M ${run.map((point) => `${(point.x * 1000).toFixed(2)} ${(point.y * 1000).toFixed(2)}`).join(' L ')}`)
-    run = []
-  }
-
-  for (const sample of samples) {
-    const projection = projectHorizontalDirection(sample.azimuth, sample.altitude, camera)
-    const drawable = sample.altitude >= 0 && projection.inFront
-      && projection.x >= -.04 && projection.x <= 1.04
-      && projection.y >= -.08 && projection.y <= 1.04
-    const previous = run[run.length - 1]
-    if (!drawable || (previous && Math.abs(projection.x - previous.x) > .28)) {
-      flush()
-      if (!drawable) continue
-    }
-    run.push({ x: projection.x, y: projection.y })
-  }
-  flush()
-  return paths
-}
-
 function commitPendingSkyView() {
   if (pendingSkyViewAzimuth !== undefined) {
     skyViewAzimuth.value = pendingSkyViewAzimuth
@@ -1033,14 +1001,13 @@ function selectPage(page: SkyPage) {
 
 function selectBody(body: BodyId) {
   expandedBodyId.value = expandedBodyId.value === body ? null : body
+  selectedSkyBodyId.value = expandedBodyId.value
 }
 
-// 从星图点击行星图标：展开下方对应行星行并平滑滚动到该行。
+// 星图中的天体高亮轨迹并展开对应详情，但保持当前滚动位置。
 function revealBody(body: BodyId) {
+  selectedSkyBodyId.value = body
   expandedBodyId.value = body
-  window.setTimeout(() => {
-    document.getElementById(`track-trigger-${body}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }, 0)
 }
 
 function locateBody(body: BodyId) {
@@ -1048,6 +1015,7 @@ function locateBody(body: BodyId) {
   // 只有当前在地平线以上的天体才值得定位：平滑转动罗盘到其方位，再滚动到视场。
   if (!track || !track.visible) return
   expandedBodyId.value = body
+  selectedSkyBodyId.value = body
   revealSkyDirection(track.azimuth)
 }
 
@@ -1279,6 +1247,7 @@ function locateSkySearchResult(result: SkySearchResult) {
     const track = tracks.value.find((item) => item.id === result.bodyId)
     if (!track?.visible) return
     expandedBodyId.value = result.bodyId
+    selectedSkyBodyId.value = result.bodyId
     selectedCatalogId.value = null
     skySearchQuery.value = result.name
     showSkySearchResults.value = false
@@ -1628,7 +1597,7 @@ onBeforeUnmount(() => {
             <button v-for="entry in visibleCatalogStars" :key="entry.item.id" class="catalog-star" :class="{ selected: selectedCatalogId === entry.item.id }" type="button" :style="{ left: `${entry.projection.x * 100}%`, top: `${entry.projection.y * 100}%`, '--star-size': `${Math.max(2, 5.4 - entry.item.magnitude)}px` }" :aria-label="`${entry.item.name}，${entry.item.constellation}`" :title="`${entry.item.name} / ${entry.item.nameEn} · ${entry.item.magnitude.toFixed(1)} 等`" @click="selectedCatalogId = entry.item.id" @pointerdown.stop><i /><span>{{ entry.item.name }}</span></button>
             <button v-for="entry in visibleMessierObjects" :key="entry.item.id" class="catalog-messier" :class="{ selected: selectedCatalogId === entry.item.id }" type="button" :style="{ left: `${entry.projection.x * 100}%`, top: `${entry.projection.y * 100}%` }" :title="`${entry.item.name} / ${entry.item.nameEn}`" @click="selectedCatalogId = entry.item.id" @pointerdown.stop><i>◇</i><span>{{ entry.item.nameEn }}</span></button>
             <template v-for="guide in altitudeGuides" :key="`label-${guide.altitude}`"><span v-if="guide.label" class="altitude-label" :style="altitudeLabelStyle(guide.label)">{{ guide.altitude }}°</span></template>
-            <div v-for="body in horizonBodies" :key="body.id" class="sky-body" :class="{ 'is-active': expandedBodyId === body.id }" :style="horizonStyle(body)" role="button" tabindex="0" :aria-label="`查看${body.name}详情`" :aria-expanded="expandedBodyId === body.id" @click="revealBody(body.id)" @keydown.enter.prevent="revealBody(body.id)" @keydown.space.prevent="revealBody(body.id)" @pointerdown.stop><i>{{ body.glyph }}</i><span>{{ body.name }}</span></div>
+            <div v-for="body in horizonBodies" :key="body.id" class="sky-body" :class="{ 'is-active': selectedSkyBodyId === body.id }" :style="horizonStyle(body)" role="button" tabindex="0" :aria-label="`查看${body.name}详情并高亮星轨`" :aria-pressed="selectedSkyBodyId === body.id" :aria-expanded="expandedBodyId === body.id" :aria-controls="`track-detail-${body.id}`" @click="revealBody(body.id)" @keydown.enter.prevent="revealBody(body.id)" @keydown.space.prevent="revealBody(body.id)" @pointerdown.stop><i>{{ body.glyph }}</i><span>{{ body.name }}</span></div>
             <div class="horizon-ridge horizon-ridge-far" aria-hidden="true" />
             <div class="horizon-ridge horizon-ridge-near" aria-hidden="true" />
             <div v-if="!activeCoordinates" class="sky-empty"><strong>设置观测地点后查看天空</strong><span>可使用设备定位，也可手动输入经纬度。</span><button type="button" @click="requestLocation">使用设备定位</button></div>
@@ -2110,7 +2079,7 @@ onBeforeUnmount(() => {
 .altitude-current.is-below { fill:var(--sky-muted); opacity:.76; }
 
 /* ---------- 天象 ---------- */
-.events-lead { display:grid; grid-template-columns:minmax(0,1fr) 184px; align-items:end; gap:36px; padding:34px 0 30px; border-top:1px solid var(--sky-amber); }
+.events-lead { display:grid; grid-template-columns:minmax(0,1fr) 184px; align-items:end; gap:36px; padding:34px 0 30px; }
 .events-lead > div { min-width:0; }
 .events-lead h2 { max-width:620px; margin:0 0 10px; font-size:34px; font-weight:500; }
 .events-lead span { display:block; max-width:620px; color:var(--sky-muted); font-size:12px; line-height:1.6; }
