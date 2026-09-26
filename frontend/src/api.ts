@@ -119,12 +119,13 @@ export interface ObservingConditions {
     pressure: number
     weatherCode: number
   }>
+  // 空气质量服务失败时，Go 的 nil slice 在 JSON 中为 null。
   airQuality: Array<{
     time: string
     pm25: number
     pm10: number
     aerosolOpticalDepth: number
-  }>
+  }> | null
   /** 携带 time 参数时返回：该时刻最近的逐小时预报快照。 */
   selected?: {
     hour: ObservingConditions['hourly'][number]
