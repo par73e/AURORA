@@ -131,7 +131,7 @@
   <section v-if="planet.spacecraft" :id="`${planet.key}-objects`" class="content-section planet-spacecraft-section" :class="planet.themeKey">
     <div class="page-frame">
       <div class="section-heading">
-        <div><p class="section-kicker">{{ planet.spacecraft.kicker }}</p><h2><i class="sec-num">Ⅲ</i>{{ planet.spacecraft.title }}</h2><p class="section-sub">{{ planet.spacecraft.sub }}</p></div>
+        <div><p class="section-kicker">{{ planet.spacecraft.kicker }}</p><h2><i class="sec-num">Ⅲ</i>{{ planet.spacecraft.title }}</h2></div>
       </div>
       <div class="catalog-workspace" :class="{ compact: planet.spacecraft.compact }">
         <div v-if="!planet.spacecraft.compact" class="catalog-controls">
@@ -161,7 +161,7 @@
   <section v-if="planet.exploration" :id="`${planet.key}-sites`" class="content-section planet-sites-section" :class="planet.themeKey">
     <div class="page-frame">
       <div class="section-heading">
-        <div><p class="section-kicker">{{ planet.exploration.kicker }}</p><h2><i class="sec-num">Ⅳ</i>{{ planet.exploration.title }}</h2><p class="section-sub">{{ planet.exploration.sub }}</p></div>
+        <div><p class="section-kicker">{{ planet.exploration.kicker }}</p><h2><i class="sec-num">Ⅳ</i>{{ planet.exploration.title }}</h2></div>
       </div>
       <div class="catalog-workspace" :class="{ compact: planet.exploration.compact }">
         <div v-if="!planet.exploration.compact" class="catalog-controls">
@@ -201,11 +201,11 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { solarTexture } from '../solar/textures'
 import { entrySpinAngle, entrySpinFinished } from '../entrySpin'
-import type { PlanetCraft, PlanetCraftTrajectory, PlanetCraftTrajectoryKind, PlanetPageConfig } from '../planetPages'
+import type { PlanetCraft, PlanetCraftTrajectory, PlanetPageConfig } from '../planetPages'
 import MissionDetailPanel from './MissionDetailPanel.vue'
 import MissionSceneLabel from './MissionSceneLabel.vue'
 import type { MissionDetail } from '../missionPresentation'
-import { ENDPOINT_SCENE_NOTE, spacecraftFields, spacecraftFocusDistance, surfaceFocusDistance, surfaceMissionFields } from '../missionPresentation'
+import { spacecraftFields, spacecraftFocusDistance, surfaceFocusDistance, surfaceMissionFields } from '../missionPresentation'
 import type { SceneAnnotationLayout, SurfaceAnnotationLayout } from '../surfaceAnnotations'
 import { layoutSceneAnnotations, sceneAnnotationStyle, projectedSphereRadiusPx, orbitMarkerRadiusPx, sceneMarkerWorldRadius, surfaceMarkerRadiusPx, surfaceMarkerWorldRadius } from '../surfaceAnnotations'
 
@@ -291,9 +291,6 @@ watch(filteredCrafts, () => { craftPage.value = 1 })
 function craftById(id: string) {
   return planetCrafts.value.find((craft) => craft.id === id)
 }
-function craftTrajectoryLabel(kind?: PlanetCraftTrajectoryKind) {
-  return kind === 'flyby' ? '飞掠弧线（示意）' : kind === 'orbit' ? '环绕轨道（示意）' : '任务资料'
-}
 function formatPeriod(days: number) {
   if (days >= 365) return `${(days / 365.25).toFixed(1)} 年`
   if (days >= 1) return `${days.toFixed(days % 1 ? 1 : 0)} 天`
@@ -356,7 +353,6 @@ const selectedCraftDetail = computed<MissionDetail | null>(() => {
       launch,
       endpoint: craft.endpoint,
       period: craft.trajectory?.periodDays ? `约 ${formatPeriod(craft.trajectory.periodDays)}` : '',
-      trajectory: craft.trajectory ? craftTrajectoryLabel(craft.trajectory.kind) : '',
     }),
     source: `${craft.verifiedAt ? `${craft.verifiedAt} · ` : ''}${craft.source ?? '公开任务档案'}`,
   }
@@ -384,7 +380,6 @@ const selectedSiteDetail = computed<MissionDetail | null>(() => {
       coordinates,
     }),
     source: `${site.verifiedAt ? `${site.verifiedAt} · ` : ''}${site.source ?? '公开任务档案'}`,
-    note: endpoint ? ENDPOINT_SCENE_NOTE : undefined,
   }
 })
 

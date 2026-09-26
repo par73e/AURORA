@@ -137,7 +137,7 @@ onBeforeUnmount(() => {
     <div class="cover-coordinate" aria-hidden="true">
       <span><strong>太阳系探索</strong><small>SOLAR SYSTEM EXPLORATION</small></span>
       <i />
-      <span><strong>本地天空观测</strong><small>LOCAL SKY OBSERVATION</small></span>
+      <span><strong>天空观测</strong><small>SKY OBSERVATION</small></span>
     </div>
   </section>
 </template>

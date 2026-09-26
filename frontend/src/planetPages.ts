@@ -151,7 +151,6 @@ export interface PlanetCraft {
 export interface PlanetSpacecraft {
   title: string
   kicker: string
-  sub: string
   /** 单条稀有任务使用紧凑档案，不展示无意义的搜索、筛选和分页 */
   compact?: boolean
   items: PlanetCraft[]
@@ -160,7 +159,6 @@ export interface PlanetSpacecraft {
 const SUN_SPACECRAFT: PlanetSpacecraft = {
   title: '飞行器',
   kicker: 'SOLAR PROBES',
-  sub: '飞行器 · 轨道与位置用于交互示意；精确状态以数据来源为准。',
   items: [
     {
       id: 'parker-solar-probe', name: '帕克太阳探测器', nameEn: 'Parker Solar Probe', operator: 'NASA',
@@ -191,7 +189,6 @@ const SUN_SPACECRAFT: PlanetSpacecraft = {
 const MERCURY_SPACECRAFT: PlanetSpacecraft = {
   title: '飞行器',
   kicker: 'MERCURY SPACECRAFT',
-  sub: '飞行器 · 轨道与位置用于交互示意；精确状态以数据来源为准。',
   items: [
     {
       id: 'bepicolombo', name: '贝皮科伦坡号', nameEn: 'BepiColombo', operator: 'ESA / JAXA',
@@ -220,7 +217,6 @@ const MERCURY_SPACECRAFT: PlanetSpacecraft = {
 const VENUS_SPACECRAFT: PlanetSpacecraft = {
   title: '飞行器',
   kicker: 'VENUS SPACECRAFT',
-  sub: '飞行器 · 轨道与位置用于交互示意；精确状态以数据来源为准。',
   items: [
     {
       id: 'akatsuki', name: '晓号', nameEn: 'Akatsuki', operator: 'JAXA',
@@ -250,7 +246,6 @@ const VENUS_SPACECRAFT: PlanetSpacecraft = {
 const JUPITER_SPACECRAFT: PlanetSpacecraft = {
   title: '飞行器',
   kicker: 'JUPITER SPACECRAFT',
-  sub: '飞行器 · 轨道与位置用于交互示意；精确状态以数据来源为准。',
   items: [
     {
       id: 'juno', name: '朱诺号', nameEn: 'Juno', operator: 'NASA',
@@ -280,7 +275,6 @@ const JUPITER_SPACECRAFT: PlanetSpacecraft = {
 const SATURN_SPACECRAFT: PlanetSpacecraft = {
   title: '飞行器',
   kicker: 'SATURN SPACECRAFT',
-  sub: '飞行器 · 轨道与位置用于交互示意；精确状态以数据来源为准。',
   compact: true,
   items: [
     {
@@ -296,7 +290,6 @@ const SATURN_SPACECRAFT: PlanetSpacecraft = {
 const URANUS_SPACECRAFT: PlanetSpacecraft = {
   title: '飞行器',
   kicker: 'URANUS FLYBY',
-  sub: '飞行器 · 轨道与位置用于交互示意；精确状态以数据来源为准。',
   compact: true,
   items: [
     {
@@ -312,7 +305,6 @@ const URANUS_SPACECRAFT: PlanetSpacecraft = {
 const NEPTUNE_SPACECRAFT: PlanetSpacecraft = {
   title: '飞行器',
   kicker: 'NEPTUNE FLYBY',
-  sub: '飞行器 · 轨道与位置用于交互示意；精确状态以数据来源为准。',
   compact: true,
   items: [
     {
@@ -362,8 +354,6 @@ export interface PlanetExploration {
   title: string
   /** 板块 kicker（英文 mono 小字） */
   kicker: string
-  /** 板块副标题 */
-  sub: string
   /** 单条任务终点使用紧凑档案，不展示无意义的搜索框 */
   compact?: boolean
   sites: PlanetSite[]
@@ -405,7 +395,6 @@ export const VENUS_PAGE: PlanetPageConfig = {
   exploration: {
     title: '着陆点',
     kicker: 'VENUS LANDING SITES',
-    sub: '着陆点 · 圆点标示任务位置；坐标精度以数据来源为准。',
     sites: [
       {
         id: 'venera-7',
@@ -587,7 +576,6 @@ export const SATURN_PAGE: PlanetPageConfig = {
   exploration: {
     title: '任务终点',
     kicker: 'SATURN MISSION ENDPOINTS',
-    sub: '任务终点 · 圆点标示任务终点；坐标精度以数据来源为准。',
     compact: true,
     sites: [
       {
@@ -647,7 +635,6 @@ export const JUPITER_PAGE: PlanetPageConfig = {
   exploration: {
     title: '任务终点',
     kicker: 'JUPITER MISSION ENDPOINTS',
-    sub: '任务终点 · 圆点标示任务终点；坐标精度以数据来源为准。',
     compact: true,
     sites: [
       {
@@ -708,7 +695,6 @@ export const MERCURY_PAGE: PlanetPageConfig = {
   exploration: {
     title: '任务终点',
     kicker: 'MERCURY MISSION ENDPOINTS',
-    sub: '任务终点 · 圆点标示任务终点；坐标精度以数据来源为准。',
     sites: [
       {
         id: 'messenger',

@@ -1283,7 +1283,7 @@ onBeforeUnmount(() => {
       :tabindex="-1"
       aria-disabled="true"
     />
-    <div v-if="textureState === 'fallback'" class="texture-warning">地表影像未加载，已切换基础材质</div>
+    <div v-if="textureState === 'fallback'" class="texture-warning">地球影像暂不可用</div>
 
     <!-- 信息面板（组件内渲染，本地 selection 驱动——参照月球架构，不依赖 App 全局渲染） -->
     <MissionDetailPanel
@@ -1330,7 +1330,6 @@ onBeforeUnmount(() => {
           </template>
           <template v-else>
             <strong>{{ selectedEvent.padNameZh || selectedEvent.locationNameZh }}</strong>
-            <span>当前事件源提供了位置和发射台信息，详细场地资料将在后续数据扩充中补充。</span>
           </template>
         </div>
         <div v-if="selectedEvent.hasOriginal" class="event-original-disclosure">

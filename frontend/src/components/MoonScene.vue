@@ -121,7 +121,7 @@
   <section id="moon-objects" class="content-section moon-objects-section">
     <div class="page-frame">
       <div class="section-heading">
-        <div><p class="section-kicker">LUNAR SPACECRAFT</p><h2><i class="sec-num">Ⅲ</i>飞行器</h2><p class="section-sub">飞行器 · 轨道与位置用于交互示意；精确状态以数据来源为准。</p></div>
+        <div><p class="section-kicker">LUNAR SPACECRAFT</p><h2><i class="sec-num">Ⅲ</i>飞行器</h2></div>
       </div>
       <div class="catalog-workspace">
         <div class="catalog-controls">
@@ -134,7 +134,6 @@
         </div>
         <div class="catalog-meta">
           <span>{{ filteredCrafts.length }} 个飞行器</span>
-          <span>轨道与位置用于交互示意</span>
         </div>
         <div class="object-table" role="table" aria-label="月球飞行器列表">
           <div class="object-table-head" role="row"><span>对象</span><span>运营方</span><span>类型</span></div>
@@ -154,7 +153,7 @@
   <section id="moon-sites" class="content-section moon-sites-section">
     <div class="page-frame">
       <div class="section-heading">
-        <div><p class="section-kicker">LUNAR LANDING SITES</p><h2><i class="sec-num">Ⅳ</i>着陆点</h2><p class="section-sub">着陆点 · 圆点标示任务位置；坐标精度以数据来源为准。</p></div>
+        <div><p class="section-kicker">LUNAR LANDING SITES</p><h2><i class="sec-num">Ⅳ</i>着陆点</h2></div>
       </div>
       <div class="catalog-workspace">
         <div class="catalog-controls">
@@ -165,7 +164,6 @@
         </div>
         <div class="catalog-meta">
           <span>{{ filteredSites.length }} 个着陆点</span>
-          <span>圆点标示任务位置 · 坐标精度以数据来源为准</span>
         </div>
         <div class="object-table" role="table" aria-label="月球着陆点列表">
           <div class="object-table-head" role="row"><span>地点</span><span>任务</span><span>着陆日期</span></div>

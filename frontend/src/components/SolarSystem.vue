@@ -93,7 +93,7 @@ const selectedProbeDetail = computed<MissionDetail | null>(() => {
     kind: 'spacecraft',
     typeZh: '飞行器',
     typeEn: 'SPACECRAFT',
-    status: `${probe.missionType} · 精度 ${probe.precisionGrade}`,
+    status: probe.missionType,
     nameZh: name.primary,
     nameEn: name.secondary,
     description: probe.description,

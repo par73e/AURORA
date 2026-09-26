@@ -584,8 +584,8 @@ async function loadCatalogPage() {
       if (controller.signal.aborted) return
       // 过渡部署期间前端可能先于后端更新。此时不让目录空掉，降级为场景内小目录。
       catalogRemote.value = null
-      const message = reason instanceof Error ? reason.message : '目录服务暂时不可用'
-      if (!message.includes('404')) catalogRequestError.value = message
+      const message = reason instanceof Error ? reason.message : ''
+      if (!message.includes('404')) catalogRequestError.value = '飞行器目录暂不可用，正在显示已加载的飞行器。'
     } finally {
       if (!controller.signal.aborted) catalogLoading.value = false
     }
@@ -1902,7 +1902,7 @@ onBeforeUnmount(() => {
     <div class="desktop-only">
       <span>AURORA / ORBIT</span>
       <h1>请使用电脑浏览器查看</h1>
-      <p>当前原型专注桌面端三维交互，移动端适配将在后续阶段加入。</p>
+      <p>请在电脑上打开 AURORA，探索三维太阳系。</p>
     </div>
 
     <AuroraCover
@@ -2005,7 +2005,7 @@ onBeforeUnmount(() => {
                最近一次同步成败的 3 合 1 聚合；地球/月球页保持身份标签 -->
           <div v-if="surface === 'solar-system'" class="live-status">
             <span class="status-dot" :class="{ healthy: !!overview && dataHealthy, syncing: loading }" />
-            <span>{{ loading ? '同步中' : dataHealthy && !!overview ? '数据正常' : '检查数据' }}</span>
+            <span>{{ loading ? '资料更新中' : dataHealthy && !!overview ? '资料已更新' : '资料暂不可用' }}</span>
             <strong>{{ timeOnly(now) }} UTC+8</strong>
           </div>
           <div v-else class="live-status solar-clock">
@@ -2208,8 +2208,8 @@ onBeforeUnmount(() => {
 
             
 
-            <section v-if="loading" class="system-message"><strong>正在建立轨道数据链路</strong><small>CONNECTING TO AURORA CORE</small></section>
-            <section v-else-if="error" class="system-message error-message"><strong>数据链路未建立</strong><p>{{ error }}</p><button @click="load">重新连接</button></section>
+            <section v-if="loading" class="system-message"><strong>正在加载轨道数据</strong><small>LOADING ORBIT DATA</small></section>
+            <section v-else-if="error" class="system-message error-message"><strong>轨道数据暂不可用</strong><p>请稍后重试。</p><button @click="load">重新加载</button></section>
           </div>
         </div>
       </section>
@@ -2217,7 +2217,7 @@ onBeforeUnmount(() => {
       <section id="objects" class="content-section objects-section">
         <div class="page-frame">
           <div class="section-heading">
-            <div><p class="section-kicker">SPACECRAFT CATALOG</p><h2><i class="sec-num">Ⅱ</i>飞行器</h2><p class="section-sub">飞行器 · 轨道与位置用于交互示意；精确状态以数据来源为准。</p></div>
+            <div><p class="section-kicker">SPACECRAFT CATALOG</p><h2><i class="sec-num">Ⅱ</i>飞行器</h2></div>
           </div>
 
           <div class="catalog-workspace">

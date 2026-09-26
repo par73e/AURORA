@@ -1,15 +1,7 @@
 <script setup lang="ts">
 import type { MissionDetail } from '../missionPresentation'
-import { ENDPOINT_SCENE_NOTE, SPACECRAFT_SCENE_NOTE, SURFACE_SCENE_NOTE } from '../missionPresentation'
-
-const props = defineProps<{ detail: MissionDetail }>()
+defineProps<{ detail: MissionDetail }>()
 defineEmits<{ close: [] }>()
-
-function defaultNote() {
-  if (props.detail.note) return props.detail.note
-  if (props.detail.kind === 'spacecraft') return SPACECRAFT_SCENE_NOTE
-  return props.detail.typeZh === '任务终点' ? ENDPOINT_SCENE_NOTE : SURFACE_SCENE_NOTE
-}
 </script>
 
 <template>
@@ -42,9 +34,8 @@ function defaultNote() {
       <ul><li v-for="item in detail.hardware" :key="item">{{ item }}</li></ul>
     </section>
 
-    <footer class="mission-detail-footer">
-      <p>{{ defaultNote() }}</p>
-      <small v-if="detail.source">数据来源：{{ detail.source }}</small>
+    <footer v-if="detail.source" class="mission-detail-footer">
+      <small>数据来源：{{ detail.source }}</small>
     </footer>
   </aside>
 </template>
@@ -115,7 +106,6 @@ function defaultNote() {
 .mission-detail-hardware ul { display: grid; gap: 6px; margin: 0; padding-inline-start: 17px; }
 .mission-detail-hardware li { color: var(--mission-body, #a2b4bd); font-size: 11px; line-height: 1.55; }
 .mission-detail-footer { display: grid; gap: 6px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--mission-line, rgba(139, 180, 202, .18)); }
-.mission-detail-footer p { margin: 0; color: var(--mission-quiet, #7f98a7); font-size: 10px; line-height: 1.65; }
 .mission-detail-footer small { color: var(--mission-quiet, #7f98a7); font: 400 9px/1.6 var(--font-mono); overflow-wrap: anywhere; }
 @keyframes mission-panel-enter {
   from { opacity: .2; filter: blur(5px); transform: translateY(10px); }

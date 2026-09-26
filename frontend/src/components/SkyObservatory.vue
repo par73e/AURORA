@@ -111,7 +111,7 @@ const timeLabel = computed(() => formatTime(simulatedTime.value))
 const scrubFraction = computed(() => (minuteOfDay.value / 1439).toFixed(4))
 const coordinateLabel = computed(() => activeCoordinates.value
   ? `${activeCoordinates.value.latitude >= 0 ? '北纬' : '南纬'} ${Math.abs(activeCoordinates.value.latitude).toFixed(1)}° · ${activeCoordinates.value.longitude >= 0 ? '东经' : '西经'} ${Math.abs(activeCoordinates.value.longitude).toFixed(1)}°`
-  : '允许定位后生成本地数据')
+  : '请设置观测地点')
 const moon = computed(() => moonPhase(now.value))
 const elevation = computed(() => conditions.value?.elevation ?? 0)
 // 升落、整日采样与中天只随“当地日期/地点”变化，不应在时间条每移动一分钟时重算。
@@ -327,7 +327,7 @@ const currentAir = computed(() => {
     return Math.abs(itemTime - target) < Math.abs(nearestTime - target) ? item : nearest
   })
 })
-const scoreVerdict = computed(() => hasTonightScoreDetails.value ? tonightScore.value?.verdict ?? '正在计算今夜条件' : (tonightScore.value ? '请重启本地后端以更新评分模型' : conditionsStatus.value === 'error' ? '天气源暂不可用' : '正在计算今夜条件'))
+const scoreVerdict = computed(() => hasTonightScoreDetails.value ? tonightScore.value?.verdict ?? '正在计算今夜条件' : (tonightScore.value ? '评分暂不可用' : conditionsStatus.value === 'error' ? '天气暂不可用' : '正在计算今夜条件'))
 const scorePanel = computed(() => hasTonightScoreDetails.value ? tonightScore.value?.score ?? null : null)
 const scoreWindowLabel = computed(() => hasTonightScoreDetails.value && tonightScore.value ? `今夜最佳 · ${tonightScore.value.time.slice(11, 16)}` : '今夜天文夜')
 // 评分因子直接使用“今夜最佳时段”的后端分解，确保卡片、文案和分数同源。
@@ -395,7 +395,7 @@ const recommendation = computed(() => {
       windowLabel = '今夜天气与月光条件有限'
     }
   } else {
-    windowLabel = hourly.length ? `今夜天文夜暂未进入天气预报范围 · ${formatTime(nightStart)} – ${formatTime(nightEnd)}` : `天气源暂不可用，天文夜 ${formatTime(nightStart)} – ${formatTime(nightEnd)}`
+    windowLabel = hourly.length ? `这一时段暂无天气预报 · ${formatTime(nightStart)} – ${formatTime(nightEnd)}` : `天气暂不可用 · ${formatTime(nightStart)} – ${formatTime(nightEnd)}`
   }
 
   // 逐目标：在天文夜窗口内每 15 分钟用星历重算 暗夜 × 高度 × 月光，取综合最佳时刻。
@@ -507,10 +507,9 @@ function formatSourceDate(value?: string) {
 }
 
 function sourceStatusMessage(source: AstronomyEventSourceStatus) {
-  if (source.success !== false) return `最近同步 ${formatSourceDate(source.lastSuccessAt)}`
-  if (source.code === 'imo_meteor_calendar' && source.error?.includes('not a PDF')) return 'IMO 年度 PDF 当前返回网页；继续使用上次缓存'
-  if (source.code === 'imo_meteor_calendar') return 'IMO 年度日历当前不可用；继续使用上次缓存'
-  return '部分资料同步失败；继续使用上次缓存'
+  if (source.success !== false) return `最近更新 ${formatSourceDate(source.lastSuccessAt)}`
+  if (source.code === 'imo_meteor_calendar') return '流星雨日历暂未更新，显示上次获取的资料'
+  return '资料暂未更新，显示上次获取的内容'
 }
 
 function formatImageWindowDate(value?: string) {
@@ -518,14 +517,6 @@ function formatImageWindowDate(value?: string) {
   const date = new Date(`${value}T12:00:00Z`)
   if (Number.isNaN(date.getTime())) return value
   return new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(date)
-}
-
-function eventPrecision(event: AstronomyEvent) {
-  const precision = event.geometry.precision
-  if (precision === 'refined') return '日采样插值精化'
-  if (precision === 'daily_sample') return '日采样候选'
-  if (typeof precision === 'string') return precision.replaceAll('_', ' ')
-  return event.origin === 'computed' ? 'AURORA 计算' : '来源资料'
 }
 
 function eventVisibilityTone(event: AstronomyEvent) {
@@ -1427,7 +1418,7 @@ onBeforeUnmount(() => {
         </button>
       </nav>
 
-      <div class="sidebar-source"><span />{{ activeCoordinates ? '本地星历计算' : '需要地点以计算本地天空' }}</div>
+      <div class="sidebar-source"><span />{{ activeCoordinates ? '已设置观测地点' : '请设置观测地点' }}</div>
       <ObservatoryClock :timezone="observatoryTimezone" />
     </aside>
 
@@ -1446,7 +1437,7 @@ onBeforeUnmount(() => {
 
         <section class="condition-verdict" :class="{ loading: conditionsStatus === 'loading' }">
           <div class="score-now"><strong>{{ scorePanel == null ? '—' : String(scorePanel).padStart(2, '0') }}<small>/100</small></strong><i>{{ scoreWindowLabel }}</i></div>
-          <div><h2>今夜观测评分 · {{ scoreVerdict }}</h2><p v-if="scoreWeather">{{ scoreWindowLabel }}：云量 {{ Math.round(scoreWeather.cloudCover) }}%，能见度 {{ (scoreWeather.visibilityMeters / 1000).toFixed(1) }} km；{{ conditionDescription(scoreWeather.weatherCode) }}是该时段的主导条件。</p><p v-else-if="conditionsStatus === 'error'">天气源暂不可用；本地星历仍可计算天体位置与升落。</p><p v-else>正在读取今晚天文夜内的云层、能见度、降水与月光条件。</p></div>
+          <div><h2>今夜观测评分 · {{ scoreVerdict }}</h2><p v-if="scoreWeather">{{ scoreWindowLabel }}：云量 {{ Math.round(scoreWeather.cloudCover) }}%，能见度 {{ (scoreWeather.visibilityMeters / 1000).toFixed(1) }} km；{{ conditionDescription(scoreWeather.weatherCode) }}是该时段的主导条件。</p><p v-else-if="conditionsStatus === 'error'">天气暂不可用，仍可查看天体位置与升落。</p><p v-else>正在读取今晚的云量、能见度、降水与月光条件。</p></div>
           <div v-if="scoreFactors" class="score-factors" aria-label="今夜观测评分扣分项">
             <p>今夜最佳时段扣分项</p>
             <span v-for="part in scoreFactors" :key="part.key" :class="part.kind"><i :style="{ width: factorBarWidth(part) }" /><small>{{ part.label }}</small><strong>{{ part.value.toFixed(1) }}</strong></span>
@@ -1461,10 +1452,10 @@ onBeforeUnmount(() => {
           <div class="observing-brief">
             <div class="advice-window">
               <p>今夜建议</p>
-              <h3>{{ recommendation?.windowLabel ?? '等待生成本地观测建议' }}</h3>
+              <h3>{{ recommendation?.windowLabel ?? '正在准备今夜观测建议' }}</h3>
               <span v-if="recommendation?.window">{{ recommendation.window.verdict }}</span>
-              <span v-else-if="!activeCoordinates">允许定位后计算今晚的目标与窗口</span>
-              <em v-if="recommendation && !recommendation.weatherAvailable" class="advice-degraded">{{ recommendation.weatherCoverage === 'outside' ? '天气预报暂未覆盖这段天文夜，以下目标来自本地星历' : '天气源不可用，以下目标与窗口来自本地星历' }}</em>
+              <span v-else-if="!activeCoordinates">设置观测地点后查看今晚的目标与时段</span>
+              <em v-if="recommendation && !recommendation.weatherAvailable" class="advice-degraded">{{ recommendation.weatherCoverage === 'outside' ? '这一时段暂无天气预报，仍可查看天体位置' : '天气暂不可用，仍可查看天体位置' }}</em>
             </div>
           </div>
           <ul v-if="recommendation?.targets.length" class="observing-targets">
@@ -1482,13 +1473,13 @@ onBeforeUnmount(() => {
               <article><span>风速 / 阵风</span><strong>{{ displayedConditions ? `${Math.round(displayedConditions.windSpeed)} / ${Math.round(displayedConditions.windGusts)}` : '—' }}<b v-if="displayedConditions"> km/h</b></strong><small>影响脚架稳定与体感</small></article>
               <article><span>降水</span><strong>{{ displayedConditions ? `${displayedConditions.precipitation.toFixed(1)} mm` : '—' }}</strong><small>{{ conditionsMomentLabel }}预报时段</small></article>
               <article><span>PM₂.₅ / 气溶胶</span><strong>{{ currentAir ? `${Math.round(currentAir.pm25)} μg/m³` : '—' }}</strong><small>{{ currentAir ? `AOD ${currentAir.aerosolOpticalDepth.toFixed(2)} · 透明度参考` : '空气质量源暂不可用' }}</small></article>
-              <article class="light-reading" :title="lightPollution ? `${lightPollution.source} · 辐射 ${lightPollution.radiance.toFixed(1)} ${lightPollution.radianceUnit} · SQM/Bortle 为模型估算 · 不计入动态评分` : '当前位置暂无年度卫星光污染数据'"><span>光污染 · 长期环境</span><strong>{{ lightPollution ? `Bortle ≈ ${lightPollution.bortle}` : '—' }}</strong><small>{{ lightPollution ? `SQM ≈ ${lightPollution.sqm.toFixed(1)} · VIIRS ${lightPollution.dataYear ?? ''} · 不计入动态评分` : '年度卫星数据暂不可用' }}</small></article>
+              <article class="light-reading" :title="lightPollution ? `${lightPollution.source} · 辐射 ${lightPollution.radiance.toFixed(1)} ${lightPollution.radianceUnit} · 根据夜间灯光估算，并非实时测量` : '当前位置暂无年度卫星光污染数据'"><span>光污染 · 长期环境</span><strong>{{ lightPollution ? `Bortle ≈ ${lightPollution.bortle}` : '—' }}</strong><small>{{ lightPollution ? `SQM ≈ ${lightPollution.sqm.toFixed(1)} · VIIRS ${lightPollution.dataYear ?? ''}` : '年度卫星数据暂不可用' }}</small></article>
             </div>
           </div>
         </section>
 
         <section class="night-analysis" v-if="nightAnalysis" aria-label="今夜夜空分析">
-          <div class="section-heading night-heading"><div><p>NIGHT ANALYSIS / 本地星历</p><h2>今夜夜空</h2></div></div>
+          <div class="section-heading night-heading"><div><p>NIGHT ANALYSIS / 夜空分析</p><h2>今夜夜空</h2></div></div>
           <div class="night-grid">
             <article v-if="nightAnalysis.astronomicalNight"><span>天文夜</span><strong>{{ windowRange(nightAnalysis.astronomicalNight) }}</strong><small>太阳低于地平线 −18°，深空目标不受曙暮光干扰</small></article>
             <article><span>无月黑夜</span><strong>{{ nightAnalysis.moonlessWindows.length ? nightAnalysis.moonlessWindows.map((window) => windowRange(window)).join(' / ') : '今夜无' }}</strong><small>天文夜内月亮在地平线以下，暗弱目标辨识最佳</small></article>
@@ -1540,7 +1531,7 @@ onBeforeUnmount(() => {
               </div>
             </div></div>
           </div>
-          <div v-else class="integration-state"><span>01</span><div><h3>{{ conditionsStatus === 'error' ? '天气预报暂不可用' : '正在连接天气预报' }}</h3><p>从当前整点到明日 24:00 的逐小时预报将在数据加载后显示。</p></div></div>
+          <div v-else class="integration-state"><span>01</span><div><h3>{{ conditionsStatus === 'error' ? '天气预报暂不可用' : '正在加载天气预报' }}</h3><p v-if="conditionsStatus === 'error'">请稍后重试。</p></div></div>
         </section>
       </section>
 
@@ -1569,7 +1560,7 @@ onBeforeUnmount(() => {
             <div v-for="body in horizonBodies" :key="body.id" class="sky-body" :class="{ 'is-active': expandedBodyId === body.id }" :style="horizonStyle(body)" role="button" tabindex="0" :aria-label="`查看${body.name}详情`" :aria-expanded="expandedBodyId === body.id" @click="revealBody(body.id)" @keydown.enter.prevent="revealBody(body.id)" @keydown.space.prevent="revealBody(body.id)" @pointerdown.stop><i>{{ body.glyph }}</i><span>{{ body.name }}</span></div>
             <div class="horizon-ridge horizon-ridge-far" aria-hidden="true" />
             <div class="horizon-ridge horizon-ridge-near" aria-hidden="true" />
-            <div v-if="!activeCoordinates" class="sky-empty"><strong>允许定位后生成本地地平天空</strong><span>星历计算不需要 Key；它只需要你的经纬度与时刻。</span><button type="button" @click="requestLocation">请求位置</button></div>
+            <div v-if="!activeCoordinates" class="sky-empty"><strong>设置观测地点后查看天空</strong><span>可使用设备定位，也可手动输入经纬度。</span><button type="button" @click="requestLocation">使用设备定位</button></div>
             <span v-if="activeCoordinates" class="sky-visible-count"><small>当前视野</small>{{ horizonBodies.length + visibleCatalogStars.length + visibleMessierObjects.length }}<small>目标</small></span>
             <div
               v-if="activeCoordinates"
@@ -1623,7 +1614,7 @@ onBeforeUnmount(() => {
         </section>
         <section class="curated-events" aria-labelledby="curated-events-title">
           <div class="section-heading"><h2 id="curated-events-title">未来天象事件</h2></div>
-          <div v-if="astronomyEventSources.length" class="event-source-status" aria-label="天象资料源同步状态">
+          <div v-if="astronomyEventSources.length" class="event-source-status" aria-label="天象资料更新状态">
             <article v-for="source in astronomyEventSources" :key="source.code" :class="{ failed: source.success === false }"><i aria-hidden="true" /><div><strong>{{ source.name }}</strong><small>{{ sourceStatusMessage(source) }}</small></div><span>{{ source.coverageStart && source.coverageEnd ? `${source.coverageStart.slice(0, 10)} → ${source.coverageEnd.slice(0, 10)}` : `${source.recordsWritten} 条` }}</span></article>
           </div>
           <div v-if="curatedEvents.length" class="curated-event-list" aria-live="polite">
@@ -1632,13 +1623,13 @@ onBeforeUnmount(() => {
                 <time>{{ event.dateLabel }}</time><span class="event-kind">{{ event.kind === 'meteor_shower' ? '流星雨' : event.kind.endsWith('eclipse') ? '食' : event.kind.includes('conjunction') || event.kind.startsWith('planetary') ? '行星' : '天象' }}</span><div><h3>{{ event.title }}</h3><p>{{ event.summary }}</p></div><div class="event-visibility" :class="`visibility-${eventVisibilityTone(event)}`"><strong>{{ eventVisibilityLabel(event) }}</strong></div><i aria-hidden="true">⌄</i>
               </button>
               <div v-if="expandedEventId === event.id" :id="`event-detail-${event.id}`" class="curated-event-detail" role="region">
-                <dl><div><dt>最佳时段</dt><dd>{{ formatEventMoment(event.local?.bestAt) }}</dd></div><div><dt>可见窗口</dt><dd>{{ event.local?.windowStart ? `${formatEventMoment(event.local.windowStart)} – ${formatEventMoment(event.local.windowEnd)}` : '—' }}</dd></div><div><dt>方位</dt><dd>{{ event.local?.azimuthDegrees != null ? `${Math.round(event.local.azimuthDegrees)}°` : '—' }}</dd></div><div><dt>高度</dt><dd>{{ event.local?.altitudeDegrees != null ? `${Math.round(event.local.altitudeDegrees)}°` : '—' }}</dd></div><div><dt>精度</dt><dd>{{ eventPrecision(event) }}</dd></div><div><dt>核验</dt><dd>{{ event.verifiedAt }}</dd></div><div><dt>来源</dt><dd>{{ event.sourceName }}</dd></div></dl>
+                <dl><div><dt>最佳时段</dt><dd>{{ formatEventMoment(event.local?.bestAt) }}</dd></div><div><dt>可见窗口</dt><dd>{{ event.local?.windowStart ? `${formatEventMoment(event.local.windowStart)} – ${formatEventMoment(event.local.windowEnd)}` : '—' }}</dd></div><div><dt>方位</dt><dd>{{ event.local?.azimuthDegrees != null ? `${Math.round(event.local.azimuthDegrees)}°` : '—' }}</dd></div><div><dt>高度</dt><dd>{{ event.local?.altitudeDegrees != null ? `${Math.round(event.local.altitudeDegrees)}°` : '—' }}</dd></div><div><dt>核验日期</dt><dd>{{ event.verifiedAt }}</dd></div><div><dt>来源</dt><dd>{{ event.sourceName }}</dd></div></dl>
                 <div class="event-detail-actions"><a :href="event.sourceUrl" target="_blank" rel="noreferrer">查看 {{ event.sourceName }}</a></div>
               </div>
             </article>
           </div>
           <button v-if="hasHiddenCuratedEvents" class="show-all-events" type="button" :aria-expanded="showAllCuratedEvents" @click="toggleAllCuratedEvents">{{ showAllCuratedEvents ? '收起其余天象' : `展开其余 ${curatedEvents.length - 5} 条天象` }}</button>
-          <div v-else class="events-empty"><strong>{{ astronomyEventsStatus === 'loading' ? '正在读取未来天象' : '未来 30 天暂无已校订的重点天象' }}</strong><span>{{ astronomyEventsStatus === 'error' ? '天象服务暂不可用；请稍后刷新。' : '无定位时仍会展示全球日历；允许定位后可判断本地可见性。' }}</span><button v-if="astronomyEventsStatus === 'error'" type="button" @click="loadAstronomyEvents">重新加载</button></div>
+          <div v-else class="events-empty"><strong>{{ astronomyEventsStatus === 'loading' ? '正在读取未来天象' : '未来 30 天暂无重点天象' }}</strong><span>{{ astronomyEventsStatus === 'error' ? '天象资料暂不可用，请稍后重试。' : '设置观测地点后可查看当地可见性。' }}</span><button v-if="astronomyEventsStatus === 'error'" type="button" @click="loadAstronomyEvents">重新加载</button></div>
         </section>
       </section>
 
@@ -1649,7 +1640,7 @@ onBeforeUnmount(() => {
           </div>
         </header>
 
-        <div v-if="imageWallStatus === 'loading' && !imageWall" class="daily-image-state" aria-live="polite"><strong>正在开启图像窗</strong><span>各来源独立读取；某一扇窗延迟不会阻塞其他图像。</span></div>
+        <div v-if="imageWallStatus === 'loading' && !imageWall" class="daily-image-state" aria-live="polite"><strong>正在加载宇宙图像</strong></div>
         <div v-else-if="imageWall" class="image-stream" :class="{ 'is-refreshing': imageWallStatus === 'loading' }" aria-live="polite">
           <section class="image-stream-section" aria-labelledby="recent-images-title">
             <header class="image-stream-heading"><h2 id="recent-images-title">NASA每日一图</h2><p>NASA APOD每日更新</p></header>
@@ -1696,7 +1687,7 @@ onBeforeUnmount(() => {
             </div>
           </section>
         </div>
-        <div v-else class="daily-image-state is-error" aria-live="polite"><strong>宇宙图像窗暂不可用</strong><span>请检查 AURORA 后端连接后重新加载；不会要求浏览器持有 NASA API Key。</span><button type="button" @click="loadImageWall">重新加载</button></div>
+        <div v-else class="daily-image-state is-error" aria-live="polite"><strong>宇宙图像暂不可用</strong><span>请稍后重试。</span><button type="button" @click="loadImageWall">重新加载</button></div>
       </section>
     </main>
   </section>

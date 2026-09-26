@@ -16,7 +16,6 @@ export interface MissionDetail {
   fields: MissionDetailField[]
   hardware?: string[]
   source?: string
-  note?: string
   iconHtml?: string
 }
 
@@ -75,10 +74,6 @@ export function surfaceMissionFields(input: {
     missionField('坐标', input.coordinates),
   )
 }
-
-export const SPACECRAFT_SCENE_NOTE = '轨道与位置用于交互示意；精确状态以所列数据来源为准。'
-export const SURFACE_SCENE_NOTE = '圆点用于标示任务位置；坐标精度以所列数据来源为准。'
-export const ENDPOINT_SCENE_NOTE = '圆点用于标示任务终点；坐标精度以所列数据来源为准。'
 
 /**
  * 3D 圆点的透视补偿。指数高于旧实现的 0.6，使镜头靠近时圆点同步缩小，
