@@ -47,7 +47,7 @@ const selectedSkyDateKey = ref<string | null>(null)
 const skyViewAzimuth = ref(180)
 const skyViewDragging = ref(false)
 const skyViewAutoTurning = ref(false)
-const locationLabel = ref('等待位置授权')
+const locationLabel = ref('设置观测地点')
 const latitude = ref<number | null>(null)
 const longitude = ref<number | null>(null)
 const locationStatus = ref<'idle' | 'locating' | 'resolving' | 'located' | 'partial' | 'denied' | 'unavailable'>('idle')
@@ -59,6 +59,17 @@ const showSkySearchResults = ref(false)
 const locationQuery = ref('')
 const manualLatitude = ref('')
 const manualLongitude = ref('')
+const hoveredLocationCandidate = ref<ObserverPlaceCandidate | null>(null)
+const focusedLocationCandidate = ref<ObserverPlaceCandidate | null>(null)
+const selectedLocationCandidate = ref<ObserverPlaceCandidate | null>(null)
+const deviceCoordinatesReady = ref(false)
+const deviceLocating = ref(false)
+const previewLocationCandidate = computed(() => {
+  const candidate = hoveredLocationCandidate.value ?? focusedLocationCandidate.value
+  return candidate === selectedLocationCandidate.value ? null : candidate
+})
+const displayedLatitude = computed(() => previewLocationCandidate.value?.latitude.toFixed(6) ?? manualLatitude.value)
+const displayedLongitude = computed(() => previewLocationCandidate.value?.longitude.toFixed(6) ?? manualLongitude.value)
 const locationSearchStatus = ref<'idle' | 'loading' | 'ready' | 'error'>('idle')
 const locationSearchResults = ref<ObserverPlaceCandidate[]>([])
 const locationFormError = ref('')
@@ -81,6 +92,7 @@ let minuteAnimationFrame: number | undefined
 let timeScrubAnimationFrame: number | undefined
 let pendingMinuteOfDay: number | undefined
 let locationRevision = 0
+let deviceLocationRevision = 0
 let locationLookupController: AbortController | undefined
 let locationSearchController: AbortController | undefined
 let conditionsController: AbortController | undefined
@@ -1118,46 +1130,48 @@ async function resolveLocationName(currentLatitude: number, currentLongitude: nu
 }
 
 function requestLocation() {
-  if (locationStatus.value === 'locating' || locationStatus.value === 'resolving') return
+  if (deviceLocating.value) return
   if (!navigator.geolocation) {
-    locationStatus.value = 'unavailable'
-    locationLabel.value = '浏览器不支持定位'
+    locationFormError.value = '浏览器不支持设备定位，请手动输入经纬度。'
     return
   }
-  const revision = ++locationRevision
-  locationLookupController?.abort()
-  locationStatus.value = 'locating'
-  locationLabel.value = '正在获取位置'
+  const revision = ++deviceLocationRevision
+  deviceLocating.value = true
+  locationFormError.value = ''
   navigator.geolocation.getCurrentPosition(
     ({ coords }) => {
-      if (revision !== locationRevision) return
-      latitude.value = coords.latitude
-      longitude.value = coords.longitude
-      showLocationEditor.value = false
-      void resolveLocationName(coords.latitude, coords.longitude, revision)
+      if (revision !== deviceLocationRevision) return
+      deviceLocating.value = false
+      manualLatitude.value = coords.latitude.toFixed(6)
+      manualLongitude.value = coords.longitude.toFixed(6)
+      selectedLocationCandidate.value = null
+      hoveredLocationCandidate.value = null
+      focusedLocationCandidate.value = null
+      deviceCoordinatesReady.value = true
+      locationFormError.value = ''
     },
     (error) => {
-      if (revision !== locationRevision) return
-      if (error.code === error.PERMISSION_DENIED) {
-        locationStatus.value = 'denied'
-        locationLabel.value = '定位未授权'
-      } else {
-        locationStatus.value = 'unavailable'
-        locationLabel.value = error.code === error.TIMEOUT ? '定位请求超时' : '暂时无法获取位置'
-      }
+      if (revision !== deviceLocationRevision) return
+      deviceLocating.value = false
+      locationFormError.value = error.code === error.PERMISSION_DENIED ? '定位未授权，请手动输入经纬度。' : error.code === error.TIMEOUT ? '定位请求超时，请重试或手动输入经纬度。' : '暂时无法获取位置，请手动输入经纬度。'
     },
     { enableHighAccuracy: true, timeout: 10_000, maximumAge: 300_000 },
   )
 }
 
 function toggleLocationEditor() {
-  showLocationEditor.value = !showLocationEditor.value
+  if (showLocationEditor.value) closeLocationEditor()
+  else showLocationEditor.value = true
 }
 
 function closeLocationEditor(returnFocus = false) {
   if (!showLocationEditor.value) return
   showLocationEditor.value = false
+  deviceLocationRevision += 1
+  deviceLocating.value = false
   if (returnFocus) locationTrigger.value?.focus()
+  hoveredLocationCandidate.value = null
+  focusedLocationCandidate.value = null
 }
 
 function onLocationOutsidePointerDown(event: PointerEvent) {
@@ -1185,11 +1199,17 @@ function useCoordinates(nextLatitude: number, nextLongitude: number, label?: str
   }
   const revision = ++locationRevision
   locationLookupController?.abort()
+  deviceLocationRevision += 1
+  deviceLocating.value = false
   latitude.value = nextLatitude
   longitude.value = nextLongitude
   manualLatitude.value = nextLatitude.toFixed(6)
   manualLongitude.value = nextLongitude.toFixed(6)
   locationFormError.value = ''
+  selectedLocationCandidate.value = null
+  deviceCoordinatesReady.value = false
+  hoveredLocationCandidate.value = null
+  focusedLocationCandidate.value = null
   showLocationEditor.value = false
   if (label) {
     locationLabel.value = label
@@ -1200,7 +1220,23 @@ function useCoordinates(nextLatitude: number, nextLongitude: number, label?: str
 }
 
 function submitManualCoordinates() {
-  useCoordinates(Number(manualLatitude.value), Number(manualLongitude.value))
+  if (!manualLatitude.value.trim() || !manualLongitude.value.trim()) {
+    locationFormError.value = '请输入纬度和经度。'
+    return
+  }
+  useCoordinates(Number(manualLatitude.value), Number(manualLongitude.value), selectedLocationCandidate.value?.label)
+}
+
+function updateManualCoordinate(field: 'latitude' | 'longitude', event: Event) {
+  deviceLocationRevision += 1
+  deviceLocating.value = false
+  const value = (event.target as HTMLInputElement).value
+  if (field === 'latitude') manualLatitude.value = value
+  else manualLongitude.value = value
+  selectedLocationCandidate.value = null
+  deviceCoordinatesReady.value = false
+  hoveredLocationCandidate.value = null
+  focusedLocationCandidate.value = null
 }
 
 async function submitLocationSearch() {
@@ -1211,10 +1247,16 @@ async function submitLocationSearch() {
   }
   locationSearchController?.abort()
   const controller = new AbortController()
+  deviceLocationRevision += 1
+  deviceLocating.value = false
   locationSearchController = controller
   locationSearchStatus.value = 'loading'
   locationFormError.value = ''
   try {
+  hoveredLocationCandidate.value = null
+  focusedLocationCandidate.value = null
+  selectedLocationCandidate.value = null
+  deviceCoordinatesReady.value = false
     const response = await searchObserverPlaces(query, controller.signal)
     if (controller.signal.aborted) return
     locationSearchResults.value = response.places
@@ -1231,8 +1273,13 @@ async function submitLocationSearch() {
 }
 
 function selectLocationCandidate(place: ObserverPlaceCandidate) {
-  useCoordinates(place.latitude, place.longitude, place.label)
-  locationSearchResults.value = []
+  deviceLocationRevision += 1
+  deviceLocating.value = false
+  manualLatitude.value = place.latitude.toFixed(6)
+  manualLongitude.value = place.longitude.toFixed(6)
+  selectedLocationCandidate.value = place
+  deviceCoordinatesReady.value = false
+  locationFormError.value = ''
 }
 
 function locateCatalogObject(item: SkyCatalogObject) {
@@ -1440,12 +1487,12 @@ onMounted(() => {
     }
   }, 1_000)
   loadMoonTexture()
-  requestLocation()
 })
 
 onBeforeUnmount(() => {
   locationRevision += 1
   locationLookupController?.abort()
+  deviceLocationRevision += 1
   locationSearchController?.abort()
   conditionsController?.abort()
   moonDayController?.abort()
@@ -1477,18 +1524,26 @@ onBeforeUnmount(() => {
         </button>
         <Transition name="location-panel">
           <section v-if="showLocationEditor" id="location-editor" class="location-editor" role="dialog" aria-label="设置观测地点">
-            <button class="location-gps" type="button" :disabled="locationStatus === 'locating' || locationStatus === 'resolving'" @click="requestLocation">{{ locationStatus === 'locating' || locationStatus === 'resolving' ? '正在定位…' : '使用设备定位' }}</button>
+            <button class="location-gps" type="button" :disabled="deviceLocating" @click="requestLocation">{{ deviceLocating ? '正在定位…' : '使用设备定位' }}</button>
+            <form @submit.prevent="submitManualCoordinates">
+              <div class="coordinate-label"><label>经纬度</label><span>可手动填入</span></div>
+              <div class="coordinate-inputs" :class="{ 'is-preview': previewLocationCandidate, 'is-selected': (selectedLocationCandidate || deviceCoordinatesReady) && !previewLocationCandidate }"><input :value="displayedLatitude" inputmode="decimal" aria-label="纬度" placeholder="纬度" @input="updateManualCoordinate('latitude', $event)" /><input :value="displayedLongitude" inputmode="decimal" aria-label="经度" placeholder="经度" @input="updateManualCoordinate('longitude', $event)" /><button type="submit">使用</button></div>
+            </form>
             <form @submit.prevent="submitLocationSearch">
               <label for="location-query">搜索乡镇、区县或城市</label>
               <div><input id="location-query" v-model="locationQuery" autocomplete="address-level2" placeholder="例：上海市崇明区" /><button type="submit" :disabled="locationSearchStatus === 'loading'">搜索</button></div>
             </form>
-            <ul v-if="locationSearchResults.length" class="location-results">
-              <li v-for="place in locationSearchResults" :key="`${place.adcode}-${place.latitude}-${place.longitude}`"><button type="button" @click="selectLocationCandidate(place)"><strong>{{ place.label }}</strong><small>{{ place.latitude.toFixed(4) }}, {{ place.longitude.toFixed(4) }} · WGS84</small></button></li>
-            </ul>
-            <form @submit.prevent="submitManualCoordinates">
-              <label>请输入经纬度</label>
-              <div class="coordinate-inputs"><input v-model="manualLatitude" inputmode="decimal" aria-label="纬度" placeholder="纬度" /><input v-model="manualLongitude" inputmode="decimal" aria-label="经度" placeholder="经度" /><button type="submit">使用</button></div>
-            </form>
+            <div v-if="locationSearchResults.length" class="location-results-wrap">
+              <div class="location-results-heading"><strong>搜索结果</strong></div>
+              <ul class="location-results">
+                <li v-for="place in locationSearchResults" :key="`${place.adcode}-${place.latitude}-${place.longitude}`">
+                  <button type="button" :class="{ 'is-selected': selectedLocationCandidate === place, 'is-preview': previewLocationCandidate === place }" :aria-label="selectedLocationCandidate === place ? `${place.label}，已填入经纬度` : `选择${place.label}，填入经纬度`" @pointerenter="hoveredLocationCandidate = place" @pointerleave="hoveredLocationCandidate = null" @focus="focusedLocationCandidate = place" @blur="focusedLocationCandidate = null" @click="selectLocationCandidate(place)">
+                    <span class="location-result-detail"><strong>{{ place.label }}</strong><small>{{ place.latitude.toFixed(4) }}, {{ place.longitude.toFixed(4) }} · WGS84</small></span>
+                    <span class="location-result-action" aria-hidden="true">{{ selectedLocationCandidate === place ? '已填入' : '填入' }}<i /></span>
+                  </button>
+                </li>
+              </ul>
+            </div>
             <p v-if="locationFormError" class="location-form-error" role="alert">{{ locationFormError }}</p>
           </section>
         </Transition>
@@ -1827,16 +1882,33 @@ onBeforeUnmount(() => {
 .location-editor button:disabled { opacity:.5; cursor:wait; }
 .location-gps { width:100%; margin-bottom:12px; letter-spacing:.03em; }
 .coordinate-inputs input { width:76px; }
-.location-results { max-height:168px; margin:7px 0 0; padding:0; overflow:auto; list-style:none; border-block:1px solid var(--sky-line); }
-.location-results li + li { border-top:1px solid var(--sky-line); }
-.location-results button { display:flex; justify-content:space-between; gap:10px; width:100%; padding:8px 2px; text-align:left; border:0; border-radius:0; }
-.location-results strong,.location-results small { display:block; }
-.location-results strong { font-size:9px; font-weight:600; }
-.location-results small { color:var(--sky-muted); font:7px/1.4 var(--font-mono,monospace); white-space:nowrap; }
+.location-results-wrap { margin:11px 0 12px; }
+.location-results-heading { display:flex; justify-content:space-between; align-items:baseline; gap:8px; margin-bottom:6px; }
+.location-results-heading strong { color:var(--sky-cyan); font-size:9px; font-weight:600; }
+.location-results { display:grid; gap:5px; max-height:180px; margin:0; padding:0; overflow:auto; list-style:none; }
+.location-results li { min-width:0; }
+.location-results button { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:9px; align-items:center; width:100%; min-height:52px; padding:8px 9px; text-align:left; background:#15263d; border:1px solid rgba(167,221,255,.28); border-radius:5px; transition:background .16s ease,border-color .16s ease; }
+.location-results button:hover:not(:disabled),.location-results button:focus-visible,.location-results button.is-preview { background:#1c3552; border-color:var(--sky-cyan); outline:0; }
+.location-results button:focus-visible { box-shadow:inset 0 0 0 1px var(--sky-cyan); }
+.location-results button.is-selected { background:#0e2a46; border-color:var(--sky-amber); }
+.location-result-detail { display:block; min-width:0; }
+.location-result-detail strong,.location-result-detail small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.location-result-detail strong { color:var(--sky-ink); font-size:11px; font-weight:600; line-height:1.3; }
+.location-result-detail small { margin-top:3px; color:var(--sky-muted); font:8px/1.4 var(--font-mono,monospace); }
+.location-result-action { display:inline-flex; gap:3px; align-items:center; color:var(--sky-cyan); font-size:9px; white-space:nowrap; }
+.location-result-action i { width:5px; height:5px; border-top:1px solid currentColor; border-right:1px solid currentColor; transform:rotate(45deg); }
+.location-results button.is-selected .location-result-action i { display:none; }
+.coordinate-label { display:flex; justify-content:space-between; gap:8px; align-items:baseline; }
+.coordinate-label span { color:var(--sky-muted); font-size:8px; white-space:nowrap; }
+.coordinate-inputs input { transition:background .16s ease,border-color .16s ease,color .16s ease; }
+.coordinate-inputs.is-preview input { color:#a9bfd5; background:#16283e; border-color:rgba(167,221,255,.36); }
+.coordinate-inputs.is-selected input { color:#f0f8ff; background:#081827; border-color:rgba(167,221,255,.65); }
+.coordinate-inputs.is-selected button { color:#081827; background:var(--sky-cyan); border-color:var(--sky-cyan); }
+.coordinate-inputs.is-selected button:hover,.coordinate-inputs.is-selected button:focus-visible { color:#081827; background:#d5eeff; border-color:#d5eeff; }
 .location-form-error { margin:8px 0 0; color:#f28f84; font-size:8px; line-height:1.5; }
 .location-panel-enter-active,.location-panel-leave-active { transition:opacity .14s ease,transform .14s ease; }
 .location-panel-enter-from,.location-panel-leave-to { opacity:0; transform:translateY(-4px); }
-@media (prefers-reduced-motion:reduce) { .location-panel-enter-active,.location-panel-leave-active { transition:none; } }
+@media (prefers-reduced-motion:reduce) { .location-panel-enter-active,.location-panel-leave-active,.location-results button,.coordinate-inputs input { transition:none; } }
 .sky-menu { border-top:1px solid var(--sky-line); }
 .sky-menu button { position:relative; display:grid; grid-template-columns:25px 1fr auto; align-items:center; width:calc(100% + 40px); min-height:60px; margin-left:-20px; padding:0 20px 0 28px; color:var(--sky-muted); text-align:left; background:none; border:0; border-bottom:1px solid var(--sky-line); cursor:pointer; transition:background .2s,color .2s; }
 .sky-menu button::before { position:absolute; top:0; bottom:0; left:0; width:2px; background:var(--sky-amber); content:""; transform:scaleY(0); transform-origin:center; transition:transform .2s; }
