@@ -106,15 +106,36 @@ func TestVisibilitySolverUnknownKindReturnsNotCalculated(t *testing.T) {
 	}
 }
 
-func TestVisibilitySolverDoesNotGuessSolarEclipseOrMeteorRadiant(t *testing.T) {
+func TestVisibilitySolverDoesNotGuessMeteorRadiant(t *testing.T) {
 	solver := NewVisibilitySolver(NewMoonService())
-	for _, event := range []EventInput{
-		{Kind: "solar_eclipse", StartsAt: time.Now()},
-		{Kind: "meteor_shower", StartsAt: time.Now(), Geometry: map[string]any{}},
+	if got := solver.Solve(EventInput{Kind: "meteor_shower", StartsAt: time.Now(), Geometry: map[string]any{}}, 31.23, 121.47, "Asia/Shanghai").Status; got != "not_calculated" {
+		t.Errorf("status=%s, want not_calculated", got)
+	}
+}
+
+func TestVisibilitySolverSolarEclipseUsesLocalDiscOverlap(t *testing.T) {
+	solver := NewVisibilitySolver(NewMoonService())
+	event := EventInput{Kind: "solar_eclipse", StartsAt: time.Date(2026, 8, 12, 17, 47, 5, 0, time.UTC)}
+	for _, example := range []struct {
+		name      string
+		latitude  float64
+		longitude float64
+		timezone  string
+		want      string
+	}{
+		{"Reykjavik", 64.15, -21.94, "Atlantic/Reykjavik", "observable"},
+		{"Madrid", 40.42, -3.7, "Europe/Madrid", "limited"},
+		{"Shanghai", 31.23, 121.47, "Asia/Shanghai", "not_visible"},
 	} {
-		if got := solver.Solve(event, 31.23, 121.47, "Asia/Shanghai").Status; got != "not_calculated" {
-			t.Errorf("kind=%s status=%s, want not_calculated", event.Kind, got)
-		}
+		t.Run(example.name, func(t *testing.T) {
+			vis := solver.Solve(event, example.latitude, example.longitude, example.timezone)
+			if vis.Status != example.want {
+				t.Fatalf("status=%s, want %s (%s)", vis.Status, example.want, vis.Reason)
+			}
+			if example.want != "not_visible" && (vis.BestAt == nil || vis.WindowStart == nil || vis.WindowEnd == nil || vis.AzimuthDegrees == nil || vis.AltitudeDegrees == nil) {
+				t.Fatalf("visible eclipse lacks window or direction: %+v", vis)
+			}
+		})
 	}
 }
 

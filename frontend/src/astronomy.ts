@@ -184,15 +184,16 @@ function localStartOfDay(at: Date, timezone = systemTimezone()) {
   return zonedDateAtMinute(at, 0, timezone)
 }
 
-function nextRiseOrSet(body: Body, place: Observer, direction: 1 | -1, dayStart: Date) {
-  return SearchRiseSet(body, place, direction, dayStart, 1.1)?.date ?? null
+function nextRiseOrSet(body: Body, place: Observer, direction: 1 | -1, dayStart: Date, dayEnd: Date) {
+  const result = SearchRiseSet(body, place, direction, dayStart, (dayEnd.getTime() - dayStart.getTime()) / 86_400_000)?.date ?? null
+  return result && result < dayEnd ? result : null
 }
 
-function transitFor(config: CelestialBody, place: Observer, start: Date): Date | null {
+function transitFor(config: CelestialBody, place: Observer, start: Date, end: Date): Date | null {
   let best: Date | null = null
   let highest = -Infinity
-  for (let minute = 0; minute <= 24 * 60; minute += 5) {
-    const at = new Date(start.getTime() + minute * 60_000)
+  for (let timestamp = start.getTime(); timestamp < end.getTime(); timestamp += 5 * 60_000) {
+    const at = new Date(timestamp)
     const equator = Equator(config.body, at, place, true, true)
     const altitude = Horizon(at, place, equator.ra, equator.dec, 'normal').altitude
     if (altitude > highest) {
@@ -206,20 +207,22 @@ function transitFor(config: CelestialBody, place: Observer, start: Date): Date |
 export function calculateTrack(config: CelestialBody, at: Date, latitude: number, longitude: number, elevation = 0, timezone = systemTimezone()): BodyTrack {
   const place = observer(latitude, longitude, elevation)
   const dayStart = localStartOfDay(at, timezone)
-  const samples = Array.from({ length: 97 }, (_, index) => {
-    const sampleAt = new Date(dayStart.getTime() + index * 15 * 60_000)
+  const nextDateKey = zonedDateKeyAfterDays(at, timezone, 1)
+  const dayEnd = dateFromZonedLocalTime(`${nextDateKey}T00:00`, timezone)
+  const samples = Array.from({ length: Math.ceil((dayEnd.getTime() - dayStart.getTime()) / (15 * 60_000)) + 1 }, (_, index) => {
+    const sampleAt = new Date(Math.min(dayStart.getTime() + index * 15 * 60_000, dayEnd.getTime()))
     const equator = Equator(config.body, sampleAt, place, true, true)
     const horizontal = Horizon(sampleAt, place, equator.ra, equator.dec, 'normal')
     return { at: sampleAt, altitude: horizontal.altitude, azimuth: horizontal.azimuth }
   })
   const current = calculatePosition(config, at, latitude, longitude, elevation)
-  const transit = transitFor(config, place, dayStart)
-  const best = samples.reduce<{ at: Date; altitude: number } | null>((bestSample, sample) => !bestSample || sample.altitude > bestSample.altitude ? sample : bestSample, null)
+  const transit = transitFor(config, place, dayStart, dayEnd)
+  const best = samples.slice(0, -1).reduce<{ at: Date; altitude: number } | null>((bestSample, sample) => !bestSample || sample.altitude > bestSample.altitude ? sample : bestSample, null)
   return {
     ...config,
     ...current,
-    rise: nextRiseOrSet(config.body, place, 1, dayStart),
-    set: nextRiseOrSet(config.body, place, -1, dayStart),
+    rise: nextRiseOrSet(config.body, place, 1, dayStart, dayEnd),
+    set: nextRiseOrSet(config.body, place, -1, dayStart, dayEnd),
     transit,
     samples,
     best: best?.altitude && best.altitude > 0 ? best.at : null,

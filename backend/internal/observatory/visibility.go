@@ -62,8 +62,6 @@ func (s *VisibilitySolver) Solve(event EventInput, latitude, longitude float64, 
 	case "moon_conjunction", "planetary_conjunction", "planetary_opposition", "planetary_elongation", "multi_planet_alignment":
 		return s.solvePlanetary(event, latitude, longitude, loc)
 	case "solar_eclipse":
-		// 日食只在路径覆盖区可见；用 NASA/GSFC 食类型 + 当地太阳高度判定。
-		// 路径数据（Besselian 元素）解析接入后可精确判定；当前用食类型 + 当地白天判定。
 		return s.solveSolarEclipse(event, latitude, longitude, loc)
 	case "small_body_close_approach":
 		return EventVisibility{Status: "not_calculated", Reason: "该近地小天体已同步最近掠过资料；需要对象星历后才能计算当地位置与亮度。"}
@@ -586,8 +584,60 @@ func equatorialToHorizontalAltitude(ra, dec, latitude, longitude float64, at tim
 	return rad2deg(math.Asin(clampUnit(sinAlt)))
 }
 
-// solveSolarEclipse 在没有已验证的 Besselian 本地接触时刻前保持诚实的未计算状态。
-// 仅凭当地白昼不能推断路径覆盖，绝不能把全球发生的日食写成当地 limited/observable。
+// solveSolarEclipse 逐时比较日月在当地的视圆盘。月球使用已有的周日视差模型；
+// 接近食带边界时保留未计算状态，避免近似星历把掠边地点误判为可见或不可见。
 func (s *VisibilitySolver) solveSolarEclipse(event EventInput, latitude, longitude float64, loc *time.Location) EventVisibility {
-	return EventVisibility{Status: "not_calculated", Reason: "尚未接入经验证的 NASA/GSFC Besselian 本地路径求解器；不会把全球日食误标为当地可见。"}
+	const step = 2 * time.Minute
+	const edgeTolerance = 0.05 // 度；约为月球视直径的十分之一。
+	const sunRadius = 0.2666   // 度；地日距离变化造成的误差小于边界保护带。
+	start := event.StartsAt.UTC().Add(-5 * time.Hour)
+	end := event.StartsAt.UTC().Add(5 * time.Hour)
+	type sample struct {
+		at       time.Time
+		altitude float64
+		azimuth  float64
+		margin   float64
+	}
+	visible := make([]sample, 0, 120)
+	bestMargin := -math.MaxFloat64
+	bestVisible := -1
+	for at := start; !at.After(end); at = at.Add(step) {
+		moonAltitude, moonAzimuth := moonHorizontalCoordinates(latitude, longitude, 0, at)
+		sunAltitude, sunAzimuth := EclipticToHorizontal("sun", latitude, longitude, at)
+		_, _, moonDistance := moonPosition(julianCenturies(at))
+		moonRadius := rad2deg(math.Asin(1737.4 / moonDistance))
+		separation := rad2deg(math.Acos(clampUnit(
+			math.Sin(deg2rad(sunAltitude))*math.Sin(deg2rad(moonAltitude)) +
+				math.Cos(deg2rad(sunAltitude))*math.Cos(deg2rad(moonAltitude))*math.Cos(deg2rad(sunAzimuth-moonAzimuth)),
+		)))
+		margin := sunRadius + moonRadius - separation
+		if margin > bestMargin {
+			bestMargin = margin
+		}
+		if margin <= 0 || sunAltitude <= 0 {
+			continue
+		}
+		visible = append(visible, sample{at: at, altitude: sunAltitude, azimuth: sunAzimuth, margin: margin})
+		if bestVisible < 0 || margin > visible[bestVisible].margin {
+			bestVisible = len(visible) - 1
+		}
+	}
+	if bestMargin >= -edgeTolerance && bestMargin <= edgeTolerance {
+		return EventVisibility{Status: "not_calculated", Reason: "当前位置接近日食可见边界，近似星历不足以可靠判定。"}
+	}
+	if bestVisible < 0 {
+		return EventVisibility{Status: "not_visible", Reason: "此次日食在当地不可见，或食相期间太阳位于地平线下。"}
+	}
+	best := visible[bestVisible]
+	windowStart := visible[0].at.In(loc).Format(time.RFC3339)
+	windowEnd := visible[len(visible)-1].at.In(loc).Format(time.RFC3339)
+	bestAt := best.at.In(loc).Format(time.RFC3339)
+	status, reason := "observable", "此次日食在当地可见；观测全程须使用合格的太阳滤镜。"
+	if best.altitude < 10 {
+		status, reason = "limited", "此次日食在当地可见，但太阳位置较低；观测全程须使用合格的太阳滤镜。"
+	}
+	return EventVisibility{
+		Status: status, BestAt: &bestAt, WindowStart: &windowStart, WindowEnd: &windowEnd,
+		AzimuthDegrees: &best.azimuth, AltitudeDegrees: &best.altitude, Reason: reason,
+	}
 }

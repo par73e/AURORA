@@ -68,10 +68,12 @@ func (s *SourceSyncer) SyncOfficialSources(ctx context.Context) error {
 		return errors.New("astronomy source snapshot store 未配置")
 	}
 	year := s.now().UTC().Year()
+	eclipseDecade := (year-1)/10*10 + 1
 	feeds := []sourceFeed{
 		{SourceCode: "usno_astronomy", URL: fmt.Sprintf("https://aa.usno.navy.mil/api/moon/phases/year?year=%d", year), Year: year},
 		{SourceCode: "usno_astronomy", URL: fmt.Sprintf("https://aa.usno.navy.mil/api/seasons?year=%d", year), Year: year},
-		{SourceCode: "nasa_gsfc_eclipse", URL: "https://eclipse.gsfc.nasa.gov/SEpath/SEpath.html"},
+		{SourceCode: "nasa_gsfc_eclipse", URL: fmt.Sprintf("https://eclipse.gsfc.nasa.gov/SEdecade/SEdecade%d.html", eclipseDecade)},
+		{SourceCode: "nasa_gsfc_eclipse", URL: fmt.Sprintf("https://eclipse.gsfc.nasa.gov/SEdecade/SEdecade%d.html", eclipseDecade+10)},
 		{SourceCode: "nasa_gsfc_eclipse", URL: "https://eclipse.gsfc.nasa.gov/LEdecade/LEdecade2021.html"},
 		{SourceCode: "imo_meteor_calendar", URL: fmt.Sprintf("https://www.imo.net/files/meteor-shower/cal%d.pdf", year), Year: year},
 		{SourceCode: "imo_meteor_calendar", URL: fmt.Sprintf("https://www.imo.net/files/meteor-shower/cal%d.pdf", year+1), Year: year + 1},

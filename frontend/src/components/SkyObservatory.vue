@@ -12,6 +12,7 @@ import { analyzeNight, bearing, bodies, calculateFixedObjectPosition, calculateP
 import { conditionDescription, forecastHoursThroughTomorrow, weatherGlyph } from '../observatoryWeather'
 import { projectAltitudeGuide, projectHorizontalDirection, projectSkyTrajectoryBranch, type SkyCamera } from '../skyProjection'
 import { easeOutExpo, normalizeAzimuth, shortestAzimuthDelta, skyTurnDuration } from '../skyMotion'
+import { localSolarEclipseVisibility } from '../solarEclipseVisibility'
 import { constellationLines, skyCatalog, type SkyCatalogObject } from '../skyCatalog'
 import moonNearsideTexture from '../assets/solar/2k_moon.jpg'
 import AuroraBrand from './AuroraBrand.vue'
@@ -83,6 +84,8 @@ let locationRevision = 0
 let locationLookupController: AbortController | undefined
 let locationSearchController: AbortController | undefined
 let conditionsController: AbortController | undefined
+let moonDayController: AbortController | undefined
+let lightPollutionController: AbortController | undefined
 let homeExitTimer: number | undefined
 let moonTexturePixels: ImageData | undefined
 let moonTextureWidth = 0
@@ -1268,20 +1271,36 @@ async function loadConditions(currentLatitude: number, currentLongitude: number)
   conditionsController = controller
   conditionsStatus.value = 'loading'
   try {
-    conditions.value = await fetchObservingConditions(currentLatitude, currentLongitude, controller.signal, true)
-    conditionsStatus.value = 'ready'
+    const forecast = await fetchObservingConditions(currentLatitude, currentLongitude, controller.signal, true)
+    if (!controller.signal.aborted && conditionsController === controller) {
+      conditions.value = forecast
+      conditionsStatus.value = 'ready'
+      void loadMoonDay(currentLatitude, currentLongitude)
+    }
   } catch {
-    if (!controller.signal.aborted) conditionsStatus.value = 'error'
+    if (!controller.signal.aborted && conditionsController === controller) {
+      conditionsStatus.value = 'error'
+      void loadMoonDay(currentLatitude, currentLongitude) // 天气不可用时仍使用本地时区与海拔回退。
+    }
   } finally {
     if (conditionsController === controller) conditionsController = undefined
   }
 }
 
 async function loadMoonDay(currentLatitude: number, currentLongitude: number) {
+  moonDayController?.abort()
+  const controller = new AbortController()
+  moonDayController = controller
+  const currentElevation = elevation.value
+  const currentTimezone = observatoryTimezone.value
+  const at = Math.floor(now.value.getTime() / 1000)
   try {
-    moonDay.value = await fetchMoonDay(currentLatitude, currentLongitude, elevation.value, observatoryTimezone.value, Math.floor(now.value.getTime() / 1000))
+    const day = await fetchMoonDay(currentLatitude, currentLongitude, currentElevation, currentTimezone, at, controller.signal)
+    if (!controller.signal.aborted && moonDayController === controller) moonDay.value = day
   } catch {
-    moonDay.value = null // 后端不可用时退回本地计算
+    if (!controller.signal.aborted && moonDayController === controller) moonDay.value = null // 后端不可用时退回本地计算
+  } finally {
+    if (moonDayController === controller) moonDayController = undefined
   }
 }
 
@@ -1304,7 +1323,17 @@ async function loadAstronomyEvents() {
       timezone: observatoryTimezone.value,
     }, controller.signal)
     if (!controller.signal.aborted) {
-      astronomyEvents.value = response.events
+      const coordinates = activeCoordinates.value
+      astronomyEvents.value = coordinates
+        ? response.events.map((event) => {
+          const local = localSolarEclipseVisibility(event, coordinates.latitude, coordinates.longitude)
+          return local ? { ...event, local } : event
+        }).sort((a, b) => {
+          const rank = { observable: 0, limited: 1, not_calculated: 2, non_visual: 3, not_visible: 4 }
+          const difference = (rank[a.local?.status ?? 'not_calculated'] ?? 5) - (rank[b.local?.status ?? 'not_calculated'] ?? 5)
+          return difference || new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime()
+        })
+        : response.events
       astronomyEventSources.value = response.sources ?? []
       astronomyEventsStatus.value = 'ready'
     }
@@ -1335,7 +1364,15 @@ async function loadImageWall() {
 }
 
 async function loadLightPollution(currentLatitude: number, currentLongitude: number) {
-  lightPollution.value = await fetchLightPollution(currentLatitude, currentLongitude)
+  lightPollutionController?.abort()
+  const controller = new AbortController()
+  lightPollutionController = controller
+  try {
+    const value = await fetchLightPollution(currentLatitude, currentLongitude, controller.signal)
+    if (!controller.signal.aborted && lightPollutionController === controller) lightPollution.value = value
+  } finally {
+    if (lightPollutionController === controller) lightPollutionController = undefined
+  }
 }
 
 function onPopState() {
@@ -1350,27 +1387,30 @@ function beginHomeExit() {
 }
 
 watch(activeCoordinates, (coordinates) => {
+  conditions.value = null
+  moonDay.value = null
+  lightPollution.value = null
+  moonDayController?.abort()
   if (coordinates) {
     void loadConditions(coordinates.latitude, coordinates.longitude)
-    void loadMoonDay(coordinates.latitude, coordinates.longitude)
     void loadLightPollution(coordinates.latitude, coordinates.longitude)
+  } else {
+    conditionsController?.abort()
+    moonDayController?.abort()
+    lightPollutionController?.abort()
   }
   // 无定位授权也必须载入全球日历；坐标可用时会自动附加本地可见性。
   void loadAstronomyEvents()
 }, { immediate: true })
-// 天气接口返回真实海拔后，用该海拔重取每日月相。
-watch(elevation, () => {
-  if (activeCoordinates.value) void loadMoonDay(activeCoordinates.value.latitude, activeCoordinates.value.longitude)
-})
-// 定位点跨时区时，重置“现在”的当地分钟并重取按当地日期缓存的月相。
+// 定位点跨时区时，重置“现在”的当地分钟；月相由已完成的天气请求按新时区读取。
 watch(observatoryTimezone, () => {
   selectedSkyDateKey.value = null
   followingRealTime.value = true
   minuteOfDay.value = Math.floor(zonedMinuteOfDay(now.value, observatoryTimezone.value))
-  if (activeCoordinates.value) void loadMoonDay(activeCoordinates.value.latitude, activeCoordinates.value.longitude)
   if (activeCoordinates.value) void loadAstronomyEvents()
 })
 watch(todayDateKey, () => {
+  if (activeCoordinates.value && conditionsStatus.value !== 'loading') void loadMoonDay(activeCoordinates.value.latitude, activeCoordinates.value.longitude)
   if (selectedSkyDateKey.value && !skyDateOptions.value.some((day) => day.dateKey === selectedSkyDateKey.value)) {
     selectedSkyDateKey.value = null
     followingRealTime.value = true
@@ -1408,6 +1448,8 @@ onBeforeUnmount(() => {
   locationLookupController?.abort()
   locationSearchController?.abort()
   conditionsController?.abort()
+  moonDayController?.abort()
+  lightPollutionController?.abort()
   imageWallController?.abort()
   if (homeExitTimer !== undefined) window.clearTimeout(homeExitTimer)
   window.removeEventListener('popstate', onPopState)

@@ -131,11 +131,11 @@ func parseNASAGSFCEclipsePage(_ context.Context, body []byte, sourceURL string) 
 	// 每行 <tr ...> <td>YYYY Mon DD</td> <td>Type</td> <td>...saros...</td> <td>食分</td> <td>时长</td> <td>...path...</td> ... </tr>
 	rowRegex := regexp.MustCompile(`(?s)<tr[^>]*>.*?</tr>`)
 	dateRegex := regexp.MustCompile(`(\d{4})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2})`)
-	typeRegex := regexp.MustCompile(`<td>(Total|Annular|Partial|Hybrid|Penumbral|Partial|Total)</td>`)
-	magnitudeRegex := regexp.MustCompile(`<td>(\d\.\d+)</td>`)
-	timeRegex := regexp.MustCompile(`<td>\s*(\d{2}):(\d{2}):(\d{2})\s*</td>`)
+	typeRegex := regexp.MustCompile(`(?s)<td[^>]*>\s*(?:<a[^>]*>)?\s*(Total|Annular|Partial|Hybrid|Penumbral)\s*(?:</a>)?\s*</td>`)
+	magnitudeRegex := regexp.MustCompile(`<td[^>]*>\s*(\d\.\d+)\s*</td>`)
+	timeRegex := regexp.MustCompile(`(\d{2}):(\d{2}):(\d{2})`)
 	sarosRegex := regexp.MustCompile(`SEsaros/SEsaros(\d+)`)
-	pathRegex := regexp.MustCompile(`(SEpath/SEpath\d+/SE\d+[A-Za-z]+\d+path\.html|LEplot/LE\d+[A-Za-z]+\d+\.GIF|LEdecade/LE\d+\.html)`)
+	pathRegex := regexp.MustCompile(`(SEpath/SEpath\d+/SE\d+[A-Za-z]+\d+[A-Za-z]?path\.html|LEplot/LE\d+[A-Za-z]+\d+\.GIF|LEdecade/LE\d+\.html)`)
 	year := time.Now().UTC().Year()
 	var events []Event
 	for _, row := range rowRegex.FindAllString(text, -1) {

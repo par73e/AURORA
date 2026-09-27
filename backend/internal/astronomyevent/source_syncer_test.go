@@ -63,13 +63,13 @@ func TestSourceSyncerRecordsOfficialSourceSnapshots(t *testing.T) {
 	if err := syncer.SyncOfficialSources(context.Background()); err != nil {
 		t.Fatalf("SyncOfficialSources() error = %v", err)
 	}
-	if got, want := len(store.snapshots), 9; got != want {
+	if got, want := len(store.snapshots), 10; got != want {
 		t.Fatalf("snapshots = %d, want %d", got, want)
 	}
 	if got := string(store.snapshots[0].RawPayload); !strings.Contains(got, "endpoint") {
 		t.Errorf("first snapshot = %s, want original JSON", got)
 	}
-	if got, want := store.finished, 9; got != want {
+	if got, want := store.finished, 10; got != want {
 		t.Errorf("finished = %d, want %d", got, want)
 	}
 }
@@ -234,5 +234,34 @@ func TestParseNASAGSFCEclipsePageReadsCatalogTime(t *testing.T) {
 	}
 	if got, want := parsed.events[0].StartsAt.Format(time.RFC3339), "2026-08-28T04:14:04Z"; got != want {
 		t.Errorf("startsAt=%s, want %s", got, want)
+	}
+}
+
+func TestParseNASAGSFCSolarDecadeLinksAndTime(t *testing.T) {
+	body := []byte(`<table><tr>
+<td><a href="../SEplot/SEplot2001/SE2026Aug12T.GIF"> 2026 Aug 12 </a></td>
+<td><a href="../SEanimate/SEanimate2001/SE2026Aug12T.GIF"> 17:47:05 </a></td>
+<td><a href="../SEgoogle/SEgoogle2001/SE2026Aug12Tgoogle.html"> Total </a></td>
+<td><a href="../SEsaros/SEsaros126.html"> 126 </a></td>
+<td> 1.039</td>
+<td><a href="../SEpath/SEpath2001/SE2026Aug12Tpath.html"> 02m18s </a></td>
+</tr></table>`)
+	parsed, err := parseNASAGSFCEclipsePage(context.Background(), body, "https://eclipse.gsfc.nasa.gov/SEdecade/SEdecade2021.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed.events) != 1 {
+		t.Fatalf("events=%d, want 1", len(parsed.events))
+	}
+	event := parsed.events[0]
+	if event.Kind != "solar_eclipse" || event.StartsAt.Format(time.RFC3339) != "2026-08-12T17:47:05Z" {
+		t.Fatalf("event=%+v, want solar eclipse at catalog maximum", event)
+	}
+	var geometry map[string]any
+	if err := json.Unmarshal(event.Geometry, &geometry); err != nil {
+		t.Fatal(err)
+	}
+	if geometry["eclipseType"] != "Total" || geometry["pathUrl"] != "https://eclipse.gsfc.nasa.gov/SEpath/SEpath2001/SE2026Aug12Tpath.html" {
+		t.Fatalf("geometry=%v", geometry)
 	}
 }
