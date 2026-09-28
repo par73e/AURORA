@@ -104,6 +104,8 @@ export function projectAltitudeGuide(altitude: number, camera: SkyCamera, step =
 
 /** 从当前时刻向一个时间方向绘制，直到轨迹真正离开视野或落到地平线下。 */
 export function projectSkyTrajectoryBranch(samples: SkyTrackSample[], camera: SkyCamera): string | null {
+  // 两段轨迹必须从当前天体的位置出发；当前位置不可见时不能跳到别的升落周期。
+  if (samples.length < 2 || !projectHorizontalDirection(samples[0].azimuth, samples[0].altitude, camera).inViewport) return null
   const points: Array<{ x: number; y: number }> = []
   const inside = (point: { x: number; y: number }) => point.x >= 0 && point.x <= 1 && point.y >= 0 && point.y <= 1
 

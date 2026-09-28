@@ -88,3 +88,21 @@ test('星轨落到地平线下时精确结束在地平线，后续时段不接�
   assert.ok(path.endsWith(`L ${(horizon.x * 1000).toFixed(2)} ${(horizon.y * 1000).toFixed(2)}`))
   assert.doesNotMatch(path, /750\.00/)
 })
+
+test('当前天体不可见时不绘制其他时段的轨迹', () => {
+  const belowHorizon = projectSkyTrajectoryBranch([
+    { azimuth: 180, altitude: -20 },
+    { azimuth: 185, altitude: -10 },
+    { azimuth: 190, altitude: 10 },
+    { azimuth: 200, altitude: 25 },
+  ], baseCamera)
+  const outsideView = projectSkyTrajectoryBranch([
+    { azimuth: 250, altitude: 25 },
+    { azimuth: 240, altitude: 25 },
+    { azimuth: 230, altitude: 25 },
+    { azimuth: 220, altitude: 25 },
+  ], baseCamera)
+
+  assert.equal(belowHorizon, null)
+  assert.equal(outsideView, null)
+})

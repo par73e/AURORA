@@ -1,4 +1,4 @@
-import { Body, Equator, Horizon, Observer, SearchLocalSolarEclipse } from 'astronomy-engine'
+import { AngleBetween, Body, Equator, Horizon, KM_PER_AU, Observer, SearchLocalSolarEclipse } from 'astronomy-engine'
 import type { AstronomyEvent, EventLocalVisibility } from './api'
 
 const minute = 60_000
@@ -20,6 +20,32 @@ export function localSolarEclipseVisibility(event: AstronomyEvent, latitude: num
 
     const first = eclipse.partial_begin.time.date.getTime()
     const last = eclipse.partial_end.time.date.getTime()
+    const peakTime = eclipse.peak.time.date
+    const sun = Equator(Body.Sun, peakTime, observer, true, true)
+    const moon = Equator(Body.Moon, peakTime, observer, true, true)
+    const sunRadius = Math.asin(695700 / (sun.dist * KM_PER_AU))
+    const moonRadius = Math.asin(1738.1 / (moon.dist * KM_PER_AU))
+    const separation = AngleBetween(sun.vec, moon.vec) * Math.PI / 180
+    // NASA 的食分是被遮住的太阳视直径比例，与面积遮挡率不同。
+    const magnitude = eclipse.total_begin
+      ? moonRadius / sunRadius
+      : Math.max(0, Math.min(1, (sunRadius + moonRadius - separation) / (2 * sunRadius)))
+    const contacts = {
+      partialBegin: eclipse.partial_begin.time.date.toISOString(),
+      peak: eclipse.peak.time.date.toISOString(),
+      partialEnd: eclipse.partial_end.time.date.toISOString(),
+      partialBeginVisible: eclipse.partial_begin.altitude > 0,
+      partialEndVisible: eclipse.partial_end.altitude > 0,
+      ...(eclipse.total_begin && eclipse.total_end ? {
+        centralBegin: eclipse.total_begin.time.date.toISOString(),
+        centralEnd: eclipse.total_end.time.date.toISOString(),
+        centralBeginVisible: eclipse.total_begin.altitude > 0,
+        centralEndVisible: eclipse.total_end.altitude > 0,
+      } : {}),
+      obscurationPercent: eclipse.kind === 'total' ? 100 : Math.min(99.9, Math.round(eclipse.obscuration * 1000) / 10),
+      magnitude: Math.round(magnitude * 10000) / 10000,
+      kind: eclipse.kind === 'total' ? 'total' as const : eclipse.kind === 'annular' ? 'annular' as const : 'partial' as const,
+    }
     const visible: Array<{ at: number; altitude: number; azimuth: number }> = []
     const sample = (at: number) => {
       const date = new Date(at)
@@ -46,6 +72,7 @@ export function localSolarEclipseVisibility(event: AstronomyEvent, latitude: num
       reason: limited
         ? '此次日食在当前地点可见，但太阳位置较低；观测全程须使用合格的太阳滤镜。'
         : '此次日食在当前地点可见；观测全程须使用合格的太阳滤镜。',
+      ...(eclipse.peak.altitude > 0 ? { eclipseContacts: contacts } : {}),
     }
   } catch {
     return null // 星历无法计算时沿用后端明确的待计算状态。

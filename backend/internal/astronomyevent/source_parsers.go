@@ -178,12 +178,14 @@ func parseNASAGSFCEclipsePage(_ context.Context, body []byte, sourceURL string) 
 			kind = "lunar_eclipse"
 			titlePrefix = "月食"
 		}
-		hour, minute, second := 12, 0, 0
-		if timeMatch := timeRegex.FindStringSubmatch(row); timeMatch != nil {
-			hour, _ = strconv.Atoi(timeMatch[1])
-			minute, _ = strconv.Atoi(timeMatch[2])
-			second, _ = strconv.Atoi(timeMatch[3])
+		// NASA 的最大食时刻是事件主时间；缺失时不能把正午伪装成精确时刻。
+		timeMatch := timeRegex.FindStringSubmatch(row)
+		if timeMatch == nil {
+			continue
 		}
+		hour, _ := strconv.Atoi(timeMatch[1])
+		minute, _ := strconv.Atoi(timeMatch[2])
+		second, _ := strconv.Atoi(timeMatch[3])
 		at := time.Date(eventYear, month, day, hour, minute, second, 0, time.UTC)
 		// 食类型缩写：T=Total, A=Annular, P=Partial, H=Hybrid
 		title := fmt.Sprintf("%s·%s", eclipseType, titlePrefix)

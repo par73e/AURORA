@@ -266,6 +266,20 @@ export interface EventLocalVisibility {
   windowEnd?: string
   azimuthDegrees?: number
   altitudeDegrees?: number
+  eclipseContacts?: {
+    partialBegin: string
+    peak: string
+    partialEnd: string
+    partialBeginVisible: boolean
+    partialEndVisible: boolean
+    centralBegin?: string
+    centralEnd?: string
+    centralBeginVisible?: boolean
+    centralEndVisible?: boolean
+    obscurationPercent: number
+    magnitude: number
+    kind: 'partial' | 'annular' | 'total'
+  }
   reason: string
 }
 

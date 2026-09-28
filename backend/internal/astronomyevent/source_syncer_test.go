@@ -265,3 +265,14 @@ func TestParseNASAGSFCSolarDecadeLinksAndTime(t *testing.T) {
 		t.Fatalf("geometry=%v", geometry)
 	}
 }
+
+func TestParseNASAGSFCSkipsRowsWithoutMaximumTime(t *testing.T) {
+	body := []byte(`<table><tr><td>2027 Aug 02</td><td>Total</td><td>1.079</td></tr></table>`)
+	parsed, err := parseNASAGSFCEclipsePage(context.Background(), body, "https://eclipse.gsfc.nasa.gov/SEdecade/SEdecade2021.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed.events) != 0 {
+		t.Fatalf("events=%d, a missing NASA maximum time must not become 12:00 UTC", len(parsed.events))
+	}
+}

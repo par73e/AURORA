@@ -417,11 +417,12 @@ function locateRecommendedBody(target: { id: BodyId; bestAt: Date }) {
   selectedSkyDateKey.value = dateKey
   followingRealTime.value = false
   minuteOfDay.value = Math.floor(zonedMinuteOfDay(target.bestAt, observatoryTimezone.value))
-  if (activePage.value !== 'sky') selectPage('sky')
+  if (activePage.value !== 'sky') selectPage('sky', true)
+  else document.querySelector('.sky-content-scroll')?.scrollTo({ top: 0, behavior: 'instant' })
   expandedBodyId.value = target.id
   selectedSkyBodyId.value = target.id
   const body = bodies.find((item) => item.id === target.id)
-  if (body) revealSkyDirection(calculatePosition(body, target.bestAt, coords.latitude, coords.longitude, elevation.value).azimuth)
+  if (body) turnSkyDirection(calculatePosition(body, target.bestAt, coords.latitude, coords.longitude, elevation.value).azimuth)
 }
 const recommendation = computed(() => {
   const hourly = conditions.value?.scores ?? []
@@ -968,8 +969,8 @@ function revealSkyDirection(targetAzimuth: number) {
   }, 0)
 }
 
-// 搜索结果定位只旋转星图，不改变页面的纵向滚动位置。
-function revealCatalogDirection(targetAzimuth: number) {
+// 只旋转星图，不改变页面的纵向滚动位置。
+function turnSkyDirection(targetAzimuth: number) {
   requestAnimationFrame(() => animateSkyViewTo(targetAzimuth))
 }
 
@@ -1007,11 +1008,11 @@ function endSkyViewDrag(event: PointerEvent) {
   if (field.hasPointerCapture(event.pointerId)) field.releasePointerCapture(event.pointerId)
 }
 
-function selectPage(page: SkyPage) {
+function selectPage(page: SkyPage, scrollImmediately = false) {
   if (page !== 'sky') cancelSkyViewTurn()
   activePage.value = page
   window.history.pushState(null, '', `#astronomy-${page}`)
-  document.querySelector('.sky-content-scroll')?.scrollTo({ top: 0, behavior: 'smooth' })
+  document.querySelector('.sky-content-scroll')?.scrollTo({ top: 0, behavior: scrollImmediately ? 'instant' : 'smooth' })
 }
 
 function selectBody(body: BodyId) {
@@ -1129,19 +1130,31 @@ async function resolveLocationName(currentLatitude: number, currentLongitude: nu
   }
 }
 
-function requestLocation() {
+function requestLocation(applyImmediately = false) {
   if (deviceLocating.value) return
   if (!navigator.geolocation) {
     locationFormError.value = '浏览器不支持设备定位，请手动输入经纬度。'
+    if (applyImmediately) {
+      locationLabel.value = '浏览器不支持定位'
+      locationStatus.value = 'unavailable'
+    }
     return
   }
   const revision = ++deviceLocationRevision
   deviceLocating.value = true
   locationFormError.value = ''
+  if (applyImmediately) {
+    locationLabel.value = '正在获取位置'
+    locationStatus.value = 'locating'
+  }
   navigator.geolocation.getCurrentPosition(
     ({ coords }) => {
       if (revision !== deviceLocationRevision) return
       deviceLocating.value = false
+      if (applyImmediately) {
+        useCoordinates(coords.latitude, coords.longitude)
+        return
+      }
       manualLatitude.value = coords.latitude.toFixed(6)
       manualLongitude.value = coords.longitude.toFixed(6)
       selectedLocationCandidate.value = null
@@ -1154,8 +1167,12 @@ function requestLocation() {
       if (revision !== deviceLocationRevision) return
       deviceLocating.value = false
       locationFormError.value = error.code === error.PERMISSION_DENIED ? '定位未授权，请手动输入经纬度。' : error.code === error.TIMEOUT ? '定位请求超时，请重试或手动输入经纬度。' : '暂时无法获取位置，请手动输入经纬度。'
+      if (applyImmediately) {
+        locationLabel.value = error.code === error.PERMISSION_DENIED ? '定位未授权' : '暂时无法获取位置'
+        locationStatus.value = error.code === error.PERMISSION_DENIED ? 'denied' : 'unavailable'
+      }
     },
-    { enableHighAccuracy: true, timeout: 10_000, maximumAge: 300_000 },
+    { enableHighAccuracy: true, timeout: 10_000, maximumAge: 0 },
   )
 }
 
@@ -1166,12 +1183,12 @@ function toggleLocationEditor() {
 
 function closeLocationEditor(returnFocus = false) {
   if (!showLocationEditor.value) return
-  showLocationEditor.value = false
   deviceLocationRevision += 1
   deviceLocating.value = false
-  if (returnFocus) locationTrigger.value?.focus()
+  showLocationEditor.value = false
   hoveredLocationCandidate.value = null
   focusedLocationCandidate.value = null
+  if (returnFocus) locationTrigger.value?.focus()
 }
 
 function onLocationOutsidePointerDown(event: PointerEvent) {
@@ -1198,18 +1215,18 @@ function useCoordinates(nextLatitude: number, nextLongitude: number, label?: str
     return
   }
   const revision = ++locationRevision
-  locationLookupController?.abort()
   deviceLocationRevision += 1
   deviceLocating.value = false
+  locationLookupController?.abort()
   latitude.value = nextLatitude
   longitude.value = nextLongitude
   manualLatitude.value = nextLatitude.toFixed(6)
   manualLongitude.value = nextLongitude.toFixed(6)
-  locationFormError.value = ''
   selectedLocationCandidate.value = null
   deviceCoordinatesReady.value = false
   hoveredLocationCandidate.value = null
   focusedLocationCandidate.value = null
+  locationFormError.value = ''
   showLocationEditor.value = false
   if (label) {
     locationLabel.value = label
@@ -1246,17 +1263,17 @@ async function submitLocationSearch() {
     return
   }
   locationSearchController?.abort()
-  const controller = new AbortController()
   deviceLocationRevision += 1
   deviceLocating.value = false
+  const controller = new AbortController()
   locationSearchController = controller
   locationSearchStatus.value = 'loading'
   locationFormError.value = ''
-  try {
   hoveredLocationCandidate.value = null
   focusedLocationCandidate.value = null
   selectedLocationCandidate.value = null
   deviceCoordinatesReady.value = false
+  try {
     const response = await searchObserverPlaces(query, controller.signal)
     if (controller.signal.aborted) return
     locationSearchResults.value = response.places
@@ -1288,7 +1305,7 @@ function locateCatalogObject(item: SkyCatalogObject) {
   selectedCatalogId.value = item.id
   skySearchQuery.value = item.name
   showSkySearchResults.value = false
-  revealCatalogDirection(position.azimuth)
+  turnSkyDirection(position.azimuth)
 }
 
 function locateSkySearchResult(result: SkySearchResult) {
@@ -1301,7 +1318,7 @@ function locateSkySearchResult(result: SkySearchResult) {
     selectedCatalogId.value = null
     skySearchQuery.value = result.name
     showSkySearchResults.value = false
-    revealCatalogDirection(track.azimuth)
+    turnSkyDirection(track.azimuth)
     return
   }
   if (result.catalogObject) locateCatalogObject(result.catalogObject)
@@ -1474,6 +1491,8 @@ watch(moonCanvas, (canvas) => {
 })
 
 onMounted(() => {
+  try { window.localStorage.removeItem('aurora.observerLocation.v1') } catch { /* 浏览器禁用站点存储时仍可请求定位。 */ }
+  requestLocation(true)
   window.addEventListener('popstate', onPopState)
   document.addEventListener('pointerdown', onLocationOutsidePointerDown)
   document.addEventListener('keydown', onLocationEditorKeydown)
@@ -1491,8 +1510,8 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   locationRevision += 1
-  locationLookupController?.abort()
   deviceLocationRevision += 1
+  locationLookupController?.abort()
   locationSearchController?.abort()
   conditionsController?.abort()
   moonDayController?.abort()
@@ -1524,7 +1543,7 @@ onBeforeUnmount(() => {
         </button>
         <Transition name="location-panel">
           <section v-if="showLocationEditor" id="location-editor" class="location-editor" role="dialog" aria-label="设置观测地点">
-            <button class="location-gps" type="button" :disabled="deviceLocating" @click="requestLocation">{{ deviceLocating ? '正在定位…' : '使用设备定位' }}</button>
+            <button class="location-gps" type="button" :disabled="deviceLocating" @click="requestLocation()">{{ deviceLocating ? '正在定位…' : '使用设备定位' }}</button>
             <form @submit.prevent="submitManualCoordinates">
               <div class="coordinate-label"><label>经纬度</label><span>可手动填入</span></div>
               <div class="coordinate-inputs" :class="{ 'is-preview': previewLocationCandidate, 'is-selected': (selectedLocationCandidate || deviceCoordinatesReady) && !previewLocationCandidate }"><input :value="displayedLatitude" inputmode="decimal" aria-label="纬度" placeholder="纬度" @input="updateManualCoordinate('latitude', $event)" /><input :value="displayedLongitude" inputmode="decimal" aria-label="经度" placeholder="经度" @input="updateManualCoordinate('longitude', $event)" /><button type="submit">使用</button></div>
@@ -1697,7 +1716,7 @@ onBeforeUnmount(() => {
             <div v-for="body in horizonBodies" :key="body.id" class="sky-body" :class="{ 'is-active': selectedSkyBodyId === body.id }" :style="horizonStyle(body)" role="button" tabindex="0" :aria-label="`查看${body.name}详情并高亮星轨`" :aria-pressed="selectedSkyBodyId === body.id" :aria-expanded="expandedBodyId === body.id" :aria-controls="`track-detail-${body.id}`" @click="revealBody(body.id)" @keydown.enter.prevent="revealBody(body.id)" @keydown.space.prevent="revealBody(body.id)" @pointerdown.stop><i>{{ body.glyph }}</i><span>{{ body.name }}</span></div>
             <div class="horizon-ridge horizon-ridge-far" aria-hidden="true" />
             <div class="horizon-ridge horizon-ridge-near" aria-hidden="true" />
-            <div v-if="!activeCoordinates" class="sky-empty"><strong>设置观测地点后查看天空</strong><span>可使用设备定位，也可手动输入经纬度。</span><button type="button" @click="requestLocation">使用设备定位</button></div>
+            <div v-if="!activeCoordinates" class="sky-empty"><strong>设置观测地点后查看天空</strong><span>可使用设备定位，也可手动输入经纬度。</span><button type="button" @click="requestLocation()">使用设备定位</button></div>
             <span v-if="activeCoordinates" class="sky-visible-count"><small>当前视野</small>{{ horizonBodies.length + visibleCatalogStars.length + visibleMessierObjects.length }}<small>目标</small></span>
             <div
               v-if="activeCoordinates"
@@ -1775,6 +1794,8 @@ onBeforeUnmount(() => {
               </button>
               <div v-if="expandedEventId === event.id" :id="`event-detail-${event.id}`" class="curated-event-detail" role="region">
                 <dl><div><dt>最佳时段</dt><dd>{{ formatEventMoment(event.local?.bestAt) }}</dd></div><div><dt>可见窗口</dt><dd>{{ event.local?.windowStart ? `${formatEventMoment(event.local.windowStart)} – ${formatEventMoment(event.local.windowEnd)}` : '—' }}</dd></div><div><dt>方位</dt><dd>{{ event.local?.azimuthDegrees != null ? `${Math.round(event.local.azimuthDegrees)}°` : '—' }}</dd></div><div><dt>高度</dt><dd>{{ event.local?.altitudeDegrees != null ? `${Math.round(event.local.altitudeDegrees)}°` : '—' }}</dd></div><div><dt>核验日期</dt><dd>{{ event.verifiedAt }}</dd></div><div><dt>来源</dt><dd>{{ event.sourceName }}</dd></div></dl>
+                <dl v-if="event.local?.eclipseContacts" class="eclipse-contact-details"><div><dt>初亏</dt><dd>{{ formatEventMoment(event.local.eclipseContacts.partialBegin) }}</dd></div><div><dt>食甚</dt><dd>{{ formatEventMoment(event.local.eclipseContacts.peak) }}</dd></div><div><dt>复圆</dt><dd>{{ formatEventMoment(event.local.eclipseContacts.partialEnd) }}</dd></div><div><dt>最大遮挡</dt><dd>{{ event.local.eclipseContacts.obscurationPercent }}%</dd></div><div><dt>当地食分</dt><dd>{{ event.local.eclipseContacts.magnitude.toFixed(4) }}</dd></div><div v-if="event.local.eclipseContacts.centralBegin"><dt>{{ event.local.eclipseContacts.kind === 'total' ? '全食开始' : '环食开始' }}</dt><dd>{{ formatEventMoment(event.local.eclipseContacts.centralBegin) }}</dd></div><div v-if="event.local.eclipseContacts.centralEnd"><dt>{{ event.local.eclipseContacts.kind === 'total' ? '全食结束' : '环食结束' }}</dt><dd>{{ formatEventMoment(event.local.eclipseContacts.centralEnd) }}</dd></div></dl>
+                <p v-if="event.local?.eclipseContacts && (!event.local.eclipseContacts.partialBeginVisible || !event.local.eclipseContacts.partialEndVisible || event.local.eclipseContacts.centralBeginVisible === false || event.local.eclipseContacts.centralEndVisible === false)">部分食相发生在太阳位于地平线下时；实际能看到的时段请以上方可见窗口为准。</p>
                 <div class="event-detail-actions"><a :href="event.sourceUrl" target="_blank" rel="noreferrer">查看 {{ event.sourceName }}</a></div>
               </div>
             </article>
@@ -1870,7 +1891,7 @@ onBeforeUnmount(() => {
 .sky-location strong { font-size:11px; font-weight:600; }
 .sky-location small { margin-top:4px; color:var(--sky-muted); font:9px var(--font-mono,monospace); }
 .sky-location i { color:var(--sky-cyan); font:8px var(--font-mono,monospace); font-style:normal; letter-spacing:.08em; }
-.location-editor { position:absolute; z-index:20; top:146px; left:18px; width:286px; padding:13px; color:var(--sky-ink); background:var(--sky-sunken); border:1px solid rgba(157,184,232,.24); border-radius:7px; box-shadow:0 16px 38px rgba(2,8,18,.42); }
+.location-editor { position:absolute; z-index:20; top:146px; left:18px; width:286px; padding:13px; color:var(--sky-ink); background:var(--sky-sunken); border:1px solid rgba(167,221,255,.72); border-radius:7px; box-shadow:0 16px 38px rgba(2,8,18,.42); }
 .location-editor form + form { margin-top:12px; padding-top:11px; border-top:1px solid var(--sky-line); }
 .location-editor label { display:block; margin-bottom:6px; color:var(--sky-muted); font:8px/1.45 var(--font-mono,monospace); letter-spacing:.04em; }
 .location-editor form > div { display:flex; gap:5px; }
@@ -1907,8 +1928,10 @@ onBeforeUnmount(() => {
 .coordinate-inputs.is-selected button:hover,.coordinate-inputs.is-selected button:focus-visible { color:#081827; background:#d5eeff; border-color:#d5eeff; }
 .location-form-error { margin:8px 0 0; color:#f28f84; font-size:8px; line-height:1.5; }
 .location-panel-enter-active,.location-panel-leave-active { transition:opacity .14s ease,transform .14s ease; }
+.location-panel-enter-active { animation:location-edge-cue .9s cubic-bezier(.16,1,.3,1) both; }
+@keyframes location-edge-cue { 0% { border-color:#e5f5ff; } 60% { border-color:#bfeaff; } 100% { border-color:rgba(167,221,255,.72); } }
 .location-panel-enter-from,.location-panel-leave-to { opacity:0; transform:translateY(-4px); }
-@media (prefers-reduced-motion:reduce) { .location-panel-enter-active,.location-panel-leave-active,.location-results button,.coordinate-inputs input { transition:none; } }
+@media (prefers-reduced-motion:reduce) { .location-panel-enter-active,.location-panel-leave-active,.location-results button,.coordinate-inputs input { transition:none; animation:none; } }
 .sky-menu { border-top:1px solid var(--sky-line); }
 .sky-menu button { position:relative; display:grid; grid-template-columns:25px 1fr auto; align-items:center; width:calc(100% + 40px); min-height:60px; margin-left:-20px; padding:0 20px 0 28px; color:var(--sky-muted); text-align:left; background:none; border:0; border-bottom:1px solid var(--sky-line); cursor:pointer; transition:background .2s,color .2s; }
 .sky-menu button::before { position:absolute; top:0; bottom:0; left:0; width:2px; background:var(--sky-amber); content:""; transform:scaleY(0); transform-origin:center; transition:transform .2s; }
@@ -2232,6 +2255,7 @@ onBeforeUnmount(() => {
 .curated-event-list > article > button:focus-visible { outline:1px solid var(--sky-cyan); outline-offset:-1px; }
 .curated-event-detail { padding:0 44px 22px 207px; animation:track-detail-reveal .3s cubic-bezier(.22,1,.36,1) both; }
 .curated-event-detail dl { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; margin:0; }
+.curated-event-detail .eclipse-contact-details { margin-top:16px; padding-top:16px; border-top:1px solid var(--sky-line); }
 .curated-event-detail dt { color:var(--sky-muted); font-size:9px; }
 .curated-event-detail dd { margin:5px 0 0; color:var(--sky-ink); font-size:11px; line-height:1.55; }
 .curated-event-detail > p { max-width:70ch; margin:20px 0; color:var(--sky-muted); font-size:11px; line-height:1.7; }
