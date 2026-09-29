@@ -8,6 +8,17 @@ import (
 	"time"
 )
 
+func TestPlanetaryEventLinksToReadableHorizonsPage(t *testing.T) {
+	at := time.Date(2026, time.October, 4, 0, 0, 0, 0, time.UTC)
+	event := planetaryEvent("planetary_opposition", at, at, map[string]any{}, "土星冲日", "Saturn opposition")
+	if event.SourceURL != horizonsEventsPageURL {
+		t.Fatalf("source URL = %q, want %q", event.SourceURL, horizonsEventsPageURL)
+	}
+	if got := ReadableSourceURL(event.SourceCode, horizonsEventsEndpoint); got != horizonsEventsPageURL {
+		t.Fatalf("legacy source URL = %q, want %q", got, horizonsEventsPageURL)
+	}
+}
+
 // TestRefineQuadraticRecoversExtremum 验证等距三点二次插值能正确恢复抛物线极值位置。
 // 构造 y = (t-0.3)² 的三个等距采样点（h=1，t=-1,0,1），
 // 极值在 t=0.3，期望 refinedAt 接近 t0+0.3 天。

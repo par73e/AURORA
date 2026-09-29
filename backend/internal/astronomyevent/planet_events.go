@@ -391,7 +391,7 @@ func planetaryEvent(kind string, at, verifiedAt time.Time, geometry map[string]a
 	if geometry["precision"] == "refined" {
 		summary = "基于 JPL Horizons 日采样并以三点二次插值精化的计算结果；精度说明见来源。"
 	}
-	return Event{ID: identifier, Kind: kind, Title: title, TitleEN: titleEN, StartsAt: at.UTC(), DateLabel: at.UTC().Format("2006年1月2日"), Summary: summary, Origin: "computed", SourceCode: "jpl_horizons_events", SourceURL: horizonsEventsEndpoint, VerifiedAt: verifiedAt.UTC().Format(time.DateOnly), Geometry: raw, Presentation: json.RawMessage(`{}`)}
+	return Event{ID: identifier, Kind: kind, Title: title, TitleEN: titleEN, StartsAt: at.UTC(), DateLabel: at.UTC().Format("2006年1月2日"), Summary: summary, Origin: "computed", SourceCode: "jpl_horizons_events", SourceURL: horizonsEventsPageURL, VerifiedAt: verifiedAt.UTC().Format(time.DateOnly), Geometry: raw, Presentation: json.RawMessage(`{}`)}
 }
 
 // eclipticPositions 把事件附近的 JPL 样本序列化为供本地可见性计算使用的黄道坐标。

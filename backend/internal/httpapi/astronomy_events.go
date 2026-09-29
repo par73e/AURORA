@@ -74,6 +74,7 @@ func astronomyEventsHandler(store astronomyevent.Store, solver *observatory.Visi
 		}
 		response := make([]astronomyEventResponse, 0, len(events))
 		for _, event := range events {
+			event.SourceURL = astronomyevent.ReadableSourceURL(event.SourceCode, event.SourceURL)
 			global := decodeEventGeometry(event.Geometry)
 			global["description"] = event.Summary
 			item := astronomyEventResponse{

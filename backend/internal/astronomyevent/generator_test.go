@@ -23,3 +23,17 @@ func TestCoreEventsBuildsEighteenMonthsOfComputedEvents(t *testing.T) {
 		}
 	}
 }
+
+func TestAuroraModelSourceLinksToItsImplementation(t *testing.T) {
+	const oldURL = "https://aurora.local/astronomy-model"
+	const codeURL = "https://github.com/par73e/AURORA/blob/main/backend/internal/observatory/calendar.go"
+	if auroraModelSourceURL != codeURL {
+		t.Fatalf("new model source URL = %q, want %q", auroraModelSourceURL, codeURL)
+	}
+	if got := ReadableSourceURL("aurora_astronomy_model", oldURL); got != codeURL {
+		t.Fatalf("stored model source URL = %q, want %q", got, codeURL)
+	}
+	if got := ReadableSourceURL("other_source", oldURL); got != oldURL {
+		t.Fatalf("unrelated source URL changed to %q", got)
+	}
+}

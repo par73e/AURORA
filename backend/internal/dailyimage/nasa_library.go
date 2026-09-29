@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"path"
@@ -46,6 +47,7 @@ func (client *NASAImageLibraryClient) Pick(ctx context.Context, at time.Time) (I
 
 	window, err := client.fetch(ctx, at)
 	if err != nil {
+		slog.Warn("NASA image library request failed", "date", key, "error", err)
 		client.mu.Lock()
 		defer client.mu.Unlock()
 		if client.lastSuccess != nil {

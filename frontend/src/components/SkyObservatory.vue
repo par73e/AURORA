@@ -569,6 +569,24 @@ function sourceStatusMessage(source: AstronomyEventSourceStatus) {
   return '资料暂未更新，显示上次获取的内容'
 }
 
+const horizonsApiURL = 'https://ssd.jpl.nasa.gov/api/horizons.api'
+const horizonsPageURL = 'https://ssd.jpl.nasa.gov/horizons/app.html'
+const auroraModelPlaceholderURL = 'https://aurora.local/astronomy-model'
+const auroraModelCodeURL = 'https://github.com/par73e/AURORA/blob/main/backend/internal/observatory/calendar.go'
+
+function eventSourceURL(event: AstronomyEvent) {
+  if (event.sourceUrl === horizonsApiURL) return horizonsPageURL
+  if (event.sourceUrl === auroraModelPlaceholderURL) return auroraModelCodeURL
+  return event.sourceUrl
+}
+
+function eventSourceLabel(event: AstronomyEvent) {
+  const url = eventSourceURL(event)
+  if (url === horizonsPageURL) return '在 NASA/JPL Horizons 查询'
+  if (url === auroraModelCodeURL) return '查看 AURORA 计算模型源码'
+  return `查看 ${event.sourceName}`
+}
+
 function formatImageWindowDate(value?: string) {
   if (!value) return '发布日期未提供'
   const date = new Date(`${value}T12:00:00Z`)
@@ -1796,7 +1814,7 @@ onBeforeUnmount(() => {
                 <dl><div><dt>最佳时段</dt><dd>{{ formatEventMoment(event.local?.bestAt) }}</dd></div><div><dt>可见窗口</dt><dd>{{ event.local?.windowStart ? `${formatEventMoment(event.local.windowStart)} – ${formatEventMoment(event.local.windowEnd)}` : '—' }}</dd></div><div><dt>方位</dt><dd>{{ event.local?.azimuthDegrees != null ? `${Math.round(event.local.azimuthDegrees)}°` : '—' }}</dd></div><div><dt>高度</dt><dd>{{ event.local?.altitudeDegrees != null ? `${Math.round(event.local.altitudeDegrees)}°` : '—' }}</dd></div><div><dt>核验日期</dt><dd>{{ event.verifiedAt }}</dd></div><div><dt>来源</dt><dd>{{ event.sourceName }}</dd></div></dl>
                 <dl v-if="event.local?.eclipseContacts" class="eclipse-contact-details"><div><dt>初亏</dt><dd>{{ formatEventMoment(event.local.eclipseContacts.partialBegin) }}</dd></div><div><dt>食甚</dt><dd>{{ formatEventMoment(event.local.eclipseContacts.peak) }}</dd></div><div><dt>复圆</dt><dd>{{ formatEventMoment(event.local.eclipseContacts.partialEnd) }}</dd></div><div><dt>最大遮挡</dt><dd>{{ event.local.eclipseContacts.obscurationPercent }}%</dd></div><div><dt>当地食分</dt><dd>{{ event.local.eclipseContacts.magnitude.toFixed(4) }}</dd></div><div v-if="event.local.eclipseContacts.centralBegin"><dt>{{ event.local.eclipseContacts.kind === 'total' ? '全食开始' : '环食开始' }}</dt><dd>{{ formatEventMoment(event.local.eclipseContacts.centralBegin) }}</dd></div><div v-if="event.local.eclipseContacts.centralEnd"><dt>{{ event.local.eclipseContacts.kind === 'total' ? '全食结束' : '环食结束' }}</dt><dd>{{ formatEventMoment(event.local.eclipseContacts.centralEnd) }}</dd></div></dl>
                 <p v-if="event.local?.eclipseContacts && (!event.local.eclipseContacts.partialBeginVisible || !event.local.eclipseContacts.partialEndVisible || event.local.eclipseContacts.centralBeginVisible === false || event.local.eclipseContacts.centralEndVisible === false)">部分食相发生在太阳位于地平线下时；实际能看到的时段请以上方可见窗口为准。</p>
-                <div class="event-detail-actions"><a :href="event.sourceUrl" target="_blank" rel="noreferrer">查看 {{ event.sourceName }}</a></div>
+                <div class="event-detail-actions"><a :href="eventSourceURL(event)" target="_blank" rel="noreferrer">{{ eventSourceLabel(event) }}</a></div>
               </div>
             </article>
           </div>

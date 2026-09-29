@@ -113,3 +113,75 @@ func TestCachedWallServiceReplacesVideoCacheWithImageOnlyWall(t *testing.T) {
 		t.Fatalf("calls=%d wall=%#v", upstream.calls, wall)
 	}
 }
+
+func TestCachedWallServiceRetriesStoredFailedLibraryWindows(t *testing.T) {
+	at := time.Date(2026, 9, 29, 2, 3, 7, 0, time.UTC)
+	store := newMemoryWallCacheStore()
+	partial := ImageWall{
+		Recent:      []ImageWindow{{ID: "apod", Status: "ready", MediaType: "image"}},
+		Collection:  []ImageWindow{{ID: "nasa-library-1", Status: "error"}},
+		GeneratedAt: at.Format(time.RFC3339),
+	}
+	if err := store.SaveWallCache(context.Background(), at, partial); err != nil {
+		t.Fatal(err)
+	}
+	upstream := &cacheWallUpstreamStub{wall: ImageWall{
+		Recent:      partial.Recent,
+		Collection:  []ImageWindow{{ID: "nasa-library-1", Status: "ready"}},
+		GeneratedAt: at.Add(time.Hour).Format(time.RFC3339),
+	}}
+	service := NewCachedWallService(upstream, store)
+	first, err := service.Wall(context.Background(), at.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := service.Wall(context.Background(), at.Add(2*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if upstream.calls != 1 || first.Collection[0].Status != "ready" || second.Collection[0].Status != "ready" {
+		t.Fatalf("calls=%d first=%#v second=%#v", upstream.calls, first.Collection, second.Collection)
+	}
+}
+
+func TestCachedWallServiceDoesNotStoreNewFailedLibraryWindows(t *testing.T) {
+	at := time.Date(2026, 9, 29, 2, 3, 7, 0, time.UTC)
+	store := newMemoryWallCacheStore()
+	upstream := &cacheWallUpstreamStub{wall: ImageWall{
+		Recent:      []ImageWindow{{ID: "apod", Status: "ready", MediaType: "image"}},
+		Collection:  []ImageWindow{{ID: "nasa-library-1", Status: "error"}},
+		GeneratedAt: at.Format(time.RFC3339),
+	}}
+	service := NewCachedWallService(upstream, store)
+	if _, err := service.Wall(context.Background(), at); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := store.GetWallCache(context.Background(), at); err != nil || ok {
+		t.Fatalf("failed windows were cached: ok=%t err=%v", ok, err)
+	}
+	upstream.wall.Collection[0].Status = "ready"
+	wall, err := service.Wall(context.Background(), at.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if upstream.calls != 2 || wall.Collection[0].Status != "ready" {
+		t.Fatalf("calls=%d collection=%#v", upstream.calls, wall.Collection)
+	}
+}
+
+func TestCachedWallServiceDoesNotStoreFallbackLibraryWindow(t *testing.T) {
+	at := time.Date(2026, 9, 29, 2, 3, 7, 0, time.UTC)
+	store := newMemoryWallCacheStore()
+	upstream := &cacheWallUpstreamStub{wall: ImageWall{
+		Recent:      []ImageWindow{{ID: "apod", Status: "ready", MediaType: "image"}},
+		Collection:  []ImageWindow{{ID: "nasa-library-1", Status: "ready", IsFallback: true}},
+		GeneratedAt: at.Format(time.RFC3339),
+	}}
+	service := NewCachedWallService(upstream, store)
+	if _, err := service.Wall(context.Background(), at); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := store.GetWallCache(context.Background(), at); err != nil || ok {
+		t.Fatalf("fallback window was cached: ok=%t err=%v", ok, err)
+	}
+}

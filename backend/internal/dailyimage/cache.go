@@ -83,7 +83,7 @@ func (service *CachedWallService) Refresh(ctx context.Context, at time.Time) err
 		return err
 	}
 	if !wallCacheable(wall) {
-		return errors.New("daily image wall response has no valid image-only APOD windows")
+		return errors.New("daily image wall response contains unavailable image windows")
 	}
 	return service.store.SaveWallCache(ctx, wallCacheDate(at), wall)
 }
@@ -110,6 +110,11 @@ func wallCacheable(wall ImageWall) bool {
 	}
 	for _, window := range wall.Recent {
 		if window.Status != "ready" || window.MediaType != "image" {
+			return false
+		}
+	}
+	for _, window := range wall.Collection {
+		if window.Status != "ready" || window.IsFallback {
 			return false
 		}
 	}

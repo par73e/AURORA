@@ -26,6 +26,17 @@ type Event struct {
 	Presentation json.RawMessage `json:"presentation"`
 }
 
+// ReadableSourceURL replaces old non-browsable links in already stored events.
+func ReadableSourceURL(sourceCode, sourceURL string) string {
+	if sourceCode == "jpl_horizons_events" && sourceURL == horizonsEventsEndpoint {
+		return horizonsEventsPageURL
+	}
+	if sourceCode == "aurora_astronomy_model" && sourceURL == "https://aurora.local/astronomy-model" {
+		return auroraModelSourceURL
+	}
+	return sourceURL
+}
+
 type ListQuery struct {
 	From time.Time
 	To   time.Time

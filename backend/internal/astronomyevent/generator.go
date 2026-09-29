@@ -8,7 +8,7 @@ import (
 	"aurora/backend/internal/observatory"
 )
 
-const auroraModelSourceURL = "https://aurora.local/astronomy-model"
+const auroraModelSourceURL = "https://github.com/par73e/AURORA/blob/main/backend/internal/observatory/calendar.go"
 
 // coreEvents 将已有太阳/月球模型转化为可持久化的全球事件事实。
 // 这是 EphemerisSyncer.SyncPlanetaryPositions 唯一的 computed 写入路径中

@@ -75,6 +75,63 @@ func TestAstronomyEventsHandlerReturnsSourceStatuses(t *testing.T) {
 	}
 }
 
+func TestAstronomyEventsHandlerRepairsStoredHorizonsLink(t *testing.T) {
+	const apiURL = "https://ssd.jpl.nasa.gov/api/horizons.api"
+	const pageURL = "https://ssd.jpl.nasa.gov/horizons/app.html"
+	store := &astronomyEventStoreStub{events: []astronomyevent.Event{{
+		ID: "saturn-opposition-20261004", SourceCode: "jpl_horizons_events",
+		SourceName: "NASA/JPL Horizons · 天象星历", SourceURL: apiURL,
+	}}}
+	handler := astronomyEventsHandler(store, nil, time.Now)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/astronomy/events", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Events []struct {
+			SourceURL string `json:"sourceUrl"`
+			Source struct {
+				URL string `json:"url"`
+			} `json:"source"`
+		} `json:"events"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Events) != 1 || response.Events[0].SourceURL != pageURL || response.Events[0].Source.URL != pageURL {
+		t.Fatalf("legacy source link was not repaired: %+v", response.Events)
+	}
+}
+
+func TestAstronomyEventsHandlerRepairsStoredAuroraModelLink(t *testing.T) {
+	const codeURL = "https://github.com/par73e/AURORA/blob/main/backend/internal/observatory/calendar.go"
+	store := &astronomyEventStoreStub{events: []astronomyevent.Event{{
+		ID: "full-moon-20261004", SourceCode: "aurora_astronomy_model",
+		SourceName: "AURORA 天文计算模型", SourceURL: "https://aurora.local/astronomy-model",
+	}}}
+	handler := astronomyEventsHandler(store, nil, time.Now)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/astronomy/events", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Events []struct {
+			SourceURL string `json:"sourceUrl"`
+			Source struct {
+				URL string `json:"url"`
+			} `json:"source"`
+		} `json:"events"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Events) != 1 || response.Events[0].SourceURL != codeURL || response.Events[0].Source.URL != codeURL {
+		t.Fatalf("legacy source link was not repaired: %+v", response.Events)
+	}
+}
+
 func TestAstronomyEventsHandlerSortsLocalVisibilityAndReturnsSourceObject(t *testing.T) {
 	store := &astronomyEventStoreStub{events: []astronomyevent.Event{
 		{ID: "season", Kind: "march_equinox", StartsAt: time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC), SourceName: "AURORA", SourceURL: "https://aurora.local", Origin: "computed", VerifiedAt: "2026-08-11"},

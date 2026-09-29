@@ -11,6 +11,7 @@ import (
 )
 
 const horizonsEventsEndpoint = "https://ssd.jpl.nasa.gov/api/horizons.api"
+const horizonsEventsPageURL = "https://ssd.jpl.nasa.gov/horizons/app.html"
 
 var horizonPlanetCommands = map[string]string{
 	"sun": "10", "mercury": "199", "venus": "299", "mars": "499",
