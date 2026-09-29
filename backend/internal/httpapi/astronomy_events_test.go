@@ -91,7 +91,7 @@ func TestAstronomyEventsHandlerRepairsStoredHorizonsLink(t *testing.T) {
 	var response struct {
 		Events []struct {
 			SourceURL string `json:"sourceUrl"`
-			Source struct {
+			Source    struct {
 				URL string `json:"url"`
 			} `json:"source"`
 		} `json:"events"`
@@ -119,7 +119,7 @@ func TestAstronomyEventsHandlerRepairsStoredAuroraModelLink(t *testing.T) {
 	var response struct {
 		Events []struct {
 			SourceURL string `json:"sourceUrl"`
-			Source struct {
+			Source    struct {
 				URL string `json:"url"`
 			} `json:"source"`
 		} `json:"events"`
@@ -213,6 +213,18 @@ func TestDeduplicateAstronomyEventsPrefersComputableRecordAndKeepsCuratedPresent
 	}
 	if string(got[0].Presentation) != string(curatedPresentation) {
 		t.Fatalf("presentation = %s, want curated copy %s", got[0].Presentation, curatedPresentation)
+	}
+}
+
+func TestDeduplicateAstronomyEventsPrefersBesselianSolarRecord(t *testing.T) {
+	at := time.Date(2027, time.August, 2, 10, 6, 34, 0, time.UTC)
+	events := []astronomyevent.Event{
+		{ID: "nasa-catalog", Kind: "solar_eclipse", StartsAt: at.Add(time.Minute), Origin: "external_forecast", Geometry: json.RawMessage(`{"precision":"nasa_gsfc_table"}`)},
+		{ID: "nasa-besselian", Kind: "solar_eclipse", StartsAt: at, Origin: "external_forecast", Geometry: json.RawMessage(`{"precision":"nasa_gsfc_besselian","besselian":{"dt":76}}`)},
+	}
+	got := deduplicateAstronomyEvents(events)
+	if len(got) != 1 || got[0].ID != "nasa-besselian" {
+		t.Fatalf("canonical eclipse=%+v, want Besselian record", got)
 	}
 }
 

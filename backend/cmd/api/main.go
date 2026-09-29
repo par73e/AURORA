@@ -91,7 +91,7 @@ func main() {
 	go schedule(ctx, 24*time.Hour, 45*time.Second, "moon", dataSyncer.SyncMoonSpacecraft)                                                             // 月球轨道：每日 JPL Horizons 同步
 	go schedule(ctx, 24*time.Hour, 45*time.Second, "mars", dataSyncer.SyncMarsSpacecraft)                                                             // 火星轨道：每日 JPL Horizons 同步
 	go schedule(ctx, 24*time.Hour, 120*time.Second, "probes", dataSyncer.SyncDeepSpaceProbes)                                                         // 深空探测器：每日同步（9 个顺序查询，预算放宽）
-	go schedule(ctx, 24*time.Hour, 45*time.Second, "astronomy_sources", eventSourceSyncer.SyncOfficialSources)                                        // 天象权威资料：每日校验并缓存
+	go schedule(ctx, 24*time.Hour, 120*time.Second, "astronomy_sources", eventSourceSyncer.SyncOfficialSources)                                       // 天象权威资料：每日校验并缓存
 	go schedule(ctx, 24*time.Hour, 90*time.Second, "planetary_ephemeris", ephemerisSyncer.SyncPlanetaryPositions)                                     // JPL 行星星历：每日缓存未来 18 个月
 	go schedule(ctx, 24*time.Hour, 45*time.Second, "daily_image_wall", func(ctx context.Context) error { return imageWall.Refresh(ctx, time.Now()) }) // 每日一图：每日刷新并入库；页面请求优先读库
 
@@ -136,7 +136,7 @@ func runStartupSync(parent context.Context, dataSyncer *syncer.Syncer) {
 
 // runAstronomySourceStartupSync 在服务可用后缓存公开权威资料；资料源失败不会影响已存事件查询。
 func runAstronomySourceStartupSync(parent context.Context, sourceSyncer *astronomyevent.SourceSyncer) {
-	ctx, cancel := context.WithTimeout(parent, 45*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 120*time.Second)
 	defer cancel()
 	if err := sourceSyncer.SyncOfficialSources(ctx); err != nil {
 		slog.Warn("astronomy source startup sync failed; cached events remain available", "error", err)

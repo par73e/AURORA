@@ -976,7 +976,7 @@ onMounted(() => {
     if (!hit) return true
     return camera.position.distanceTo(labelOcclusionHit) >= targetDistance - 0.035
   }
-  const updateSiteLabels = () => {
+  const updateSiteLabels = (reserved: SceneAnnotationLayout[] = []) => {
     if (!renderer || !camera || !sitesEnabled.value) {
       siteLabels.value = []
       return
@@ -1013,9 +1013,12 @@ onMounted(() => {
       height: bounds.height,
       currentPlanetRadiusPx,
       referencePlanetRadiusPx,
-    }, siteLabels.value)
+      clusterOverlappingLabels: true,
+      preferFullLabels: true,
+      safeTopPx: props.headerExpanded ? 76 : 8,
+    }, siteLabels.value, reserved)
   }
-  const updateCraftLabels = () => {
+  const updateCraftLabels = (reserved: SceneAnnotationLayout[] = []) => {
     if (!renderer || !camera || !spacecraftEnabled.value) {
       craftLabels.value = []
       return
@@ -1048,7 +1051,10 @@ onMounted(() => {
       height: bounds.height,
       currentPlanetRadiusPx,
       referencePlanetRadiusPx,
-    }, craftLabels.value)
+      clusterOverlappingLabels: true,
+      preferFullLabels: true,
+      safeTopPx: props.headerExpanded ? 76 : 8,
+    }, craftLabels.value, reserved)
   }
 
   // 光照：行星用固定环境光 + 太阳方向光 + 跟随相机的观测光（360° 全亮，无晨昏线）；
@@ -1181,8 +1187,13 @@ onMounted(() => {
 
     controls?.update()
     // 相机阻尼更新后再投影标签，避免飞行器高速移动时标签滞后一帧显得离点很远。
-    updateSiteLabels()
-    updateCraftLabels()
+    if ((selectedCraft.value || hoveredCraft.value) && !selectedSite.value) {
+      updateCraftLabels()
+      updateSiteLabels(craftLabels.value)
+    } else {
+      updateSiteLabels()
+      updateCraftLabels(siteLabels.value)
+    }
     renderer.render(scene, camera)
   }
   animate()

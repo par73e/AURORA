@@ -12,7 +12,6 @@ import { analyzeNight, bearing, bodies, calculateFixedObjectPosition, calculateP
 import { conditionDescription, forecastHoursThroughTomorrow, weatherGlyph } from '../observatoryWeather'
 import { projectAltitudeGuide, projectHorizontalDirection, projectSkyTrajectoryBranch, type SkyCamera } from '../skyProjection'
 import { easeOutExpo, normalizeAzimuth, shortestAzimuthDelta, skyTurnDuration } from '../skyMotion'
-import { localSolarEclipseVisibility } from '../solarEclipseVisibility'
 import { constellationLines, skyCatalog, type SkyCatalogObject } from '../skyCatalog'
 import moonNearsideTexture from '../assets/solar/2k_moon.jpg'
 import AuroraBrand from './AuroraBrand.vue'
@@ -1402,20 +1401,11 @@ async function loadAstronomyEvents() {
     const response = await fetchAstronomyEvents({
       latitude: activeCoordinates.value?.latitude,
       longitude: activeCoordinates.value?.longitude,
+      elevation: elevation.value,
       timezone: observatoryTimezone.value,
     }, controller.signal)
     if (!controller.signal.aborted) {
-      const coordinates = activeCoordinates.value
-      astronomyEvents.value = coordinates
-        ? response.events.map((event) => {
-          const local = localSolarEclipseVisibility(event, coordinates.latitude, coordinates.longitude)
-          return local ? { ...event, local } : event
-        }).sort((a, b) => {
-          const rank = { observable: 0, limited: 1, not_calculated: 2, non_visual: 3, not_visible: 4 }
-          const difference = (rank[a.local?.status ?? 'not_calculated'] ?? 5) - (rank[b.local?.status ?? 'not_calculated'] ?? 5)
-          return difference || new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime()
-        })
-        : response.events
+      astronomyEvents.value = response.events
       astronomyEventSources.value = response.sources ?? []
       astronomyEventsStatus.value = 'ready'
     }
@@ -1484,6 +1474,9 @@ watch(activeCoordinates, (coordinates) => {
   // 无定位授权也必须载入全球日历；坐标可用时会自动附加本地可见性。
   void loadAstronomyEvents()
 }, { immediate: true })
+watch(elevation, (next, previous) => {
+  if (activeCoordinates.value && next !== previous) void loadAstronomyEvents()
+})
 // 定位点跨时区时，重置“现在”的当地分钟；月相由已完成的天气请求按新时区读取。
 watch(observatoryTimezone, () => {
   selectedSkyDateKey.value = null
@@ -1814,6 +1807,7 @@ onBeforeUnmount(() => {
                 <dl><div><dt>最佳时段</dt><dd>{{ formatEventMoment(event.local?.bestAt) }}</dd></div><div><dt>可见窗口</dt><dd>{{ event.local?.windowStart ? `${formatEventMoment(event.local.windowStart)} – ${formatEventMoment(event.local.windowEnd)}` : '—' }}</dd></div><div><dt>方位</dt><dd>{{ event.local?.azimuthDegrees != null ? `${Math.round(event.local.azimuthDegrees)}°` : '—' }}</dd></div><div><dt>高度</dt><dd>{{ event.local?.altitudeDegrees != null ? `${Math.round(event.local.altitudeDegrees)}°` : '—' }}</dd></div><div><dt>核验日期</dt><dd>{{ event.verifiedAt }}</dd></div><div><dt>来源</dt><dd>{{ event.sourceName }}</dd></div></dl>
                 <dl v-if="event.local?.eclipseContacts" class="eclipse-contact-details"><div><dt>初亏</dt><dd>{{ formatEventMoment(event.local.eclipseContacts.partialBegin) }}</dd></div><div><dt>食甚{{ event.local.eclipseContacts.peakVisible ? '' : '（地平线下）' }}</dt><dd>{{ formatEventMoment(event.local.eclipseContacts.peak) }}</dd></div><div><dt>{{ event.local.eclipseContacts.peakVisible ? '食甚遮挡' : '理论食甚遮挡' }}</dt><dd>{{ event.local.eclipseContacts.obscurationPercent }}%</dd></div><div><dt>{{ event.local.eclipseContacts.peakVisible ? '食甚食分' : '理论食甚食分' }}</dt><dd>{{ event.local.eclipseContacts.magnitude.toFixed(4) }}</dd></div><div><dt>复圆</dt><dd>{{ formatEventMoment(event.local.eclipseContacts.partialEnd) }}</dd></div><div v-if="event.local.eclipseContacts.centralBegin"><dt>{{ event.local.eclipseContacts.kind === 'total' ? '全食开始' : '环食开始' }}</dt><dd>{{ formatEventMoment(event.local.eclipseContacts.centralBegin) }}</dd></div><div v-if="event.local.eclipseContacts.centralEnd"><dt>{{ event.local.eclipseContacts.kind === 'total' ? '全食结束' : '环食结束' }}</dt><dd>{{ formatEventMoment(event.local.eclipseContacts.centralEnd) }}</dd></div></dl>
                 <p v-if="event.local?.eclipseContacts && (!event.local.eclipseContacts.partialBeginVisible || !event.local.eclipseContacts.peakVisible || !event.local.eclipseContacts.partialEndVisible || event.local.eclipseContacts.centralBeginVisible === false || event.local.eclipseContacts.centralEndVisible === false)">部分食相发生在太阳位于地平线下时；实际能看到的时段请以上方可见窗口为准。</p>
+                <p v-if="event.global?.precision === 'nasa_gsfc_besselian'" class="event-source-credit">Eclipse Predictions by Fred Espenak, NASA's GSFC.</p>
                 <div class="event-detail-actions"><a :href="eventSourceURL(event)" target="_blank" rel="noreferrer">{{ eventSourceLabel(event) }}</a></div>
               </div>
             </article>
@@ -1958,7 +1952,7 @@ onBeforeUnmount(() => {
 .sky-menu button.active::before { transform:scaleY(1); }
 .sky-menu b { font:9px var(--font-mono,monospace); color:var(--sky-cyan); }
 .sky-menu span { font-size:12px; font-weight:600; }
-.sky-menu small { display:block; margin-top:3px; color:var(--sky-muted); font:8px var(--font-mono,monospace); letter-spacing:.13em; }
+.sky-menu small { display:block; margin-top:3px; color:var(--sky-muted); font:9px var(--font-mono,monospace); letter-spacing:.08em; }
 .sky-menu .menu-icon,.sky-menu .menu-icon::before,.sky-menu .menu-icon::after,.sky-menu .menu-icon em,.sky-menu .menu-icon em::before,.sky-menu .menu-icon em::after { position:absolute; display:block; box-sizing:border-box; content:""; }
 .sky-menu .menu-icon { position:relative; width:24px; height:24px; color:var(--sky-muted); font-style:normal; opacity:.72; transition:color .2s,opacity .2s,transform .2s; }
 .sky-menu button:not(.active):hover .menu-icon { color:var(--sky-cyan); opacity:1; }
@@ -1976,10 +1970,10 @@ onBeforeUnmount(() => {
 .menu-icon-image::before { top:3px; left:2px; width:19px; height:17px; border:1.5px solid currentColor; border-radius:2px; }
 .menu-icon-image::after { bottom:5px; left:5px; width:13px; height:8px; background:currentColor; clip-path:polygon(0 100%,34% 28%,53% 60%,74% 0,100% 100%); opacity:.78; }
 .menu-icon-image em { top:7px; right:5px; width:3.5px; height:3.5px; background:currentColor; border-radius:50%; }
-.sidebar-source { margin-top:auto; color:var(--sky-muted); font-size:9px; line-height:1.5; }
+.sidebar-source { margin-top:auto; color:var(--sky-muted); font-size:10px; line-height:1.5; }
 .sidebar-source span { display:inline-block; width:5px; height:5px; margin-right:7px; border-radius:50%; background:var(--sky-amber); }
 .sky-sidebar > time { margin-top:16px; font:16px var(--font-mono,monospace); color:var(--sky-ink); }
-.sky-sidebar > time small { color:var(--sky-muted); font-size:7px; }
+.sky-sidebar > time small { color:var(--sky-muted); font-size:9px; }
 
 /* ---------- 观星条件页 ---------- */
 .sky-content-scroll { min-width:0; height:100dvh; overflow:auto; }
@@ -2278,13 +2272,13 @@ onBeforeUnmount(() => {
 .curated-event-detail dd { margin:5px 0 0; color:var(--sky-ink); font-size:11px; line-height:1.55; }
 .curated-event-detail > p { max-width:70ch; margin:20px 0; color:var(--sky-muted); font-size:11px; line-height:1.7; }
 .event-source-status { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:1px; margin-bottom:18px; overflow:hidden; background:var(--sky-line); border:1px solid var(--sky-line); }
-.event-source-status article { display:grid; grid-template-columns:7px minmax(0,1fr); gap:9px; align-items:start; min-height:76px; padding:13px; background:var(--sky-sunken); }
+.event-source-status article { display:grid; grid-template-columns:7px minmax(0,1fr); gap:9px; align-items:start; min-height:90px; padding:13px; background:var(--sky-sunken); }
 .event-source-status article > i { width:6px; height:6px; margin-top:4px; border-radius:50%; background:#63d9a4; }
 .event-source-status article.failed > i { background:#f28f84; }
 .event-source-status strong,.event-source-status small,.event-source-status span { display:block; }
-.event-source-status strong { font-size:10px; font-weight:500; }
-.event-source-status small { margin-top:4px; color:var(--sky-muted); font-size:8px; line-height:1.45; }
-.event-source-status span { grid-column:2; color:var(--sky-cyan); font:8px var(--font-mono,monospace); }
+.event-source-status strong { font-size:11px; font-weight:500; line-height:1.4; }
+.event-source-status small { margin-top:4px; color:var(--sky-muted); font-size:10px; line-height:1.5; }
+.event-source-status span { grid-column:2; color:var(--sky-cyan); font:9px var(--font-mono,monospace); }
 .event-detail-actions { display:flex; gap:18px; align-items:center; }
 .event-detail-actions button,.event-detail-actions a { padding:0; color:var(--sky-cyan); font-size:10px; text-decoration:none; background:transparent; border:0; cursor:pointer; }
 .event-detail-actions button:hover,.event-detail-actions a:hover,.event-detail-actions button:focus-visible,.event-detail-actions a:focus-visible { color:var(--sky-ink); outline:0; }
@@ -2325,7 +2319,7 @@ onBeforeUnmount(() => {
 .image-window-copy dl { display:grid; gap:12px; margin:0; padding:14px 0; border-top:1px solid var(--sky-line); }
 .image-window-copy dt { color:var(--sky-muted); font-size:9px; }
 .image-window-copy dd { margin:4px 0 0; font-size:10px; line-height:1.55; }
-.image-window-copy > .image-license-note { display:block; overflow:visible; margin:8px 0 0; color:rgba(135,155,168,.62); font-size:8px; line-height:1.55; -webkit-line-clamp:unset; }
+.image-window-copy > .image-license-note { display:block; overflow:visible; margin:8px 0 0; color:var(--sky-muted); font-size:9px; line-height:1.55; -webkit-line-clamp:unset; }
 .image-window-missing { display:grid; min-height:220px; align-content:center; gap:10px; padding:24px; color:var(--sky-muted); background:rgba(7,12,19,.68); border:1px solid var(--sky-line); }
 .image-window-missing > span { color:var(--sky-amber); font-size:24px; line-height:1; }
 .image-window-missing strong { color:var(--sky-ink); font-size:15px; font-weight:500; }

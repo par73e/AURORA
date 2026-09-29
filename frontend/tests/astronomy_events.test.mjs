@@ -112,9 +112,10 @@ test('场景北半球高纬：latitude/longitude 正确传入 URL', async () => 
     },
   ])
   try {
-    await api.fetchAstronomyEvents({ latitude: 64.1466, longitude: -21.9426, timezone: 'Atlantic/Reykjavik' })
+    await api.fetchAstronomyEvents({ latitude: 64.1466, longitude: -21.9426, elevation: 45, timezone: 'Atlantic/Reykjavik' })
     assert.ok(calls[0].endpoint.includes('latitude=64.1466'), `URL 应含 latitude=64.1466，实际 ${calls[0].endpoint}`)
     assert.ok(calls[0].endpoint.includes('longitude=-21.9426'), `URL 应含 longitude=-21.9426，实际 ${calls[0].endpoint}`)
+    assert.ok(calls[0].endpoint.includes('elevation=45'), `URL 应含 elevation=45，实际 ${calls[0].endpoint}`)
     assert.ok(calls[0].endpoint.includes('timezone=Atlantic%2FReykjavik') || calls[0].endpoint.includes('timezone=Atlantic/Reykjavik'), `URL 应含 timezone，实际 ${calls[0].endpoint}`)
   } finally {
     restoreFetch()

@@ -34,6 +34,14 @@ test('远景明显收小，点、线、标签的比例一致且近景不膨胀',
   assert.ok(2 * orbitMarkerRadiusPx(1, 200) >= 4.5, '最远处仍保留可见圆点')
 })
 
+test('场景标签避让页头，并在空间充足时保留完整文字', () => {
+  const options = { ...viewport(), clusterOverlappingLabels: true, preferFullLabels: true, safeTopPx: 76 }
+  const labels = layoutSceneAnnotations([anchor('top', 500, 82), anchor('middle', 500, 350)], options)
+  assert.equal(labels[0].visible, false)
+  assert.equal(labels[1].visible, true)
+  assert.equal(labels[1].mode, 'full')
+})
+
 test('不同深度的飞行器换算回像素后半径一致', () => {
   for (const depth of [1, 5, 50, 500]) {
     const radiusPx = orbitMarkerRadiusPx(100, 200)

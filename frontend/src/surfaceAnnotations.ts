@@ -32,14 +32,18 @@ export interface SceneAnnotationViewport {
   height: number
   currentPlanetRadiusPx: number
   referencePlanetRadiusPx: number
+  safeTopPx?: number
   /** 密集表面目标在远景时按紧凑标签占用空间提前聚合。 */
   clusterOverlappingLabels?: boolean
+  /** 保留正常信息层级，同时避让其他已排布的标签。 */
+  preferFullLabels?: boolean
 }
 
 export type SurfaceAnnotationViewport = SceneAnnotationViewport
 
-const LABEL_WIDTH = 170
-const LABEL_HEIGHT = 36
+// Reserve the rendered width of long bilingual mission names, including their border and padding.
+const LABEL_WIDTH = 220
+const LABEL_HEIGHT = 38
 const COMPACT_WIDTH = 112
 const COMPACT_HEIGHT = 18
 const CLUSTER_WIDTH = 42
@@ -256,7 +260,7 @@ export function layoutSceneAnnotations<T extends SceneAnchorProjection>(
     }
     const fits = (box: ReturnType<typeof boxFor>) => box.x >= SAFE_INSET
       && box.x + box.width <= viewport.width - SAFE_INSET
-      && box.y >= SAFE_INSET
+      && box.y >= Math.max(SAFE_INSET, viewport.safeTopPx ?? 0)
       && box.y + box.height <= viewport.height - SAFE_INSET
     const previousSides = group.map((item) => previousById.get(item.id)?.side)
     const sides: SceneAnnotationSide[] = group.length === 2
@@ -276,7 +280,7 @@ export function layoutSceneAnnotations<T extends SceneAnchorProjection>(
 
     for (const [index, item] of group.entries()) {
       let side: SceneAnnotationSide = expandPair && !clustered ? sides[index] : 'right'
-      let mode: SceneAnnotationMode = clustered ? 'cluster' : expandPair ? pairMode : ((ratio < 0.82 || viewport.clusterOverlappingLabels) && !item.selected && !item.hovered ? 'compact' : 'full')
+      let mode: SceneAnnotationMode = clustered ? 'cluster' : expandPair ? pairMode : ((ratio < 0.82 || (viewport.clusterOverlappingLabels && !viewport.preferFullLabels)) && !item.selected && !item.hovered ? 'compact' : 'full')
       const isRepresentative = item.id === representative.id
       if (clustered && !isRepresentative) {
         layouts.set(item.id, {

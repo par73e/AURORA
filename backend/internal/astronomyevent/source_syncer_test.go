@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
+
+	"aurora/backend/internal/observatory"
 )
 
 type sourceSnapshotStoreStub struct {
@@ -40,6 +43,13 @@ func (s *sourceSnapshotStoreStub) ReplaceExternalForecast(_ context.Context, _ s
 
 type roundTripper func(*http.Request) (*http.Response, error)
 
+// Rows from NASA/GSFC's published Besselian CSV.
+const besselianSample = `year,month,day,td_ge,dt,eclipse_type,t0,tmin,tmax,tan_f1,tan_f2,x0,x1,x2,x3,y0,y1,y2,y3,d0,d1,d2,mu0,mu1,mu2,l10,l11,l12,l20,l21,l22
+2026,8,12,17:47:06,75.40000000,T,18.00000000,-3.00000000,3.00000000,.00461410,.00459110,.47551400,.51892490,-.00007730,-.00000804,.77118300,-.23016800,-.00012460,.00000377,14.79667000,-.01206500,-.00000300,88.74779000,15.00309000,.00000000,.53795500,.00009390,-.00001210,-.00814200,.00009350,-.00001210
+2027,2,6,16:00:48,75.70000000,A,16.00000000,-3.00000000,3.00000000,.00474260,.00471900,.11167600,.46649520,-.00003370,-.00000527,-.27329300,.20318560,.00010250,-.00000246,-15.54794000,.01238300,.00000400,56.49307000,15.00051000,.00000000,.57192800,-.00006530,-.00001010,.02566200,-.00006500,-.00001000
+2027,8,2,10:07:50,76.00000000,T,10.00000000,-3.00000000,3.00000000,.00460640,.00458340,-.01977200,.54471230,-.00004460,-.00000922,.16006100,-.21115820,-.00012170,.00000376,17.76247000,-.01018100,-.00000400,328.42255000,15.00210000,.00000000,.53059600,.00001380,-.00001280,-.01546400,.00001370,-.00001280
+`
+
 func (fn roundTripper) RoundTrip(request *http.Request) (*http.Response, error) { return fn(request) }
 
 func TestSourceSyncerRecordsOfficialSourceSnapshots(t *testing.T) {
@@ -54,6 +64,9 @@ func TestSourceSyncerRecordsOfficialSourceSnapshots(t *testing.T) {
 	}
 	syncer.client = &http.Client{Transport: roundTripper(func(request *http.Request) (*http.Response, error) {
 		body := `{"endpoint":"` + request.URL.Path + `"}`
+		if strings.HasSuffix(request.URL.Path, ".csv") {
+			body = besselianSample
+		}
 		if request.URL.Host == "ssd-api.jpl.nasa.gov" {
 			body = `{"fields":["des","cd","dist"],"data":[["2026 AB","2026-Aug-12 17:00","0.01"]]}`
 		}
@@ -63,15 +76,164 @@ func TestSourceSyncerRecordsOfficialSourceSnapshots(t *testing.T) {
 	if err := syncer.SyncOfficialSources(context.Background()); err != nil {
 		t.Fatalf("SyncOfficialSources() error = %v", err)
 	}
-	if got, want := len(store.snapshots), 10; got != want {
+	if got, want := len(store.snapshots), 11; got != want {
 		t.Fatalf("snapshots = %d, want %d", got, want)
 	}
 	if got := string(store.snapshots[0].RawPayload); !strings.Contains(got, "endpoint") {
 		t.Errorf("first snapshot = %s, want original JSON", got)
 	}
-	if got, want := store.finished, 10; got != want {
+	if got, want := store.finished, 11; got != want {
 		t.Errorf("finished = %d, want %d", got, want)
 	}
+}
+
+func TestBesselianCSVProducesLocalNASAContactTimes(t *testing.T) {
+	expectTime := func(label, got, want string) {
+		t.Helper()
+		actual, err := time.Parse(time.RFC3339, got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected, err := time.Parse(time.RFC3339, want)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if delta := actual.Sub(expected); delta < -2*time.Second || delta > 2*time.Second {
+			t.Errorf("%s=%s, NASA calculator=%s", label, got, want)
+		}
+	}
+	parsed, err := parseNASABesselianCSV(context.Background(), []byte(besselianSample), "https://eclipse.gsfc.nasa.gov/eclipse_besselian_from_mysqldump2.csv", 2026)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed.events) != 3 {
+		t.Fatalf("events=%d, want 3", len(parsed.events))
+	}
+	event := parsed.events[2]
+	if got := event.StartsAt.Format(time.RFC3339); got != "2027-08-02T10:06:34Z" {
+		t.Fatalf("greatest UT=%s", got)
+	}
+	var geometry map[string]any
+	if err := json.Unmarshal(event.Geometry, &geometry); err != nil {
+		t.Fatal(err)
+	}
+	vis := observatory.NewVisibilitySolver(nil).Solve(observatory.EventInput{Kind: event.Kind, StartsAt: event.StartsAt, Geometry: geometry}, 25.50236, 33.19617, "UTC")
+	if vis.Status != "observable" || vis.EclipseContacts == nil || vis.EclipseContacts.Kind != "total" || vis.EclipseContacts.CentralBegin == nil || vis.EclipseContacts.CentralEnd == nil {
+		t.Fatalf("local result=%+v", vis)
+	}
+	contacts := vis.EclipseContacts
+	peak, err := time.Parse(time.RFC3339, contacts.Peak)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if delta := peak.Sub(event.StartsAt); delta < -2*time.Second || delta > 2*time.Second {
+		t.Errorf("local greatest eclipse differs from NASA's global point by %s", delta)
+	}
+	if vis.AltitudeDegrees == nil || math.Abs(*vis.AltitudeDegrees-81.7) > .2 {
+		t.Errorf("sun altitude=%v, NASA gives 81.7 degrees", vis.AltitudeDegrees)
+	}
+	if vis.AzimuthDegrees == nil || math.Abs(*vis.AzimuthDegrees-202) > .2 {
+		t.Errorf("sun azimuth=%v, NASA gives 202.0 degrees", vis.AzimuthDegrees)
+	}
+	if math.Abs(contacts.Magnitude-1.079) > .002 || contacts.ObscurationPercent != 100 {
+		t.Errorf("magnitude/obscuration=%f/%f", contacts.Magnitude, contacts.ObscurationPercent)
+	}
+	begin, err := time.Parse(time.RFC3339, *contacts.CentralBegin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	end, err := time.Parse(time.RFC3339, *contacts.CentralEnd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if delta := end.Sub(begin) - (6*time.Minute + 23*time.Second); delta < -3*time.Second || delta > 3*time.Second {
+		t.Errorf("central duration=%s, NASA gives 6m23s", end.Sub(begin))
+	}
+	// NASA's 10:06 UT path table places the northern umbral edge near
+	// 26°34.9′N, 33°44.1′E. Check points well inside/outside that edge.
+	for _, example := range []struct {
+		latitude, longitude float64
+		kind                string
+	}{
+		{26.3, 33.735, "total"},
+		{26.9, 33.735, "partial"},
+	} {
+		boundary := observatory.NewVisibilitySolver(nil).Solve(observatory.EventInput{Kind: event.Kind, StartsAt: event.StartsAt, Geometry: geometry}, example.latitude, example.longitude, "UTC")
+		if boundary.EclipseContacts == nil || boundary.EclipseContacts.Kind != example.kind {
+			t.Errorf("path side at %.3f,%.3f: %+v", example.latitude, example.longitude, boundary)
+		}
+	}
+	annular := parsed.events[1]
+	if err := json.Unmarshal(annular.Geometry, &geometry); err != nil {
+		t.Fatal(err)
+	}
+	annularVisibility := observatory.NewVisibilitySolver(nil).Solve(observatory.EventInput{Kind: annular.Kind, StartsAt: annular.StartsAt, Geometry: geometry}, -31.30245, -48.45416, "UTC")
+	if annularVisibility.EclipseContacts == nil || annularVisibility.EclipseContacts.Kind != "annular" {
+		t.Errorf("annular eclipse result=%+v", annularVisibility)
+	} else {
+		annularContacts := annularVisibility.EclipseContacts
+		if annularContacts.CentralBegin == nil || annularContacts.CentralEnd == nil {
+			t.Fatal("annular central contacts missing")
+		}
+		expectTime("annular C1", annularContacts.PartialBegin, "2027-02-06T14:11:29Z")
+		expectTime("annular peak", annularContacts.Peak, "2027-02-06T15:59:32Z")
+		expectTime("annular C2", *annularContacts.CentralBegin, "2027-02-06T15:55:36Z")
+		expectTime("annular C3", *annularContacts.CentralEnd, "2027-02-06T16:03:27Z")
+	}
+	if invisible := observatory.NewVisibilitySolver(nil).Solve(observatory.EventInput{Kind: event.Kind, StartsAt: event.StartsAt, Geometry: decodeGeometryForTest(t, event.Geometry)}, 31.2304, 121.4737, "Asia/Shanghai"); invisible.Status != "not_visible" {
+		t.Errorf("Shanghai result=%s, want not_visible", invisible.Status)
+	}
+	firstEvent := parsed.events[0]
+	firstGeometry := decodeGeometryForTest(t, firstEvent.Geometry)
+	for _, example := range []struct {
+		name                string
+		latitude, longitude float64
+		want                string
+	}{
+		{"Reykjavik", 64.15, -21.94, "observable"},
+		{"Madrid", 40.42, -3.7, "limited"},
+		{"Shanghai", 31.23, 121.47, "not_visible"},
+	} {
+		t.Run(example.name, func(t *testing.T) {
+			result := observatory.NewVisibilitySolver(nil).Solve(observatory.EventInput{Kind: firstEvent.Kind, StartsAt: firstEvent.StartsAt, Geometry: firstGeometry}, example.latitude, example.longitude, "UTC")
+			if result.Status != example.want {
+				t.Errorf("status=%s, want %s", result.Status, example.want)
+			}
+			if example.name == "Reykjavik" {
+				if result.EclipseContacts == nil || result.EclipseContacts.CentralBegin == nil || result.EclipseContacts.CentralEnd == nil {
+					t.Fatal("one-minute totality contacts missing")
+				}
+				expectTime("Reykjavik C1", result.EclipseContacts.PartialBegin, "2026-08-12T16:47:07Z")
+				expectTime("Reykjavik peak", result.EclipseContacts.Peak, "2026-08-12T17:48:41Z")
+				expectTime("Reykjavik C2", *result.EclipseContacts.CentralBegin, "2026-08-12T17:48:11Z")
+				expectTime("Reykjavik C3", *result.EclipseContacts.CentralEnd, "2026-08-12T17:49:12Z")
+				expectTime("Reykjavik C4", result.EclipseContacts.PartialEnd, "2026-08-12T18:47:33Z")
+			}
+			if example.name == "Madrid" {
+				if result.EclipseContacts == nil {
+					t.Fatal("Madrid contacts missing")
+				}
+				expectTime("Madrid C1", result.EclipseContacts.PartialBegin, "2026-08-12T17:36:40Z")
+				expectTime("Madrid peak", result.EclipseContacts.Peak, "2026-08-12T18:32:18Z")
+			}
+		})
+	}
+	sunset := observatory.NewVisibilitySolver(nil).Solve(observatory.EventInput{Kind: firstEvent.Kind, StartsAt: firstEvent.StartsAt, Geometry: firstGeometry}, 0, -20, "UTC")
+	if sunset.EclipseContacts == nil || sunset.EclipseContacts.PeakVisible || sunset.WindowEnd == nil || *sunset.WindowEnd >= sunset.EclipseContacts.Peak {
+		t.Errorf("sunset result=%+v", sunset)
+	}
+	if sunset.WindowEnd != nil {
+		expectTime("sunset visible window end", *sunset.WindowEnd, "2026-08-12T19:26:14Z")
+	}
+}
+
+func decodeGeometryForTest(t *testing.T, raw json.RawMessage) map[string]any {
+	t.Helper()
+	var geometry map[string]any
+	if err := json.Unmarshal(raw, &geometry); err != nil {
+		t.Fatal(err)
+	}
+	return geometry
 }
 
 func TestParseJPLCloseApproachesUsesSchemaFields(t *testing.T) {

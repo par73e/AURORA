@@ -621,6 +621,9 @@ function updateLabels() {
     height,
     currentPlanetRadiusPx: projectedSphereRadiusPx(EARTH_RADIUS, cam.position.length(), 42, height),
     referencePlanetRadiusPx: projectedSphereRadiusPx(EARTH_RADIUS, 7.6, 42, height),
+    clusterOverlappingLabels: true,
+    preferFullLabels: true,
+    safeTopPx: props.headerExpanded ? 76 : 8,
   }
 
   const projectedCrafts = props.spacecraft.flatMap((craft) => {
@@ -639,8 +642,6 @@ function updateLabels() {
       hovered: hoveredSpacecraftId.value === craft.id,
     }]
   })
-  labels.value = layoutSceneAnnotations(projectedCrafts, annotationViewport, labels.value)
-
   const projectedSites: Array<{ id: string; name: string; anchorX: number; anchorY: number; visible: boolean; selected: boolean }> = []
   for (const site of props.sites) {
     const marker = markerObjects.get(`site:${site.id}`)
@@ -687,9 +688,12 @@ function updateLabels() {
     })
   }
   const previousSurfaces = observerLabel.value ? [...siteLabels.value, observerLabel.value] : siteLabels.value
-  const surfaceLayouts = layoutSceneAnnotations(projectedSurfaces, annotationViewport, previousSurfaces)
+  const craftIsActive = activeKey.value?.startsWith('spacecraft:') || !!hoveredSpacecraftId.value
+  if (craftIsActive) labels.value = layoutSceneAnnotations(projectedCrafts, annotationViewport, labels.value)
+  const surfaceLayouts = layoutSceneAnnotations(projectedSurfaces, annotationViewport, previousSurfaces, craftIsActive ? labels.value : [])
   siteLabels.value = surfaceLayouts.filter((label) => label.kind === 'site')
   observerLabel.value = surfaceLayouts.find((label) => label.kind === 'observer') ?? null
+  if (!craftIsActive) labels.value = layoutSceneAnnotations(projectedCrafts, annotationViewport, labels.value, surfaceLayouts)
 }
 
 const annotationLabelStyle = sceneAnnotationStyle

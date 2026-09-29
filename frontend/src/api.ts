@@ -314,6 +314,7 @@ export async function fetchAstronomyEvents(params: {
   to?: string
   latitude?: number
   longitude?: number
+  elevation?: number
   timezone?: string
 }, signal?: AbortSignal): Promise<AstronomyEventsResponse> {
   const search = new URLSearchParams()
@@ -321,6 +322,7 @@ export async function fetchAstronomyEvents(params: {
   if (params.to) search.set('to', params.to)
   if (params.latitude !== undefined) search.set('latitude', String(params.latitude))
   if (params.longitude !== undefined) search.set('longitude', String(params.longitude))
+  if (params.elevation !== undefined) search.set('elevation', String(params.elevation))
   if (params.timezone) search.set('timezone', params.timezone)
   return requestJSON<AstronomyEventsResponse>(`/api/v1/astronomy/events?${search}`, signal)
 }

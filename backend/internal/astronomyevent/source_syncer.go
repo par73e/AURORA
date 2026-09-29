@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const sourceResponseMaximumBytes = 5 << 20
+const sourceResponseMaximumBytes = 7 << 20 // NASA Besselian CSV is currently about 6 MB.
 
 type sourceFeed struct {
 	SourceCode string
@@ -53,7 +53,7 @@ type ExternalSourceStore interface {
 func NewSourceSyncer(store ExternalSourceStore) *SourceSyncer {
 	return &SourceSyncer{
 		store:         store,
-		client:        &http.Client{Timeout: 20 * time.Second},
+		client:        &http.Client{Timeout: 60 * time.Second},
 		now:           time.Now,
 		parseUSNO:     parseUSNOMoonPhases,
 		parseNASAGSFC: parseNASAGSFCEclipsePage,
@@ -75,6 +75,7 @@ func (s *SourceSyncer) SyncOfficialSources(ctx context.Context) error {
 		{SourceCode: "nasa_gsfc_eclipse", URL: fmt.Sprintf("https://eclipse.gsfc.nasa.gov/SEdecade/SEdecade%d.html", eclipseDecade)},
 		{SourceCode: "nasa_gsfc_eclipse", URL: fmt.Sprintf("https://eclipse.gsfc.nasa.gov/SEdecade/SEdecade%d.html", eclipseDecade+10)},
 		{SourceCode: "nasa_gsfc_eclipse", URL: "https://eclipse.gsfc.nasa.gov/LEdecade/LEdecade2021.html"},
+		{SourceCode: "nasa_gsfc_eclipse", URL: "https://eclipse.gsfc.nasa.gov/eclipse_besselian_from_mysqldump2.csv"},
 		{SourceCode: "imo_meteor_calendar", URL: fmt.Sprintf("https://www.imo.net/files/meteor-shower/cal%d.pdf", year), Year: year},
 		{SourceCode: "imo_meteor_calendar", URL: fmt.Sprintf("https://www.imo.net/files/meteor-shower/cal%d.pdf", year+1), Year: year + 1},
 		{SourceCode: "imo_meteor_calendar", URL: "https://www.imo.net/feed/", Year: year},
@@ -169,6 +170,9 @@ func (s *SourceSyncer) parseFeed(ctx context.Context, feed sourceFeed, body []by
 		}
 		return s.parseUSNO(ctx, body, feed.URL, year)
 	case "nasa_gsfc_eclipse":
+		if strings.HasSuffix(strings.ToLower(feed.URL), ".csv") {
+			return parseNASABesselianCSV(ctx, body, feed.URL, year)
+		}
 		return s.parseNASAGSFC(ctx, body, feed.URL)
 	case "imo_meteor_calendar":
 		if !strings.HasSuffix(strings.ToLower(feed.URL), ".pdf") {

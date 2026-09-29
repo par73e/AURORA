@@ -10,11 +10,12 @@ import (
 // EventInput 是给本地可见性求解器的最小事件输入。
 // 它故意不依赖 astronomyevent 包，避免 observatory 反向依赖事件领域。
 type EventInput struct {
-	ID       string
-	Kind     string
-	StartsAt time.Time
-	EndsAt   *time.Time
-	Geometry map[string]any // 行星事件的 object/objects、合的 separationDegrees 等
+	ID        string
+	Kind      string
+	StartsAt  time.Time
+	EndsAt    *time.Time
+	Geometry  map[string]any // 行星事件的 object/objects、合的 separationDegrees 等
+	Elevation float64        // WGS84 observer height in metres, when known
 }
 
 // EventVisibility 是天象事件在某地点的本地可见性结论。
@@ -27,6 +28,23 @@ type EventVisibility struct {
 	AzimuthDegrees  *float64 // 最佳时刻方位角（以北为零、向东为正）
 	AltitudeDegrees *float64 // 最佳时刻目标地平高度
 	Reason          string   // 面向用户的一句话解释
+	EclipseContacts *EclipseContacts
+}
+
+type EclipseContacts struct {
+	PartialBegin        string  `json:"partialBegin"`
+	Peak                string  `json:"peak"`
+	PartialEnd          string  `json:"partialEnd"`
+	PartialBeginVisible bool    `json:"partialBeginVisible"`
+	PeakVisible         bool    `json:"peakVisible"`
+	PartialEndVisible   bool    `json:"partialEndVisible"`
+	CentralBegin        *string `json:"centralBegin,omitempty"`
+	CentralEnd          *string `json:"centralEnd,omitempty"`
+	CentralBeginVisible *bool   `json:"centralBeginVisible,omitempty"`
+	CentralEndVisible   *bool   `json:"centralEndVisible,omitempty"`
+	ObscurationPercent  float64 `json:"obscurationPercent"`
+	Magnitude           float64 `json:"magnitude"`
+	Kind                string  `json:"kind"`
 }
 
 // VisibilitySolver 把全球天文事件在读取时换算为某个地点的本地可见性。
@@ -587,6 +605,9 @@ func equatorialToHorizontalAltitude(ra, dec, latitude, longitude float64, at tim
 // solveSolarEclipse 逐时比较日月在当地的视圆盘。月球使用已有的周日视差模型；
 // 接近食带边界时保留未计算状态，避免近似星历把掠边地点误判为可见或不可见。
 func (s *VisibilitySolver) solveSolarEclipse(event EventInput, latitude, longitude float64, loc *time.Location) EventVisibility {
+	if _, ok := event.Geometry["besselian"]; ok {
+		return solveBesselianEclipse(event, latitude, longitude, loc)
+	}
 	const step = 2 * time.Minute
 	const edgeTolerance = 0.05 // 度；约为月球视直径的十分之一。
 	const sunRadius = 0.2666   // 度；地日距离变化造成的误差小于边界保护带。

@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"math"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,13 +33,14 @@ type astronomyEventSource struct {
 }
 
 type eventLocalVisibility struct {
-	Status          string   `json:"status"`
-	BestAt          *string  `json:"bestAt,omitempty"`
-	WindowStart     *string  `json:"windowStart,omitempty"`
-	WindowEnd       *string  `json:"windowEnd,omitempty"`
-	AzimuthDegrees  *float64 `json:"azimuthDegrees,omitempty"`
-	AltitudeDegrees *float64 `json:"altitudeDegrees,omitempty"`
-	Reason          string   `json:"reason"`
+	Status          string                       `json:"status"`
+	BestAt          *string                      `json:"bestAt,omitempty"`
+	WindowStart     *string                      `json:"windowStart,omitempty"`
+	WindowEnd       *string                      `json:"windowEnd,omitempty"`
+	AzimuthDegrees  *float64                     `json:"azimuthDegrees,omitempty"`
+	AltitudeDegrees *float64                     `json:"altitudeDegrees,omitempty"`
+	Reason          string                       `json:"reason"`
+	EclipseContacts *observatory.EclipseContacts `json:"eclipseContacts,omitempty"`
 }
 
 func astronomyEventsHandler(store astronomyevent.Store, solver *observatory.VisibilitySolver, now func() time.Time) http.HandlerFunc {
@@ -55,6 +58,14 @@ func astronomyEventsHandler(store astronomyevent.Store, solver *observatory.Visi
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "latitude、longitude 必须同时提供且范围有效；timezone 必须为 IANA 时区"})
 			return
+		}
+		elevation := 0.0
+		if raw := r.URL.Query().Get("elevation"); raw != "" {
+			elevation, err = strconv.ParseFloat(raw, 64)
+			if err != nil || math.IsNaN(elevation) || math.IsInf(elevation, 0) || elevation < -500 || elevation > 10000 {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "elevation 必须是 -500 至 10000 米之间的数字"})
+				return
+			}
 		}
 		events, err := store.List(r.Context(), astronomyevent.ListQuery{From: from, To: to})
 		if err != nil {
@@ -83,7 +94,7 @@ func astronomyEventsHandler(store astronomyevent.Store, solver *observatory.Visi
 				Source: astronomyEventSource{Kind: event.Origin, Name: event.SourceName, URL: event.SourceURL, VerifiedAt: event.VerifiedAt},
 			}
 			if hasLocation && solver != nil {
-				item.Local = resolveEventLocalVisibility(event, latitude, longitude, timezone, solver)
+				item.Local = resolveEventLocalVisibility(event, latitude, longitude, timezone, solver, elevation)
 			}
 			response = append(response, item)
 		}
@@ -225,6 +236,11 @@ func astronomyEventQuality(event astronomyevent.Event) int {
 		score += 10
 	}
 	geometry := decodeEventGeometry(event.Geometry)
+	if event.Kind == "solar_eclipse" {
+		if _, ok := geometry["besselian"]; ok {
+			score += 30
+		}
+	}
 	if len(geometry) > 0 {
 		score += 5
 	}
@@ -293,7 +309,7 @@ func astronomyEventLocation(request *http.Request) (latitude, longitude float64,
 
 // resolveEventLocalVisibility 把全球事件换算为本地可见性。
 // 尚未接入专用求解器的类别返回 not_calculated，绝不把全球事件误标为本地可见。
-func resolveEventLocalVisibility(event astronomyevent.Event, latitude, longitude float64, timezone string, solver *observatory.VisibilitySolver) *eventLocalVisibility {
+func resolveEventLocalVisibility(event astronomyevent.Event, latitude, longitude float64, timezone string, solver *observatory.VisibilitySolver, elevation ...float64) *eventLocalVisibility {
 	geometry := decodeEventGeometry(event.Geometry)
 	input := observatory.EventInput{
 		ID:       event.ID,
@@ -301,6 +317,9 @@ func resolveEventLocalVisibility(event astronomyevent.Event, latitude, longitude
 		StartsAt: event.StartsAt,
 		EndsAt:   event.EndsAt,
 		Geometry: geometry,
+	}
+	if len(elevation) > 0 {
+		input.Elevation = elevation[0]
 	}
 	vis := solver.Solve(input, latitude, longitude, timezone)
 	return &eventLocalVisibility{
@@ -311,6 +330,7 @@ func resolveEventLocalVisibility(event astronomyevent.Event, latitude, longitude
 		AzimuthDegrees:  vis.AzimuthDegrees,
 		AltitudeDegrees: vis.AltitudeDegrees,
 		Reason:          vis.Reason,
+		EclipseContacts: vis.EclipseContacts,
 	}
 }
 

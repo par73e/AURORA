@@ -76,6 +76,7 @@ func (r *Repository) ListSourceStatuses(ctx context.Context) ([]SourceStatus, er
 			FROM sync_runs
 			WHERE source_code = ds.code AND success = false
 			  AND started_at >= latest.started_at - interval '5 minutes'
+			  AND started_at > COALESCE((SELECT max(started_at) FROM sync_runs WHERE source_code = ds.code AND success = true), '-infinity'::timestamptz)
 			ORDER BY started_at DESC LIMIT 1
 		) recent_failure ON true
 		LEFT JOIN LATERAL (

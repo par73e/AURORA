@@ -120,7 +120,7 @@ onBeforeUnmount(() => {
             <path d="M8.5 21.2v4h15v-4" />
             <path d="M12 25.2v1.5M20 25.2v1.5" />
           </svg>
-          <span><strong>深空探索</strong><small>DEEP SPACE</small></span>
+          <span><strong>深空探索</strong><small>太阳系与航天任务</small></span>
         </button>
         <button class="cover-path" type="button" @click="enterAstronomy">
           <svg class="cover-path-icon cover-path-icon-sky" viewBox="0 0 32 32" aria-hidden="true">
@@ -129,7 +129,7 @@ onBeforeUnmount(() => {
             <path d="M23 8v4M21 10h4" />
             <path d="M7 18h3" />
           </svg>
-          <span><strong>天文观测</strong><small>ASTRONOMY</small></span>
+          <span><strong>天文观测</strong><small>星图与本地天象</small></span>
         </button>
       </nav>
     </div>
@@ -305,12 +305,12 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 14px;
-  min-width: 132px;
-  min-height: 54px;
+  min-width: 160px;
+  min-height: 58px;
   padding: 4px 0;
   border: 0;
   background: transparent;
-  color: rgba(211, 224, 231, .74);
+  color: rgba(229, 238, 242, .88);
   text-align: left;
 }
 
@@ -322,16 +322,20 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 1px;
   background: currentColor;
-  transform: scaleX(.18);
+  transform: scaleX(.36);
   transform-origin: left;
-  opacity: .38;
+  opacity: .58;
   transition: transform .42s cubic-bezier(.16, 1, .3, 1), opacity .2s;
 }
 
 .cover-path:hover,
 .cover-path:focus-visible {
   color: #f4f9fb;
-  outline: 0;
+}
+
+.cover-path:focus-visible {
+  outline: 2px solid rgba(185, 221, 237, .9);
+  outline-offset: 6px;
 }
 
 .cover-path:hover::after,
@@ -392,10 +396,10 @@ onBeforeUnmount(() => {
 }
 
 .cover-path small {
-  margin-top: 6px;
-  color: rgba(118, 143, 156, .68);
-  font: 400 8px/1 'IBM Plex Mono', monospace;
-  letter-spacing: .18em;
+  margin-top: 5px;
+  color: rgba(195, 213, 222, .86);
+  font: 400 12px/1.4 var(--font-sans);
+  letter-spacing: .04em;
 }
 
 .cover-coordinate {
@@ -479,15 +483,15 @@ onBeforeUnmount(() => {
   }
 
   .aurora-cover.play-entrance:not(.is-launching) .cover-expansion {
-    animation: cover-copy-arrive .48s 1.5s cubic-bezier(.16, 1, .3, 1) both;
+    animation: cover-copy-arrive .44s .92s cubic-bezier(.16, 1, .3, 1) both;
   }
 
   .aurora-cover.play-entrance:not(.is-launching) .cover-paths {
-    animation: cover-copy-arrive .5s 1.72s cubic-bezier(.16, 1, .3, 1) both;
+    animation: cover-copy-arrive .45s 1.02s cubic-bezier(.16, 1, .3, 1) both;
   }
 
   .aurora-cover.play-entrance:not(.is-launching) .cover-coordinate {
-    animation: cover-copy-arrive .5s 1.88s cubic-bezier(.16, 1, .3, 1) both;
+    animation: cover-copy-arrive .45s 1.16s cubic-bezier(.16, 1, .3, 1) both;
   }
 
 }

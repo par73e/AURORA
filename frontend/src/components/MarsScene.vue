@@ -1228,8 +1228,10 @@ function updateLabels() {
     height,
     currentPlanetRadiusPx: projectedSphereRadiusPx(MARS_RADIUS, camera.position.length(), MARS_FOV, height),
     referencePlanetRadiusPx: projectedSphereRadiusPx(MARS_RADIUS, MARS_MARKER_REF_DISTANCE, MARS_FOV, height),
+    clusterOverlappingLabels: true,
+    preferFullLabels: true,
+    safeTopPx: props.headerExpanded ? 76 : 8,
   }
-  craftLabels.value = layoutSceneAnnotations(next, annotationViewport, craftLabels.value)
 
   // 着陆点标签：背面隐藏（圆点本体由材质深度测试自然遮挡）
   const siteNext: Array<{ id: string; anchorX: number; anchorY: number; visible: boolean; selected: boolean }> = []
@@ -1248,7 +1250,13 @@ function updateLabels() {
       selected: selectedSite.value === site.id,
     })
   }
-  siteLabels.value = layoutSceneAnnotations(siteNext, annotationViewport, siteLabels.value)
+  if ((selectedCraft.value || hoveredCraftId.value) && !selectedSite.value) {
+    craftLabels.value = layoutSceneAnnotations(next, annotationViewport, craftLabels.value)
+    siteLabels.value = layoutSceneAnnotations(siteNext, annotationViewport, siteLabels.value, spacecraftEnabled.value ? craftLabels.value : [])
+  } else {
+    siteLabels.value = layoutSceneAnnotations(siteNext, annotationViewport, siteLabels.value)
+    craftLabels.value = layoutSceneAnnotations(next, annotationViewport, craftLabels.value, sitesEnabled.value ? siteLabels.value : [])
+  }
 }
 
 onBeforeUnmount(() => {

@@ -1206,6 +1206,7 @@ function updateLabels() {
     currentPlanetRadiusPx: projectedSphereRadiusPx(MOON_RADIUS, camera.position.length(), MOON_FOV, height),
     referencePlanetRadiusPx: projectedSphereRadiusPx(MOON_RADIUS, MOON_MARKER_REF_DISTANCE, MOON_FOV, height),
     clusterOverlappingLabels: true,
+    safeTopPx: props.headerExpanded ? 76 : 8,
   }
   // 着陆点标签：背面隐藏（圆点本体由材质深度测试自然遮挡）
   const siteNext: Array<{ id: string; anchorX: number; anchorY: number; visible: boolean; selected: boolean }> = []
