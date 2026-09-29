@@ -35,6 +35,7 @@ export function localSolarEclipseVisibility(event: AstronomyEvent, latitude: num
       peak: eclipse.peak.time.date.toISOString(),
       partialEnd: eclipse.partial_end.time.date.toISOString(),
       partialBeginVisible: eclipse.partial_begin.altitude > 0,
+      peakVisible: eclipse.peak.altitude > 0,
       partialEndVisible: eclipse.partial_end.altitude > 0,
       ...(eclipse.total_begin && eclipse.total_end ? {
         centralBegin: eclipse.total_begin.time.date.toISOString(),
@@ -72,7 +73,8 @@ export function localSolarEclipseVisibility(event: AstronomyEvent, latitude: num
       reason: limited
         ? '此次日食在当前地点可见，但太阳位置较低；观测全程须使用合格的太阳滤镜。'
         : '此次日食在当前地点可见；观测全程须使用合格的太阳滤镜。',
-      ...(eclipse.peak.altitude > 0 ? { eclipseContacts: contacts } : {}),
+      // 日出/日落时可能仅看到部分食相；食甚在地平线下也要保留接触时刻供说明。
+      eclipseContacts: contacts,
     }
   } catch {
     return null // 星历无法计算时沿用后端明确的待计算状态。

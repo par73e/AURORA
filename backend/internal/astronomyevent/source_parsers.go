@@ -424,10 +424,11 @@ func meteorShowerChineseName(slug string) string {
 }
 
 // parseNASAEclipsePathPage 解析 NASA/GSFC 路径页（SEpath/SEYYYYMonDD{T|A|P}path.html），
-// 提取 Besselian 路径元素：食类型、日期、中央线坐标序列、食分、太阳高度/方位角、路径宽度、持续时间。
+// 提取路径表路点：食类型、日期、中央线坐标序列、食分、太阳高度/方位角、路径宽度、持续时间。
+// 路点不是 Besselian 多项式系数，不能据此计算任意地点的精确接触时刻。
 // 路径页标题含 "Total/Annular Solar Eclipse of YYYY Mon DD"，
 // 正文是 120 秒间隔的路径表，每行含中央线/北限/南限坐标 + 食分/太阳高度/方位角/路径宽度/持续时间。
-// 本函数把路径元素解析为 geometry.pathWaypoints 数组，写 external_forecast 事件。
+// 本函数把路径表路点解析为 geometry.pathWaypoints 数组，写 external_forecast 事件。
 func parseNASAEclipsePathPage(_ context.Context, body []byte, sourceURL string) (parsedEvents, error) {
 	text := string(body)
 	// NASA 路径页是 HTML，不是 JSON；快照统一由 saveSnapshot 封装。
@@ -474,7 +475,7 @@ func parseNASAEclipsePathPage(_ context.Context, body []byte, sourceURL string) 
 	}
 
 	geometry := map[string]any{
-		"precision":   "nasa_gsfc_besselian_path",
+		"precision":   "nasa_gsfc_path_waypoints",
 		"eclipseType": eclipseType,
 		"pathUrl":     sourceURL,
 	}
@@ -491,7 +492,7 @@ func parseNASAEclipsePathPage(_ context.Context, body []byte, sourceURL string) 
 		TitleEN:    "SOLAR ECLIPSE " + strings.ToUpper(eclipseType),
 		StartsAt:   at.UTC(),
 		DateLabel:  at.UTC().Format("2006年1月2日"),
-		Summary:    fmt.Sprintf("NASA/GSFC 路径页：%s型日食，含 Besselian 路径元素（%d 个路点）。", eclipseType, len(waypoints)),
+		Summary:    fmt.Sprintf("NASA/GSFC 路径页：%s型日食，含 %d 个路径表路点。", eclipseType, len(waypoints)),
 		Origin:     "external_forecast",
 		SourceCode: "nasa_gsfc_eclipse",
 		SourceURL:  sourceURL,

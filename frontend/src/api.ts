@@ -271,6 +271,7 @@ export interface EventLocalVisibility {
     peak: string
     partialEnd: string
     partialBeginVisible: boolean
+    peakVisible: boolean
     partialEndVisible: boolean
     centralBegin?: string
     centralEnd?: string

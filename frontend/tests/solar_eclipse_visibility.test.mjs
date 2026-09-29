@@ -31,3 +31,12 @@ test('日食事件日期不能借用地点的下一次日食', () => {
   assert.equal(localSolarEclipseVisibility({ ...eclipse, startsAt: '2027-01-01T12:00:00Z' }, 64.15, -21.94).status, 'not_visible')
   assert.equal(localSolarEclipseVisibility({ ...eclipse, startsAt: 'invalid' }, 64.15, -21.94), null)
 })
+
+test('日落前可见、食甚在地平线下的日食仍显示接触时刻并标记食甚不可见', () => {
+  const result = localSolarEclipseVisibility(eclipse, 0, -20)
+  assert.ok(result.status === 'observable' || result.status === 'limited')
+  assert.ok(result.eclipseContacts)
+  assert.equal(result.eclipseContacts.peakVisible, false)
+  assert.ok(result.windowEnd < result.eclipseContacts.peak)
+  assert.ok(result.windowEnd <= result.eclipseContacts.partialEnd)
+})
