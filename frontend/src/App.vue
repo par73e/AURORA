@@ -1969,7 +1969,7 @@ onBeforeUnmount(() => {
             <a href="#saturn-scene"><i class="nav-num">Ⅰ</i>土星</a>
             <a href="#saturn-profile"><i class="nav-num">Ⅱ</i>档案</a>
             <a href="#saturn-objects"><i class="nav-num">Ⅲ</i>飞行器</a>
-            <a href="#saturn-sites"><i class="nav-num">Ⅳ</i>任务终点</a>
+            <a href="#saturn-sites"><i class="nav-num">Ⅳ</i>着陆点与终点</a>
           </nav>
           <nav v-else-if="surface === 'jupiter'" aria-label="页面导航">
             <a href="#jupiter-scene"><i class="nav-num">Ⅰ</i>木星</a>
@@ -2099,6 +2099,7 @@ onBeforeUnmount(() => {
         :leaving="sunLeaving"
         :header-expanded="headerExpanded"
         @blank-click="collapseHeaderFromScene"
+        @open-orbit="enterOrbit"
         @textures-ready="onSunSceneReady"
       />
 

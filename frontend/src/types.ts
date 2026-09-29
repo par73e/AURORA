@@ -118,7 +118,7 @@ export interface MoonSpacecraft {
   displayInclination: string
   displayEccentricity: string
   displayPeriod: string
-  kind: 'orbital' | 'stationary'
+  kind: 'orbital' | 'stationary' | 'historical_orbit' | 'flyby'
   orbitA: number
   orbitE: number
   inclinationDeg: number
@@ -178,7 +178,7 @@ export interface MarsSpacecraft {
   displayInclination: string
   displayEccentricity: string
   displayPeriod: string
-  kind: 'orbital' | 'stationary' | 'surface' | 'catalog'
+  kind: 'orbital' | 'stationary' | 'surface' | 'catalog' | 'approach'
   catalogGroup: 'surface' | 'orbit'
   orbitA: number
   orbitE: number

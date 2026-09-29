@@ -145,7 +145,7 @@
         <div class="object-table planet-craft-table" role="table" :aria-label="`${planet.name}探测器列表`">
           <div class="object-table-head" role="row"><span>对象</span><span>运营方</span><span>状态</span><span>类型</span></div>
           <button v-for="craft in pagedCrafts" :key="craft.id" class="object-row planet-craft-row" role="row" @click="focusCraft(craft.id)">
-            <span><strong>{{ craft.name }}</strong><small v-if="craft.nameEn !== craft.name">{{ craft.nameEn }}</small></span>
+            <span><strong>{{ craft.name }}</strong><small v-if="craft.nameEn !== craft.name">{{ craft.nameEn }}</small><small v-if="craft.orbitCatalogId">在地球 ORBIT 查看轨道 ↗</small></span>
             <span>{{ craft.operator }}</span>
             <span><i class="craft-status-dot" :class="`status-${craft.status}`" />{{ craft.status }}</span>
             <span>{{ craft.type }}</span>
@@ -164,6 +164,7 @@
       <div class="section-heading">
         <div><p class="section-kicker">{{ planet.exploration.kicker }}</p><h2><i class="sec-num">Ⅳ</i>{{ planet.exploration.title }}</h2></div>
       </div>
+      <TitanLandingScene v-if="titanSite" ref="titanSceneRef" :site="titanSite" />
       <div class="catalog-workspace" :class="{ compact: planet.exploration.compact }">
         <div v-if="!planet.exploration.compact" class="catalog-controls">
           <label class="search-field">
@@ -207,6 +208,7 @@ import { entrySpinAngle, entrySpinFinished } from '../entrySpin'
 import type { PlanetCraft, PlanetCraftTrajectory, PlanetPageConfig } from '../planetPages'
 import MissionDetailPanel from './MissionDetailPanel.vue'
 import MissionSceneLabel from './MissionSceneLabel.vue'
+import TitanLandingScene from './TitanLandingScene.vue'
 import type { MissionDetail } from '../missionPresentation'
 import { spacecraftFields, spacecraftFocusDistance, surfaceFocusDistance, surfaceMissionFields } from '../missionPresentation'
 import type { SceneAnnotationLayout, SurfaceAnnotationLayout } from '../surfaceAnnotations'
@@ -215,6 +217,7 @@ import { layoutSceneAnnotations, sceneAnnotationStyle, projectedSphereRadiusPx, 
 const props = defineProps<{ planet: PlanetPageConfig; spacecraftVisible?: boolean; revealTick?: number; enterFromSolar?: boolean; leaving?: boolean; headerExpanded?: boolean }>()
 const emit = defineEmits<{
   'blank-click': []
+  'open-orbit': []
   'update:spacecraft-visible': [visible: boolean]
   /** 场景首帧贴图渲染完成（解码 + GPU 上传后）——过渡遮罩等待此信号再揭示 */
   'textures-ready': []
@@ -250,7 +253,7 @@ const craftStatusFilter = ref<PlanetCraft['status'] | 'all'>('all')
 const craftSort = ref<'name' | 'type' | 'operator'>('name')
 const siteQuery = ref('')
 
-const craftStatuses: PlanetCraft['status'][] = ['运行中', '即将入轨', '飞掠', '已结束']
+const craftStatuses: PlanetCraft['status'][] = ['运行中', '在途', '即将入轨', '飞掠', '已结束']
 const planetCrafts = computed(() => props.planet.spacecraft?.items ?? [])
 const craftSearchPlaceholder = computed(() => {
   const examples = planetCrafts.value
@@ -304,7 +307,10 @@ function craftGotoPage(delta: number) {
 }
 
 /** 有坐标的足迹（可画 3D 标记 + 标签）：landing/impact 有坐标，atmospheric 无 */
-const markerSites = computed(() => props.planet.exploration?.sites.filter((s) => s.latitude != null && s.longitude != null) ?? [])
+// 气态行星没有固定表面，历史大气进入经纬度只保留在档案卡，不钉在当前云图上。
+const markerSites = computed(() => props.planet.exploration?.sites.filter((s) => s.body !== 'titan' && s.kind !== 'atmospheric' && s.latitude != null && s.longitude != null) ?? [])
+const titanSite = computed(() => props.planet.exploration?.sites.find((s) => s.body === 'titan'))
+const titanSceneRef = ref<InstanceType<typeof TitanLandingScene> | null>(null)
 /** 标签 overlay 数据（含屏幕投影坐标，rAF 更新） */
 type OverlayLabel = SurfaceAnnotationLayout & { name: string; nameEn: string; mission: string; type: string; icon: 'lander' | 'probe' | 'impact' }
 type CraftOverlayLabel = SceneAnnotationLayout & { name: string; nameEn: string; type: string }
@@ -369,7 +375,7 @@ const selectedSiteDetail = computed<MissionDetail | null>(() => {
   if (!selectedSite.value) return null
   const site = siteById(selectedSite.value)
   if (!site) return null
-  const endpoint = props.planet.exploration?.title === '任务终点'
+  const endpoint = site.kind === 'atmospheric' || props.planet.exploration?.title === '任务终点'
   const coordinates = site.latitude != null && site.longitude != null ? formatCoordinate(site.latitude, site.longitude) : ''
   return {
     kind: 'surface',
@@ -407,6 +413,11 @@ function selectCraft(id: string) {
 
 /** 目录中的飞行器：先返回主场景，再以当前点位完成聚焦，节奏与月球/火星一致。 */
 function focusCraft(id: string) {
+  const craft = craftById(id)
+  if (craft?.orbitCatalogId) {
+    emit('open-orbit')
+    return
+  }
   if (focusTimer !== undefined) clearTimeout(focusTimer)
   selectedCraft.value = id
   selectedSite.value = null
@@ -418,7 +429,7 @@ function focusCraft(id: string) {
   }, 520)
 }
 function siteKindLabel(kind?: 'landing' | 'impact' | 'atmospheric') {
-  return kind === 'landing' ? '软着陆' : kind === 'impact' ? '表面撞击' : kind === 'atmospheric' ? '大气层坠毁' : ''
+  return kind === 'landing' ? '软着陆' : kind === 'impact' ? '表面撞击' : kind === 'atmospheric' ? '大气进入' : ''
 }
 function formatCoordinate(lat: number, lon: number) {
   return `${Math.abs(lat).toFixed(2)}°${lat >= 0 ? 'N' : 'S'} ${lon.toFixed(2)}°E`
@@ -454,6 +465,11 @@ function selectSite(id: string) {
 
 /** 目录中的表面航天器：回到场景后再聚焦，避免滚动和 WebGL 运镜互相抢帧。 */
 function focusSite(id: string) {
+  if (siteById(id)?.body === 'titan') {
+    document.getElementById('titan-landing-scene')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    window.setTimeout(() => titanSceneRef.value?.focus(), 360)
+    return
+  }
   if (focusTimer !== undefined) clearTimeout(focusTimer)
   selectedSite.value = id
   selectedCraft.value = null
@@ -651,10 +667,20 @@ function isWorldPointFrontFacing(worldPoint: THREE.Vector3) {
   const cameraForward = new THREE.Vector3()
   camera.getWorldDirection(cameraForward)
   return normal.dot(cameraForward) < -0.03
-}function craftTrajectoryPosition(trajectory: PlanetCraftTrajectory, progress: number) {
+}
+function craftTrajectoryPosition(trajectory: PlanetCraftTrajectory, progress: number) {
   const radius = props.planet.radius * trajectory.radius
   const phase = THREE.MathUtils.degToRad(trajectory.phaseDeg ?? 0)
   const inclination = THREE.MathUtils.degToRad(trajectory.inclinationDeg ?? 0)
+  if (trajectory.kind === 'approach' || trajectory.kind === 'entry') {
+    // 在途/大气进入是开放路径；它们只表示任务阶段，绝非当前星历。
+    const near = trajectory.kind === 'entry' ? 1.05 : 1.42
+    const radial = props.planet.radius * (trajectory.radius + (near - trajectory.radius) * progress)
+    const lateral = props.planet.radius * 0.32 * (1 - progress) ** 2
+    return new THREE.Vector3(lateral, Math.sin(Math.PI * progress) * props.planet.radius * 0.16, radial)
+      .applyAxisAngle(new THREE.Vector3(0, 1, 0), phase)
+      .applyAxisAngle(new THREE.Vector3(1, 0, 0), inclination)
+  }
   if (trajectory.kind === 'flyby') {
     const span = THREE.MathUtils.degToRad(trajectory.spanDeg ?? 140)
     const angle = -span / 2 + span * progress
@@ -675,7 +701,7 @@ function isWorldPointFrontFacing(worldPoint: THREE.Vector3) {
 }
 
 function trajectoryPoints(trajectory: PlanetCraftTrajectory) {
-  const count = trajectory.kind === 'flyby' ? 96 : 144
+  const count = trajectory.kind === 'orbit' ? 144 : 96
   return Array.from({ length: count }, (_, index) => craftTrajectoryPosition(trajectory, index / (count - 1)))
 }
 
@@ -900,8 +926,7 @@ onMounted(() => {
     hit.userData = { kind: 'planet-craft-hit', craftId: craft.id }
     dot.add(hit)
     swingPivot.add(dot)
-    // 大气终点（如 Magellan/Pioneer Venus 坠入金星大气）无真实经纬度，只入目录与信息卡
-    // （endpoint 文案），不画 3D 标记——避免行星表面出现无标签的悬浮圆点（"残留点"）
+    // 这里绘制的是探测器的示意轨迹；大气进入地点另由站点目录记录。
     craftRuntimes.set(craft.id, { spec: craft, line, dot, hit, path })
   }
   watch(orbitsEnabled, (enabled) => {
@@ -1890,6 +1915,7 @@ onBeforeUnmount(() => {
 .craft-status-dot { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: #94a7b0; }
 .craft-status-dot.status-运行中 { background: var(--planet-accent); box-shadow: 0 0 8px var(--planet-accent-dim); }
 .craft-status-dot.status-即将入轨 { background: var(--planet-accent); }
+.craft-status-dot.status-在途 { background: var(--planet-accent); }
 .craft-status-dot.status-飞掠 { background: var(--planet-accent-dim); }
 .craft-status-dot.status-已结束 { background: #6e7980; }
 

@@ -782,7 +782,7 @@ function keplerToTrueAnomaly(M: number, e: number): number {
  *  surface（地表探测器）/ catalog（历史名录）无 3D 呈现：只入名录，点击看面板 */
 function buildCraft(spec: MarsSpacecraft) {
   if (!scene) return
-  if (spec.kind !== 'orbital' && spec.kind !== 'stationary' && spec.kind !== 'catalog') return
+  if (spec.kind !== 'orbital' && spec.kind !== 'stationary' && spec.kind !== 'catalog' && spec.kind !== 'approach') return
   const sn = spec.snapshot ?? null
   // 真实轨道根数（快照优先）：半长轴 km → 场景单位 → 轨道高度夸张（贴面飞行观感修正）
   const a = exaggeratedA(sn ? sn.aKm * MARS_SCENE_SCALE : spec.orbitA)
@@ -839,6 +839,21 @@ function buildCraft(spec: MarsSpacecraft) {
     }
     // 初始相位（首帧即被 animate 覆盖）：近点方向 + argp
     dot.position.set(a * (1 - e) * Math.cos(argp * DEG), a * (1 - e) * Math.sin(argp * DEG), 0)
+  } else if (spec.kind === 'approach') {
+    // 在途任务尚未抵达火星：开放的接近方向线，圆点停在外端；不伪装成环火轨道或实时位置。
+    const offset = spec.id === 'escapade-blue' ? -0.65 : 0.65
+    const points = [
+      new THREE.Vector3(offset * 1.8, 0.9 + offset, 5.9),
+      new THREE.Vector3(offset * 1.3, 0.5 + offset, 5.2),
+      new THREE.Vector3(offset, 0.1 + offset, 4.2),
+      new THREE.Vector3(offset * 0.5, 0, MARS_RADIUS * 1.45),
+    ]
+    line = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(new THREE.CatmullRomCurve3(points).getPoints(72)),
+      new THREE.LineBasicMaterial({ color: 0x9a5a3c, transparent: true, opacity: 0.55 }),
+    )
+    plane.add(line)
+    dot.position.copy(points[0])
   } else {
     // 定点：固定在火星外侧（不参与公转）
     dot.position.set(spec.stationaryOffset[0], spec.stationaryOffset[1], spec.stationaryOffset[2])

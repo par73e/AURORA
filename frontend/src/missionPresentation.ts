@@ -23,11 +23,17 @@ const SPACECRAFT_TYPE_LABELS: Record<string, string> = {
   'LUNAR ORBITER': '月球轨道器',
   'MARS ORBITER': '火星轨道器',
   'RELAY SATELLITE': '中继卫星',
+  'HISTORIC LUNAR ORBITER': '历史月球轨道器',
+  'CREWED LUNAR ORBITER': '载人月球轨道器',
+  'CREWED LUNAR FLYBY': '载人绕月飞掠',
+  'MARS-BOUND SPACECRAFT': '飞往火星',
 }
 
 export function spacecraftTypeLabel(type: string): string {
   const normalized = type.trim().toUpperCase()
-  const suffix = Object.keys(SPACECRAFT_TYPE_LABELS).find((item) => normalized === item || normalized.endsWith(` ${item}`))
+  const suffix = Object.keys(SPACECRAFT_TYPE_LABELS)
+    .sort((a, b) => b.length - a.length)
+    .find((item) => normalized === item || normalized.endsWith(` ${item}`))
   return suffix ? SPACECRAFT_TYPE_LABELS[suffix] : type
 }
 

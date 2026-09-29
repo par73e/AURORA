@@ -379,6 +379,7 @@ const selectedCraftDetail = computed<MissionDetail | null>(() => {
   const name = bilingualName(craft.nameZh, craft.nameEn)
   const launch = [craft.launchDate, craft.launchSite, craft.launchVehicle].filter(Boolean).join(' · ')
   const epoch = craft.snapshot?.epoch ? `轨道历元 ${formatEpochUTC(craft.snapshot.epoch)} · ` : ''
+  const hasOrbit = craft.kind === 'orbital' || craft.kind === 'historical_orbit'
   return {
     kind: 'spacecraft',
     typeZh: '飞行器',
@@ -390,9 +391,9 @@ const selectedCraftDetail = computed<MissionDetail | null>(() => {
     fields: spacecraftFields({
       operator: craft.operatorName,
       launch,
-      inclination: `${craft.displayInclination}°`,
-      eccentricity: craft.displayEccentricity,
-      period: craft.displayPeriod,
+      inclination: hasOrbit ? (craft.displayInclination.includes('示意') ? craft.displayInclination : `${craft.displayInclination}°`) : '',
+      eccentricity: hasOrbit ? craft.displayEccentricity : '',
+      period: hasOrbit ? craft.displayPeriod : '',
     }),
     source: `${epoch}${craft.sourceName}`,
   }
@@ -782,7 +783,7 @@ function buildCraft(spec: MoonSpacecraft) {
   const argp = sn ? sn.argPeriapsisDeg : spec.argPeriapsisDeg
 
   const plane = new THREE.Object3D()
-  if (spec.kind === 'orbital') {
+  if (spec.kind === 'orbital' || spec.kind === 'historical_orbit' || spec.kind === 'flyby') {
     plane.rotation.order = 'YXZ'
     plane.rotation.y = raan * DEG
     plane.rotation.x = inc * DEG
@@ -807,7 +808,7 @@ function buildCraft(spec: MoonSpacecraft) {
 
   let line: THREE.Line | null = null
   let initialNu = 0
-  if (spec.kind === 'orbital') {
+  if (spec.kind === 'orbital' || spec.kind === 'historical_orbit') {
     const linePoints: THREE.Vector3[] = []
     for (let i = 0; i <= 180; i += 1) {
       const nu = (i / 180) * Math.PI * 2
@@ -829,6 +830,19 @@ function buildCraft(spec: MoonSpacecraft) {
     }
     // 初始相位（首帧即被 animate 覆盖）：近点方向 + argp
     dot.position.set(a * (1 - e) * Math.cos(argp * DEG), a * (1 - e) * Math.sin(argp * DEG), 0)
+  } else if (spec.kind === 'flyby') {
+    // 历史自由返回飞掠：开放弧线，不闭合成月球轨道，也不按当前时间推进。
+    const points: THREE.Vector3[] = []
+    for (let i = 0; i <= 96; i += 1) {
+      const theta = (-70 + i * 140 / 96) * DEG
+      points.push(new THREE.Vector3(a * Math.sin(theta), 0, a * Math.cos(theta)))
+    }
+    line = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(points),
+      new THREE.LineBasicMaterial({ color: 0x5c6670, transparent: true, opacity: 0.55 }),
+    )
+    plane.add(line)
+    dot.position.copy(points[60])
   } else {
     // 定点：固定在月球外侧（不参与公转）
     dot.position.set(spec.stationaryOffset[0], spec.stationaryOffset[1], spec.stationaryOffset[2])
