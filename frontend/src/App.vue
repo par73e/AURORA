@@ -1025,10 +1025,19 @@ function enterSolarSystemFromOrbit(skipPush = false) {
   }, reduced ? CELESTIAL_EXIT_REDUCED_MS : CELESTIAL_EXIT_SEQUENCE_MS)
 }
 
-function enterOrbit() {
+/** 进入地球 ORBIT。spacecraftId 用于太阳页 SDO／日出号的深链：
+ *  这两个任务实际绕地球运行，档案里给的是 ORBIT 目录 id，跳转时一并选中，
+ *  否则用户落地后还得自己在目录里搜索目标。 */
+function enterOrbit(spacecraftId?: string) {
   window.history.pushState(null, '', '#earth')
   // 朝向地球方向推近（地球大致位于画面 55%/38% 处），形成“放大进入地球”的感觉
   transitionTo('orbit', 1.12, '55% 38%')
+  if (spacecraftId) {
+    // OrbitScene 对 props.selection 有 immediate 监听，组件挂载时即可同步为本地选中
+    observerViewActive.value = false
+    layers.spacecraft = true
+    selection.value = { kind: 'spacecraft', id: spacecraftId }
+  }
 }
 
 function returnToCover(skipPush = false) {

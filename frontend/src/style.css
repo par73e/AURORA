@@ -194,7 +194,8 @@ button { cursor: pointer; }
 /* 注意：.scene-toolbar 的 transform 由 JS rAF 动画逐帧控制（CSS transform 会与 rAF 冲突导致首帧跳变再拉回） */
 .scene-toolbar > span { padding: 7px 9px; color: #8da6b3; font: 500 10px var(--font-mono); }
 .scene-toolbar label { position: relative; display: flex; align-items: center; gap: 7px; padding: 7px 9px; color: #bbccd4; font-size: 11px; cursor: pointer; }
-.scene-toolbar label:focus-within { outline: 1px solid currentColor; outline-offset: 2px; }
+/* 仅键盘导航显示焦点框，鼠标点击图层开关不留下方框。 */
+.scene-toolbar label:has(input:focus-visible) { outline: 1px solid currentColor; outline-offset: 2px; }
 .scene-toolbar input { position: absolute; opacity: 0; }
 .scene-toolbar i { width: 5px; height: 5px; border-radius: 50%; background: #355161; }
 .scene-toolbar input:checked + i { background: var(--blue); }

@@ -145,7 +145,7 @@
         <div class="object-table planet-craft-table" role="table" :aria-label="`${planet.name}探测器列表`">
           <div class="object-table-head" role="row"><span>对象</span><span>运营方</span><span>状态</span><span>类型</span></div>
           <button v-for="craft in pagedCrafts" :key="craft.id" class="object-row planet-craft-row" role="row" @click="focusCraft(craft.id)">
-            <span><strong>{{ craft.name }}</strong><small v-if="craft.nameEn !== craft.name">{{ craft.nameEn }}</small><small v-if="craft.orbitCatalogId">在地球 ORBIT 查看轨道 ↗</small></span>
+            <span><strong>{{ craft.name }}</strong><small v-if="craft.nameEn !== craft.name">{{ craft.nameEn }}</small><small v-if="craft.orbitCatalogId">在地球 ORBIT 查看轨道 ↗</small><small v-else-if="!craft.trajectory">仅档案 · 场景无标记</small></span>
             <span>{{ craft.operator }}</span>
             <span><i class="craft-status-dot" :class="`status-${craft.status}`" />{{ craft.status }}</span>
             <span>{{ craft.type }}</span>
@@ -213,11 +213,15 @@ import type { MissionDetail } from '../missionPresentation'
 import { spacecraftFields, spacecraftFocusDistance, surfaceFocusDistance, surfaceMissionFields } from '../missionPresentation'
 import type { SceneAnnotationLayout, SurfaceAnnotationLayout } from '../surfaceAnnotations'
 import { layoutSceneAnnotations, sceneAnnotationStyle, projectedSphereRadiusPx, orbitMarkerRadiusPx, sceneMarkerWorldRadius, surfaceMarkerRadiusPx, surfaceMarkerWorldRadius } from '../surfaceAnnotations'
+import { isOccludedBySphere } from '../sphereOcclusion'
+import { orbitProgress, orbitPeriodText, planetOrbitPeriodSeconds } from '../missionOrbits'
 
 const props = defineProps<{ planet: PlanetPageConfig; spacecraftVisible?: boolean; revealTick?: number; enterFromSolar?: boolean; leaving?: boolean; headerExpanded?: boolean }>()
 const emit = defineEmits<{
   'blank-click': []
-  'open-orbit': []
+  /** 跳转地球 ORBIT 并选中该航天器（太阳页的 SDO／日出号实际绕地球运行，
+   *  档案里给的是 ORBIT 目录 id；不带 id 时只跳转不选中） */
+  'open-orbit': [spacecraftId: string]
   'update:spacecraft-visible': [visible: boolean]
   /** 场景首帧贴图渲染完成（解码 + GPU 上传后）——过渡遮罩等待此信号再揭示 */
   'textures-ready': []
@@ -297,11 +301,6 @@ watch(filteredCrafts, () => { craftPage.value = 1 })
 function craftById(id: string) {
   return planetCrafts.value.find((craft) => craft.id === id)
 }
-function formatPeriod(days: number) {
-  if (days >= 365) return `${(days / 365.25).toFixed(1)} 年`
-  if (days >= 1) return `${days.toFixed(days % 1 ? 1 : 0)} 天`
-  return `${(days * 24).toFixed(1)} 小时`
-}
 function craftGotoPage(delta: number) {
   craftPage.value = Math.min(craftPageCount.value, Math.max(1, craftPage.value + delta))
 }
@@ -365,7 +364,9 @@ const selectedCraftDetail = computed<MissionDetail | null>(() => {
       operator: craft.operator,
       launch,
       endpoint: craft.endpoint,
-      period: craft.trajectory?.periodDays ? `约 ${formatPeriod(craft.trajectory.periodDays)}` : '',
+      // 只有环绕轨道有周期；飞掠/接近/大气进入是开放路径，不展示周期字段
+      period: craft.trajectory?.kind === 'orbit' ? orbitPeriodText(craft.trajectory.periodDays * 86400) : '',
+      orbitStage: craft.trajectory?.kind === 'orbit' ? craft.trajectory.stage : '',
     }),
     source: `${craft.verifiedAt ? `${craft.verifiedAt} · ` : ''}${craft.source ?? '公开任务档案'}`,
   }
@@ -411,18 +412,25 @@ function selectCraft(id: string) {
   }
 }
 
-/** 目录中的飞行器：先返回主场景，再以当前点位完成聚焦，节奏与月球/火星一致。 */
+/** 目录中的飞行器：先返回主场景，再以当前点位完成聚焦，节奏与月球/火星一致。
+ *  没有场景实体的条目（日地 L1 太阳观测站等）只打开信息卡、
+ *  不启动运镜——它们没有轨迹圆点，startCraftFocus 取不到 runtime 会静默返回，
+ *  镜头停在原地会让用户以为点击失效。 */
 function focusCraft(id: string) {
+  if (focusTimer !== undefined) clearTimeout(focusTimer)
+  focusTimer = undefined
   const craft = craftById(id)
   if (craft?.orbitCatalogId) {
-    emit('open-orbit')
+    // 该任务实际绕地球运行：跳到 ORBIT 并带上目录 id，落地即选中，用户不必再自己搜索
+    emit('open-orbit', craft.orbitCatalogId)
     return
   }
-  if (focusTimer !== undefined) clearTimeout(focusTimer)
   selectedCraft.value = id
   selectedSite.value = null
   emit('blank-click')
   returnToPlanetScene()
+  // 无场景实体：滚动到场景即可看到信息卡，不做运镜
+  if (!craft?.trajectory) return
   focusTimer = window.setTimeout(() => {
     focusTimer = undefined
     if (selectedCraft.value === id) startCraftFocus(id)
@@ -465,12 +473,18 @@ function selectSite(id: string) {
 
 /** 目录中的表面航天器：回到场景后再聚焦，避免滚动和 WebGL 运镜互相抢帧。 */
 function focusSite(id: string) {
+  if (focusTimer !== undefined) clearTimeout(focusTimer)
+  focusTimer = undefined
   if (siteById(id)?.body === 'titan') {
+    selectedCraft.value = null
+    selectedSite.value = null
     document.getElementById('titan-landing-scene')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    window.setTimeout(() => titanSceneRef.value?.focus(), 360)
+    focusTimer = window.setTimeout(() => {
+      focusTimer = undefined
+      titanSceneRef.value?.focus()
+    }, 360)
     return
   }
-  if (focusTimer !== undefined) clearTimeout(focusTimer)
   selectedSite.value = id
   selectedCraft.value = null
   emit('blank-click')
@@ -649,24 +663,19 @@ const siteMarkers = new Map<string, THREE.Mesh>()
 
 const FOV = 42
 const DEG = Math.PI / 180
-/** 统一加速时钟：1 秒代表 0.1 个地球日——运行中探测器按真实轨道周期绕行
- *  （Parker 88 天 ≈ 14.7 分钟一圈、BepiColombo 120 天 ≈ 20 分钟、Juno 53 天 ≈ 8.8 分钟），
- *  视觉周期与真实周期严格成比例（88:120:53），clamp 上限只防极端长周期，
- *  不在正常范围内截断比例。符合"视觉克制、不冒充实时"的原则。 */
-const SIMULATED_DAYS_PER_SECOND = 0.1
-const MIN_VISUAL_PERIOD_SECONDS = 30
-const MAX_VISUAL_PERIOD_SECONDS = 3000
-
 const pointerStart = new THREE.Vector2()
 
-/** 判断世界坐标是否位于行星朝向相机的一侧。命中测试也复用它，避免透明拾取球让背面点可点击。 */
+/** 判断世界坐标是否位于行星朝向相机的一侧（背面点不可拾取，避免透明拾取球让背面可点击）。
+ *  与标签可见性 isNotOccluded、月球/火星/土卫六共用同一视线-球体判据。
+ *  原实现是"法线与相机方向点积 < -0.03"的固定阈值近似：真实可见边界是 n·û = R/d，
+ *  阈值随相机距离变化，写死常数会在拉近镜头后允许拾取到球体背面的圆点。 */
 function isWorldPointFrontFacing(worldPoint: THREE.Vector3) {
   if (!camera || !tiltPivot) return false
+  // 恒星自发光，标签与拾取都不做球体遮挡（与 updateCraftLabels 的 props.planet.star 分支一致）
+  if (props.planet.star) return true
   const center = new THREE.Vector3()
-  const normal = worldPoint.clone().sub(tiltPivot.getWorldPosition(center)).normalize()
-  const cameraForward = new THREE.Vector3()
-  camera.getWorldDirection(cameraForward)
-  return normal.dot(cameraForward) < -0.03
+  tiltPivot.getWorldPosition(center)
+  return !isOccludedBySphere(worldPoint, camera.position, center, props.planet.radius)
 }
 function craftTrajectoryPosition(trajectory: PlanetCraftTrajectory, progress: number) {
   const radius = props.planet.radius * trajectory.radius
@@ -703,13 +712,6 @@ function craftTrajectoryPosition(trajectory: PlanetCraftTrajectory, progress: nu
 function trajectoryPoints(trajectory: PlanetCraftTrajectory) {
   const count = trajectory.kind === 'orbit' ? 144 : 96
   return Array.from({ length: count }, (_, index) => craftTrajectoryPosition(trajectory, index / (count - 1)))
-}
-
-function visualTrajectoryPeriodSeconds(trajectory: PlanetCraftTrajectory) {
-  if (trajectory.periodDays != null) {
-    return THREE.MathUtils.clamp(trajectory.periodDays / SIMULATED_DAYS_PER_SECOND, MIN_VISUAL_PERIOD_SECONDS, MAX_VISUAL_PERIOD_SECONDS)
-  }
-  return Math.max(MIN_VISUAL_PERIOD_SECONDS, trajectory.periodSeconds ?? 60)
 }
 
 /** 把 RingGeometry 的平面 UV 改写为径向条带 UV（u = 内缘 → 外缘），以匹配环带纹理 */
@@ -984,22 +986,8 @@ onMounted(() => {
   // 圆点明明在球体外可见，标签却被 -0.03 阈值误判为背面而隐藏。
   const labelTmp = new THREE.Vector3()
   const labelWorld = new THREE.Vector3()
-  const labelOcclusionDir = new THREE.Vector3()
-  const labelRay = new THREE.Raycaster()
-  const labelOcclusionSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), props.planet.radius)
-  const labelOcclusionHit = new THREE.Vector3()
   const isNotOccluded = (worldPoint: THREE.Vector3) => {
-    if (!camera) return false
-    // 用独立临时向量计算方向，绝不就地修改传入的 worldPoint——
-    // 否则调用方（如 site 标签的 marker.getWorldPosition(labelWorld) 后传入）的
-    // 世界坐标会被减成"相对相机的向量"，后续投影全错（标签落到视口中心/行星中间）
-    const toTarget = labelOcclusionDir.copy(worldPoint).sub(camera.position)
-    const targetDistance = toTarget.length()
-    if (targetDistance === 0) return false
-    labelRay.set(camera.position, toTarget.normalize())
-    const hit = labelRay.ray.intersectSphere(labelOcclusionSphere, labelOcclusionHit)
-    if (!hit) return true
-    return camera.position.distanceTo(labelOcclusionHit) >= targetDistance - 0.035
+    return isWorldPointFrontFacing(worldPoint)
   }
   const updateSiteLabels = (reserved: SceneAnnotationLayout[] = []) => {
     if (!renderer || !camera || !sitesEnabled.value) {
@@ -1113,12 +1101,10 @@ onMounted(() => {
 
   renderer.render(scene, camera)
 
-  let lastTime = performance.now()
   const animate = () => {
     frameId = requestAnimationFrame(animate)
     if (!renderer || !scene || !camera) return
     const now = performance.now()
-    lastTime = now
     const elementsOpacity = entryElementsOpacity(now) * exitElementsOpacity(now)
 
     // 入场自转（按行星真实自转方向，停稳后静止）
@@ -1173,14 +1159,14 @@ onMounted(() => {
     for (const runtime of craftRuntimes.values()) {
       const trajectory = runtime.spec.trajectory
       if (!trajectory) continue
-      if ((runtime.spec.status === '运行中' || runtime.spec.status === '即将入轨') && trajectory.kind === 'orbit') {
-        const period = visualTrajectoryPeriodSeconds(trajectory)
-        const progress = trajectory.displayProgress == null
+      if (trajectory.kind === 'orbit') {
+        const period = planetOrbitPeriodSeconds(runtime.spec.id, trajectory.periodDays)
+        const progress = runtime.spec.id === 'bepicolombo' && trajectory.displayProgress == null
           ? (now / 1000 / period) % 1
-          : (trajectory.displayProgress + (now - craftMotionStartedAt) / 1000 / period) % 1
+          : orbitProgress((now - craftMotionStartedAt) / 1000, period, trajectory.displayProgress ?? 0.78)
         runtime.dot.position.copy(craftTrajectoryPosition(trajectory, progress))
       } else {
-        // 已结束的飞行器：圆点固定停在自己的轨道/弧线上（path 78% 处）——
+        // 开放路径保持静态：圆点固定在自己的弧线上（默认 path 78% 处）——
         // 不能把圆点覆盖到大气终点（endpoint），否则飞行器会脱离轨道、轨道上看起来没有对应点
         const displayProgress = THREE.MathUtils.clamp(trajectory.displayProgress ?? 0.78, 0, 1)
         runtime.dot.position.copy(runtime.path[Math.min(runtime.path.length - 1, Math.floor(runtime.path.length * displayProgress))])

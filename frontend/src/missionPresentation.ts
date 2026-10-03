@@ -75,6 +75,7 @@ export function spacecraftFields(input: {
   inclination?: OptionalValue
   eccentricity?: OptionalValue
   period?: OptionalValue
+  orbitStage?: OptionalValue
   trajectory?: OptionalValue
 }): MissionDetailField[] {
   return missionFields(
@@ -85,6 +86,7 @@ export function spacecraftFields(input: {
     missionField('轨道倾角', input.inclination),
     missionField('轨道偏心率', input.eccentricity),
     missionField('轨道周期', input.period),
+    missionField('轨道阶段', input.orbitStage),
     missionField('轨迹类型', input.trajectory),
   )
 }

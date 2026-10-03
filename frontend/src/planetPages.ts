@@ -107,10 +107,8 @@ export interface PlanetPageConfig {
 }
 
 export type PlanetCraftStatus = '运行中' | '已结束' | '即将入轨' | '飞掠' | '在途'
-export type PlanetCraftTrajectoryKind = 'orbit' | 'flyby' | 'approach' | 'entry'
 
-export interface PlanetCraftTrajectory {
-  kind: PlanetCraftTrajectoryKind
+interface PlanetCraftTrajectoryBase {
   /** 轨迹相对行星半径；太阳页同样使用相对半径，便于统一渲染 */
   radius: number
   /** 椭圆轨道偏心率（orbit）；只用于视觉压缩，不代表精密星历 */
@@ -125,11 +123,23 @@ export interface PlanetCraftTrajectory {
   spanDeg?: number
   /** 终点距球心的相对半径，1.04 表示上层大气/云顶附近 */
   endpointRadius?: number
-  /** 运行中点标记的视觉周期（秒） */
-  periodSeconds?: number
-  /** 真实任务轨道周期（地球日）；渲染时按统一加速时钟映射到视觉周期 */
-  periodDays?: number
 }
+
+/** 完整环绕轨道按真实时间运行，历史任务用注明阶段的代表性周期。 */
+export interface PlanetOrbitTrajectory extends PlanetCraftTrajectoryBase {
+  kind: 'orbit'
+  /** 真实任务轨道周期（地球日）；贝皮科伦坡号暂保留原有展示。 */
+  periodDays: number
+  /** 周期对应阶段；历史动画不代表飞行器仍在执行任务。 */
+  stage?: string
+}
+
+/** 开放路径（飞掠 / 接近 / 大气进入）：只表示任务阶段与方向，不是闭合轨道，没有周期 */
+export interface PlanetOpenTrajectory extends PlanetCraftTrajectoryBase {
+  kind: 'flyby' | 'approach' | 'entry'
+}
+
+export type PlanetCraftTrajectory = PlanetOrbitTrajectory | PlanetOpenTrajectory
 
 export interface PlanetCraft {
   id: string
@@ -168,39 +178,44 @@ const SUN_SPACECRAFT: PlanetSpacecraft = {
       status: '运行中', type: '日心轨道器', date: '2018-08-12', endpoint: '近日点 6.1M km · 0.04 AU',
       description: '目前仍在运行的太阳探测器，2024-12-24 抵达距太阳约 6.1M km 的历史最近点。',
       // 默认相位放在太阳右下侧的近端轨道，进入页面即可看到运行标记与标签。
-      trajectory: { kind: 'orbit', radius: 2.3, eccentricity: 0.5, inclinationDeg: 8, phaseDeg: 18, displayProgress: 0.76, periodDays: 88 },
+      trajectory: { kind: 'orbit', radius: 2.3, eccentricity: 0.5, inclinationDeg: 8, phaseDeg: 18, displayProgress: 0.76, periodDays: 88, stage: '2024 年末最后一次金星借力后的近日轨道' },
       verifiedAt: '2026-08-06', source: 'NASA Parker Solar Probe',
     },
     {
       id: 'solar-orbiter', name: '太阳轨道器', nameEn: 'Solar Orbiter', operator: 'ESA / NASA',
       status: '运行中', type: '日心轨道器', date: '2020-02-09', endpoint: '太阳近距离成像与极区观测',
       description: '欧空局与 NASA 合作任务，结合遥感成像和原位测量研究太阳风与太阳极区。',
-      trajectory: { kind: 'orbit', radius: 2.6, eccentricity: 0.35, inclinationDeg: 23, phaseDeg: 265, displayProgress: 0.35 },
+      // 采用标志性的 168 天科学轨道；其他变轨阶段不在本展示中复原。
+      trajectory: { kind: 'orbit', radius: 2.6, eccentricity: 0.35, inclinationDeg: 23, phaseDeg: 265, displayProgress: 0.35, periodDays: 168, stage: '太阳科学观测阶段 · 168 天共振轨道' },
       verifiedAt: '2026-09-29', source: 'NASA Solar Orbiter',
     },
     {
       id: 'soho', name: '太阳和日球层探测器', nameEn: 'SOHO', operator: 'ESA / NASA',
       status: '运行中', type: '日地 L1 太阳观测器', date: '1995-12-02', endpoint: '日地 L1 附近运行',
       description: '在日地 L1 附近持续观测太阳内部、日冕和太阳风；没有近太阳飞掠轨道。',
+      // 刻意不给轨迹：SOHO 在日地 L1 晕轨道运行（离太阳约 0.99 AU），既不是绕日轨道，
+      // 在太阳页的尺度下也会远在画面之外。目录行标注"仅档案 · 场景无标记"。
       verifiedAt: '2026-09-29', source: 'NASA SOHO mission archive',
     },
     {
       id: 'stereo-a', name: '日地关系观测站 A', nameEn: 'STEREO-A', operator: 'NASA',
       status: '运行中', type: '日心轨道太阳观测器', date: '2006-10-26', endpoint: '持续观测太阳风暴',
       description: '双星任务中仍在工作的 A 星，从不同视角追踪日冕物质抛射。',
+      // 刻意不给轨迹：STEREO-A 在约 1 AU 的日心轨道，太阳页尺度下会远在画面之外。
       verifiedAt: '2026-09-29', source: 'NASA STEREO mission archive',
     },
     {
       id: 'aditya-l1', name: '太阳神 L1 号', nameEn: 'Aditya-L1', operator: 'ISRO',
       status: '运行中', type: '日地 L1 太阳观测器', date: '2023-09-02', endpoint: '日地 L1 晕轨道',
       description: '印度首个专门研究太阳的空间观测站，2024-01-06 进入日地 L1 晕轨道。',
+      // 刻意不给轨迹：与 SOHO 同理，L1 晕轨道在太阳页尺度下无法有意义地表示。
       verifiedAt: '2026-09-29', source: 'ISRO Aditya-L1 mission',
     },
     {
       id: 'helios-b', name: '太阳神 B 号', nameEn: 'Helios-B', operator: 'NASA / DLR',
       status: '已结束', type: '日心轨道器', date: '1976-01-15', endpoint: '近日点 0.29 AU',
       description: '1976 年进入高偏心日心轨道，创下长期保持的近太阳探测距离纪录。',
-      trajectory: { kind: 'orbit', radius: 2.45, eccentricity: 0.55, inclinationDeg: 3, phaseDeg: 156, displayProgress: 0.1, periodDays: 190 },
+      trajectory: { kind: 'orbit', radius: 2.45, eccentricity: 0.55, inclinationDeg: 3, phaseDeg: 156, displayProgress: 0.1, periodDays: 185, stage: '1976 年日心科学轨道 · 历史轨道演示' },
       verifiedAt: '2026-08-06', source: 'NASA / DLR mission archive',
     },
     {
@@ -208,7 +223,7 @@ const SUN_SPACECRAFT: PlanetSpacecraft = {
       status: '已结束', type: '太阳极区探测器', date: '1990-10-06', endpoint: '高倾角太阳极轨',
       description: '首个系统研究太阳南北极区的探测器，2009 年结束任务。',
       // 高倾角轨道做视觉压缩，避免默认标记落到首屏外；仍保留显著的太阳极轨形态。
-      trajectory: { kind: 'orbit', radius: 2.2, eccentricity: 0.18, inclinationDeg: 66, phaseDeg: 235, displayProgress: 0.76, periodDays: 2260 },
+      trajectory: { kind: 'orbit', radius: 2.2, eccentricity: 0.18, inclinationDeg: 66, phaseDeg: 235, displayProgress: 0.76, periodDays: 2260, stage: '太阳极区科学观测轨道 · 历史轨道演示' },
       verifiedAt: '2026-08-06', source: 'ESA Ulysses archive',
     },
     {
@@ -241,7 +256,7 @@ const MERCURY_SPACECRAFT: PlanetSpacecraft = {
       id: 'messenger-orbiter', name: '信使号', nameEn: 'MESSENGER', operator: 'NASA',
       status: '已结束', type: '轨道器', date: '2004-08-03', endpoint: '2015-04-30 撞击水星',
       description: '首个环绕水星运行的探测器，任务终点为水星表面的真实撞击点。',
-      trajectory: { kind: 'orbit', radius: 1.7, eccentricity: 0.3, inclinationDeg: 7, phaseDeg: 190 },
+      trajectory: { kind: 'orbit', radius: 1.7, eccentricity: 0.3, inclinationDeg: 7, phaseDeg: 190, periodDays: 0.5, stage: '2011 年主科学任务的 12 小时轨道 · 历史轨道演示' },
       verifiedAt: '2026-08-06', source: 'NASA MESSENGER mission archive',
     },
     {
@@ -262,46 +277,53 @@ const VENUS_SPACECRAFT: PlanetSpacecraft = {
       id: 'akatsuki', name: '晓号', nameEn: 'Akatsuki', operator: 'JAXA',
       status: '已结束', type: '轨道器', date: '2010-05-20', endpoint: '2024-05-29 失联',
       description: '日本金星气候轨道器，曾长期观测金星云层和大气环流，后于 2024 年失联。',
-      trajectory: { kind: 'orbit', radius: 1.72, eccentricity: 0.28, inclinationDeg: 5, phaseDeg: 95 },
+      trajectory: { kind: 'orbit', radius: 1.72, eccentricity: 0.28, inclinationDeg: 5, phaseDeg: 95, periodDays: 10.8, stage: '2016 年轨道调整后的气象观测阶段 · 历史轨道演示' },
       verifiedAt: '2026-08-06', source: 'JAXA Akatsuki archive',
     },
     {
       id: 'magellan', name: '麦哲伦号', nameEn: 'Magellan', operator: 'NASA',
       status: '已结束', type: '轨道器', date: '1989-05-04', endpoint: '1994-10-13 坠入金星大气',
       description: '完成金星表面雷达测绘，任务结束时进入大气层烧毁。',
-      trajectory: { kind: 'orbit', radius: 1.9, eccentricity: 0.18, inclinationDeg: 9, phaseDeg: 230, endpointRadius: 1.04 },
-      verifiedAt: '2026-08-06', source: 'NASA Magellan archive',
+      // 采用气动制动前的雷达测绘轨道，周期 195 分钟；动画按真实时间运行。
+      trajectory: { kind: 'orbit', radius: 1.9, eccentricity: 0.18, inclinationDeg: 9, phaseDeg: 230, endpointRadius: 1.04, periodDays: 195 / 1440, stage: '1990–1993 年雷达测绘阶段 · 历史轨道演示' },
+      verifiedAt: '2026-08-06', source: 'NASA/JPL Successful Aerobraking Experiment · 制动前 195 分钟轨道',
     },
     {
       id: 'pioneer-venus', name: '先驱者金星 1 号', nameEn: 'Pioneer Venus 1', operator: 'NASA',
       status: '已结束', type: '轨道器', date: '1978-05-20', endpoint: '1992 年进入金星大气',
       description: '美国首个金星轨道器，从轨道研究金星大气、磁场和太阳风相互作用。',
-      trajectory: { kind: 'orbit', radius: 1.7, eccentricity: 0.22, inclinationDeg: 12, phaseDeg: 200, endpointRadius: 1.04 },
+      trajectory: { kind: 'orbit', radius: 1.7, eccentricity: 0.22, inclinationDeg: 12, phaseDeg: 200, endpointRadius: 1.04, periodDays: 1, stage: '1978–1992 年金星科学观测阶段 · 历史轨道演示' },
       verifiedAt: '2026-09-29', source: 'NASA Venus Exploration',
     },
     {
       id: 'pioneer-venus-2', name: '先驱者金星 2 号', nameEn: 'Pioneer Venus 2', operator: 'NASA',
       status: '已结束', type: '多探测器大气任务', date: '1978-08-08', endpoint: '1978-12 四枚探测器进入金星大气',
       description: '一枚大型和三枚小型探测器同时采集金星大气剖面数据。',
+      // 大气进入路径为历史示意：任务同时投放四枚探测器，此处只画一条代表弧线，不是闭合轨道。
+      trajectory: { kind: 'entry', radius: 2.25, inclinationDeg: 15, phaseDeg: 40, displayProgress: 0.3 },
       verifiedAt: '2026-09-29', source: 'NASA Pioneer Venus 2 mission archive',
     },
     {
       id: 'venus-express', name: '金星快车号', nameEn: 'Venus Express', operator: 'ESA',
       status: '已结束', type: '轨道器', date: '2005-11-09', endpoint: '2014-12 任务结束',
       description: '欧洲首个金星轨道器，2006-04-11 入轨，长期研究金星大气、等离子体和表面。',
-      trajectory: { kind: 'orbit', radius: 2.05, eccentricity: 0.28, inclinationDeg: 82, phaseDeg: 145 },
+      trajectory: { kind: 'orbit', radius: 2.05, eccentricity: 0.28, inclinationDeg: 82, phaseDeg: 145, periodDays: 1, stage: '2006–2014 年常规科学观测阶段 · 历史轨道演示' },
       verifiedAt: '2026-09-29', source: 'NASA Venus Express mission archive',
     },
     {
       id: 'venera-15', name: '金星 15 号', nameEn: 'Venera 15', operator: '苏联',
       status: '已结束', type: '雷达测绘轨道器', date: '1983-06-02', endpoint: '金星北半球雷达测绘',
       description: '与金星 16 号协同，以侧视雷达绘制金星北部地形。',
+      // 近极轨道（倾角约 87°）、周期约 24 小时；轨道为任务期示意，不是当前星历。
+      trajectory: { kind: 'orbit', radius: 2.3, eccentricity: 0.25, inclinationDeg: 87, phaseDeg: 45, periodDays: 1, stage: '1983–1984 年北半球雷达测绘阶段 · 历史轨道演示' },
       verifiedAt: '2026-09-29', source: 'NASA Venus Exploration',
     },
     {
       id: 'venera-16', name: '金星 16 号', nameEn: 'Venera 16', operator: '苏联',
       status: '已结束', type: '雷达测绘轨道器', date: '1983-06-07', endpoint: '金星北半球雷达测绘',
       description: '与金星 15 号组成双轨道器雷达测绘任务。',
+      // 近极轨道（倾角约 87°）、周期约 24 小时；取不同相位避免与 15 号的标记重合。
+      trajectory: { kind: 'orbit', radius: 2.34, eccentricity: 0.26, inclinationDeg: 87, phaseDeg: 200, periodDays: 1, stage: '1983–1984 年北半球雷达测绘阶段 · 历史轨道演示' },
       verifiedAt: '2026-09-29', source: 'NASA Venus Exploration',
     },
     {
@@ -315,12 +337,16 @@ const VENUS_SPACECRAFT: PlanetSpacecraft = {
       id: 'vega-1-venus', name: '维加 1 号', nameEn: 'Vega 1', operator: '苏联',
       status: '飞掠', type: '飞掠器 + 着陆器 + 气球', date: '1984-12-15', endpoint: '1985-06-11 金星着陆与气球探测',
       description: '主飞行器在投放着陆器与大气气球后继续飞往哈雷彗星；着陆器落点见下方目录。',
+      // 金星飞掠弧线为历史示意（1985-06-11 投放着陆器与气球后转往哈雷彗星），不是闭合轨道。
+      trajectory: { kind: 'flyby', radius: 2.35, inclinationDeg: 13, phaseDeg: 55, spanDeg: 130 },
       verifiedAt: '2026-09-29', source: 'NASA Venus Exploration · Deep Space Chronicle',
     },
     {
       id: 'vega-2-venus', name: '维加 2 号', nameEn: 'Vega 2', operator: '苏联',
       status: '飞掠', type: '飞掠器 + 着陆器 + 气球', date: '1984-12-21', endpoint: '1985-06-15 金星着陆与气球探测',
       description: '第二组金星着陆器与大气气球，主飞行器后续前往哈雷彗星；着陆器落点见下方目录。',
+      // 与维加 1 号同型的飞掠弧线，取不同相位避免两条弧线在首屏重叠。
+      trajectory: { kind: 'flyby', radius: 2.42, inclinationDeg: 9, phaseDeg: 215, spanDeg: 130 },
       verifiedAt: '2026-09-29', source: 'NASA Venus Exploration · Deep Space Chronicle',
     },
     {
@@ -334,14 +360,14 @@ const VENUS_SPACECRAFT: PlanetSpacecraft = {
       id: 'venera-9-orbiter', name: '金星 9 号轨道器', nameEn: 'Venera 9 Orbiter', operator: '苏联',
       status: '已结束', type: '轨道器', date: '1975-06-08', endpoint: '1975-10 进入金星轨道；着陆器落点见下方',
       description: '金星 9 号分离着陆器后进入金星轨道，为着陆器数据提供中继。任务期轨道为视觉示意。',
-      trajectory: { kind: 'orbit', radius: 2.24, eccentricity: 0.22, inclinationDeg: 36, phaseDeg: 70, displayProgress: 0.24 },
+      trajectory: { kind: 'orbit', radius: 2.24, eccentricity: 0.22, inclinationDeg: 36, phaseDeg: 70, displayProgress: 0.24, periodDays: 48.3 / 24, stage: '1975 年入轨后的科学与中继阶段 · 历史轨道演示' },
       verifiedAt: '2026-09-29', source: 'ESA Past missions to Venus',
     },
     {
       id: 'venera-10-orbiter', name: '金星 10 号轨道器', nameEn: 'Venera 10 Orbiter', operator: '苏联',
       status: '已结束', type: '轨道器', date: '1975-06-14', endpoint: '1975-10 进入金星轨道；着陆器落点见下方',
       description: '与金星 9 号组成双任务，轨道器完成观测及着陆器通信中继。任务期轨道为视觉示意。',
-      trajectory: { kind: 'orbit', radius: 2.38, eccentricity: 0.27, inclinationDeg: 51, phaseDeg: 138, displayProgress: 0.61 },
+      trajectory: { kind: 'orbit', radius: 2.38, eccentricity: 0.27, inclinationDeg: 51, phaseDeg: 138, displayProgress: 0.61, periodDays: (49 * 60 + 23) / 1440, stage: '1975 年入轨后的科学与中继阶段 · 历史轨道演示' },
       verifiedAt: '2026-09-29', source: 'ESA Past missions to Venus',
     },
   ],
@@ -370,20 +396,24 @@ const JUPITER_SPACECRAFT: PlanetSpacecraft = {
       status: '运行中', type: '极轨轨道器', date: '2011-08-05', endpoint: '任务结束时间待官方确认',
       description: '2016-07-04 进入木星轨道，继续研究木星内部、磁场和极光。',
       // 视觉示意：保持极轨倾角，但把轨道收在镜头可读范围内，保证运行点不会长期游离出画面。
-      trajectory: { kind: 'orbit', radius: 1.22, eccentricity: 0.18, inclinationDeg: 52, phaseDeg: 36, displayProgress: 0.34 },
-      verifiedAt: '2026-09-29', source: 'NASA Juno mission archive',
+      // NASA Juno Orbits：初期为 53 天；卫星飞掠逐步缩短周期，2024-02 起采用约 33 天。
+      trajectory: { kind: 'orbit', radius: 1.22, eccentricity: 0.18, inclinationDeg: 52, phaseDeg: 36, displayProgress: 0.34, periodDays: 33, stage: '2024 年 2 月木卫一飞掠后的 33 天轨道' },
+      verifiedAt: '2026-09-29', source: 'NASA Juno Orbits · 2024-02 起的轨道周期',
     },
     {
       id: 'galileo', name: '伽利略号', nameEn: 'Galileo', operator: 'NASA',
       status: '已结束', type: '轨道器', date: '1989-10-18', endpoint: '2003-09-21 坠入木星大气',
       description: '为避免污染木卫二，燃料耗尽后按计划进入木星大气层焚毁。',
-      trajectory: { kind: 'orbit', radius: 1.95, eccentricity: 0.22, inclinationDeg: 14, phaseDeg: 176, displayProgress: 0.02, endpointRadius: 1.04 },
-      verifiedAt: '2026-08-06', source: 'NASA Galileo archive',
+      // 采用 1996 年 G1 木卫三飞掠后的 72 天轨道；其他变轨阶段不在本展示中复原。
+      trajectory: { kind: 'orbit', radius: 1.95, eccentricity: 0.22, inclinationDeg: 14, phaseDeg: 176, displayProgress: 0.02, endpointRadius: 1.04, periodDays: 72, stage: '1996 年 G1 木卫三飞掠后的主任务轨道 · 历史轨道演示' },
+      verifiedAt: '2026-08-06', source: 'NASA Mission to Jupiter: A History of the Galileo Project · G1 后约 72 天轨道',
     },
     {
       id: 'galileo-probe-craft', name: '伽利略大气探测器', nameEn: 'Galileo Atmospheric Probe', operator: 'NASA',
       status: '已结束', type: '大气探测器', date: '1989-10-18', endpoint: '1995-12-07 进入木星大气',
       description: '随伽利略号发射，1995-07-13 从轨道器释放，在木星大气中持续回传约 58 分钟。',
+      // 大气进入路径为历史示意（1995-12-07 进入木星大气），不是环绕轨道，故无周期。
+      trajectory: { kind: 'entry', radius: 1.6, inclinationDeg: 14, phaseDeg: 176, displayProgress: 0.32 },
       verifiedAt: '2026-09-29', source: 'NASA Galileo Jupiter Atmospheric Probe',
     },
     {
@@ -432,8 +462,9 @@ const SATURN_SPACECRAFT: PlanetSpacecraft = {
       id: 'cassini', name: '卡西尼号', nameEn: 'Cassini', operator: 'NASA / ESA / ASI',
       status: '已结束', type: '轨道器', date: '1997-10-15', endpoint: '2017-09-15 坠入土星上层大气',
       description: '2004-07-01 入轨；搭载的惠更斯号于 2005 年降落土卫六。卡西尼号完成 22 次终章环缝穿越后坠入土星大气。',
-      trajectory: { kind: 'orbit', radius: 1.72, eccentricity: 0.3, inclinationDeg: 24, phaseDeg: 142, displayProgress: 0.14, endpointRadius: 1.04 },
-      verifiedAt: '2026-08-06', source: 'NASA Cassini archive',
+      // 采用 2017 年 Grand Finale 的约 6.5 天轨道；其他变轨阶段不在本展示中复原。
+      trajectory: { kind: 'orbit', radius: 1.72, eccentricity: 0.3, inclinationDeg: 24, phaseDeg: 142, displayProgress: 0.14, endpointRadius: 1.04, periodDays: 6.5, stage: '2017 年 Grand Finale 终章阶段 · 历史轨道演示' },
+      verifiedAt: '2026-08-06', source: 'NASA Cassini Grand Finale Orbit Guide · 约 6.5 天轨道',
     },
     {
       id: 'pioneer-11-saturn', name: '先驱者 11 号', nameEn: 'Pioneer 11', operator: 'NASA',

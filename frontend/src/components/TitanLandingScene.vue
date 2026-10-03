@@ -5,7 +5,7 @@
       <span>图层</span><label><input v-model="siteVisible" type="checkbox"><i class="sites" />着陆点</label>
     </div>
     <MissionSceneLabel
-      v-if="label && siteVisible"
+      v-if="label && label.visible && siteVisible"
       class="titan-site-label"
       :style="sceneAnnotationStyle(label)"
       kind="surface"
@@ -33,6 +33,7 @@ import type { MissionDetail } from '../missionPresentation'
 import { surfaceMissionFields } from '../missionPresentation'
 import { sceneAnnotationStyle, layoutSceneAnnotations, projectedSphereRadiusPx, surfaceMarkerRadiusPx, surfaceMarkerWorldRadius } from '../surfaceAnnotations'
 import type { SceneAnnotationLayout } from '../surfaceAnnotations'
+import { isOccludedBySphere } from '../sphereOcclusion'
 import { solarTexture } from '../solar/textures'
 import titanMapUrl from '../assets/solar/titan-cassini-near-infrared.jpg'
 
@@ -62,21 +63,52 @@ let camera: THREE.PerspectiveCamera | null = null
 let controls: OrbitControls | null = null
 let globe: THREE.Mesh | null = null
 let marker: THREE.Mesh | null = null
+/** 拾取球：与可见圆点同心、半径放大，只用来扩大射线命中范围（material opacity 0） */
+let hitMarker: THREE.Mesh | null = null
 let frame = 0
 let resizeObserver: ResizeObserver | null = null
 const point = new THREE.Vector3()
+const pickTmp = new THREE.Vector3()
 const origin = new THREE.Vector3()
 const RADIUS = 1.6
 const FOV = 42
+const raycaster = new THREE.Raycaster()
+const pointerNDC = new THREE.Vector2()
+const pointerStart = new THREE.Vector2()
 let focusAnimation: { from: THREE.Vector3, to: THREE.Vector3, startedAt: number } | null = null
 
 function focus() {
+  siteVisible.value = true
   selected.value = true
   if (!camera || !controls || !marker || !globe) return
   marker.getWorldPosition(point)
   focusAnimation = { from: camera.position.clone(), to: point.normalize().multiplyScalar(4.15), startedAt: performance.now() }
 }
 defineExpose({ focus })
+
+/** 射线拾取圆点：命中球只扩大命中范围，可见性仍由球面遮挡决定，背面不可点 */
+function pickSite(event: PointerEvent): boolean {
+  if (!renderer || !camera || !hitMarker || !siteVisible.value) return false
+  const bounds = renderer.domElement.getBoundingClientRect()
+  pointerNDC.set(
+    ((event.clientX - bounds.left) / bounds.width) * 2 - 1,
+    -((event.clientY - bounds.top) / bounds.height) * 2 + 1,
+  )
+  raycaster.setFromCamera(pointerNDC, camera)
+  if (raycaster.intersectObject(hitMarker, false).length === 0) return false
+  hitMarker.getWorldPosition(pickTmp)
+  return !isOccludedBySphere(pickTmp, camera.position, origin, RADIUS)
+}
+
+function onPointerDown(event: PointerEvent) {
+  pointerStart.set(event.clientX, event.clientY)
+}
+
+/** 松开时位移 ≤ 5px 视为点按；拖动旋转不触发选中（与月球/火星一致） */
+function onPointerUp(event: PointerEvent) {
+  if (pointerStart.distanceTo(new THREE.Vector2(event.clientX, event.clientY)) > 5) return
+  if (pickSite(event)) focus()
+}
 
 watch(siteVisible, (enabled) => {
   if (marker) marker.visible = enabled
@@ -110,6 +142,13 @@ onMounted(() => {
   marker = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 12), new THREE.MeshBasicMaterial({ color: 0xf5dfaf }))
   marker.position.set(RADIUS * Math.cos(lat) * Math.cos(lon), RADIUS * Math.sin(lat), -RADIUS * Math.cos(lat) * Math.sin(lon))
   globe.add(marker)
+  // 圆点本身只有几像素，直接拾取很难点中；用一个透明放大球扩大命中范围。
+  // 它是 marker 的子节点，随 marker 每帧缩放，所以命中范围始终跟随视觉大小。
+  hitMarker = new THREE.Mesh(
+    new THREE.SphereGeometry(5.5, 8, 8),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
+  )
+  marker.add(hitMarker)
   // 首屏让坐标落在可见半球，同时保留可拖动的真实经纬度球面关系。
   globe.quaternion.setFromUnitVectors(marker.position.clone().normalize(), new THREE.Vector3(0.27, -0.1, 0.96).normalize())
   controls = new OrbitControls(camera, renderer.domElement)
@@ -128,6 +167,8 @@ onMounted(() => {
     renderer.setSize(w, h)
   })
   resizeObserver.observe(root)
+  renderer.domElement.addEventListener('pointerdown', onPointerDown)
+  renderer.domElement.addEventListener('pointerup', onPointerUp)
   const animate = () => {
     frame = requestAnimationFrame(animate)
     if (!camera || !renderer || !scene || !marker || !host.value) return
@@ -146,7 +187,11 @@ onMounted(() => {
     const currentRadius = projectedSphereRadiusPx(RADIUS, camera.position.length(), FOV, height)
     const referenceRadius = projectedSphereRadiusPx(RADIUS, 5.2, FOV, height)
     marker.scale.setScalar(surfaceMarkerWorldRadius(point.distanceTo(camera.position), FOV, height, surfaceMarkerRadiusPx(currentRadius, referenceRadius)))
-    const visible = siteVisible.value && point.clone().normalize().dot(camera.position.clone().normalize()) > 0.12
+    // 背面判定与地球 ORBIT、月球、火星、行星特写共用同一视线-球体判据。
+    // 原先写死的点积阈值 0.12 只在某个特定距离上接近真实轮廓（R/d），
+    // 拉近镜头后会把球体背面的点判为可见，于是圆点被球体挡住、标签还浮在上面。
+    const visible = siteVisible.value && !isOccludedBySphere(point, camera.position, origin, RADIUS)
+    marker.visible = visible
     const projected = point.clone().project(camera)
     label.value = visible ? (layoutSceneAnnotations([{
       id: props.site.id,
@@ -168,6 +213,10 @@ onBeforeUnmount(() => {
   ;(globe?.material as THREE.Material | undefined)?.dispose()
   marker?.geometry.dispose()
   ;(marker?.material as THREE.Material | undefined)?.dispose()
+  hitMarker?.geometry.dispose()
+  ;(hitMarker?.material as THREE.Material | undefined)?.dispose()
+  renderer?.domElement.removeEventListener('pointerdown', onPointerDown)
+  renderer?.domElement.removeEventListener('pointerup', onPointerUp)
   renderer?.dispose()
   renderer?.domElement.remove()
 })

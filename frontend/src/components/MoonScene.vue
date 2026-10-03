@@ -201,10 +201,12 @@ import { usePlanetSceneData } from '../composables/usePlanetSceneData'
 import MissionDetailPanel from './MissionDetailPanel.vue'
 import MissionSceneLabel from './MissionSceneLabel.vue'
 import type { MissionDetail } from '../missionPresentation'
-import { spacecraftFields, spacecraftFocusDistance, surfaceMissionFields, spacecraftTypeLabel, landingCategoryLabel } from '../missionPresentation'
+import { spacecraftFields, spacecraftFocusDistance, surfaceFocusDistance, surfaceMissionFields, spacecraftTypeLabel, landingCategoryLabel } from '../missionPresentation'
 import type { PlanetProfile } from '../planetPages'
 import type { SceneAnnotationLayout, SurfaceAnnotationLayout } from '../surfaceAnnotations'
 import { layoutSceneAnnotations, sceneAnnotationStyle, projectedSphereRadiusPx, orbitMarkerRadiusPx, sceneMarkerWorldRadius, surfaceMarkerRadiusPx, surfaceMarkerWorldRadius } from '../surfaceAnnotations'
+import { isOccludedBySphere } from '../sphereOcclusion'
+import { orbitProgress, orbitPeriodSeconds, orbitPeriodText, moonOrbitStage, normalizeMoonOrbit } from '../missionOrbits'
 
 const moonProfile: PlanetProfile = {
   kicker: 'MOON PROFILE',
@@ -360,7 +362,10 @@ watch(sceneRevealed, (revealed) => {
 
 /** 月球数据：两个端点成功后再一起写入场景，避免半套数据造成误读。 */
 const { crafts, syncedAt, dataLoading, dataError, loadSceneData, abortSceneData } = usePlanetSceneData<MoonSpacecraft, MoonLandingSite>({
-  loadSpacecraft: fetchMoonSpacecraft,
+  loadSpacecraft: async (signal) => {
+    const data = await fetchMoonSpacecraft(signal)
+    return { ...data, spacecraft: data.spacecraft.map(normalizeMoonOrbit) }
+  },
   loadLandingSites: fetchMoonLandingSites,
   canCommit: () => Boolean(scene),
   onLoaded: (nextCrafts, nextSites) => {
@@ -393,7 +398,8 @@ const selectedCraftDetail = computed<MissionDetail | null>(() => {
       launch,
       inclination: hasOrbit ? (craft.displayInclination.includes('示意') ? craft.displayInclination : `${craft.displayInclination}°`) : '',
       eccentricity: hasOrbit ? craft.displayEccentricity : '',
-      period: hasOrbit ? craft.displayPeriod : '',
+      period: hasOrbit ? orbitPeriodText(orbitPeriodSeconds(craft)) : '',
+      orbitStage: hasOrbit ? moonOrbitStage(craft) : '',
     }),
     source: `${epoch}${craft.sourceName}`,
   }
@@ -496,12 +502,12 @@ function startCraftFocus(id: string) {
   planFocusMotion(world, spacecraftFocusDistance(MOON_RADIUS, camera.position.length(), world.length()))
 }
 
-/** 着陆点聚焦：方向对准着陆点（观察距离 5.2——月面区域与周边地形整体可见） */
+/** 着陆点聚焦：按当前月球半径取近景距离，保留落点与周边地形。 */
 function startSiteFocus(id: string) {
   const marker = siteMarkers.get(id)
   if (!marker || !camera) return
   const world = marker.getWorldPosition(focusTmp).clone()
-  planFocusMotion(world, 6.4) // 着陆点聚焦距离统一 2.46R（地球 5.4/2.15≈2.5R、火星 7.4/3.0≈2.5R）
+  planFocusMotion(world, surfaceFocusDistance(MOON_RADIUS))
 }
 
 watch(selectedCraft, (id) => {
@@ -547,6 +553,8 @@ interface CraftRuntime {
   dot: THREE.Object3D
   line: THREE.Line | null
   nu: number
+  initialNu: number
+  startedAtSeconds: number
 }
 
 const craftRuntimes: CraftRuntime[] = []
@@ -651,22 +659,20 @@ onMounted(() => {
 
   renderer.render(scene, camera)
 
-  let lastTime = performance.now()
   const animate = () => {
     frameId = requestAnimationFrame(animate)
     if (!renderer || !scene || !camera) return
     const now = performance.now()
-    const delta = Math.min((now - lastTime) / 1000, 0.05)
-    lastTime = now
+    const orbitNowSeconds = Date.now() / 1000
 
     // 航天器公转（仅绕月轨道；定点不动）
     for (const runtime of craftRuntimes) {
-      if (runtime.spec.kind !== 'orbital') continue
+      if (runtime.spec.kind !== 'orbital' && runtime.spec.kind !== 'historical_orbit') continue
       const sn = runtime.spec.snapshot ?? null
       // 快照存在时用真实公转周期（JPL 日同步，如 LRO 约 113 分钟）；
       // 无快照时回退静态轨道周期（迁移 030 起已改为真实周期：约 2 小时 / CAPSTONE 6.5 天）
-      const periodSec = sn ? sn.periodSeconds : runtime.spec.periodSeconds
-      runtime.nu += (Math.PI * 2 / periodSec) * delta
+      const periodSec = orbitPeriodSeconds(runtime.spec)
+      runtime.nu = orbitProgress(orbitNowSeconds - runtime.startedAtSeconds, periodSec, runtime.initialNu / (Math.PI * 2)) * Math.PI * 2
       const a = exaggeratedA(sn ? sn.aKm * MOON_SCENE_SCALE : runtime.spec.orbitA)
       const e = sn ? sn.eccentricity : runtime.spec.orbitE
       const argp = sn ? sn.argPeriapsisDeg : runtime.spec.argPeriapsisDeg
@@ -754,6 +760,8 @@ onMounted(() => {
 
 /** 场景单位 ↔ 真实尺寸：月球半径 1.12（场景，按地球 2.15 的 sqrt 压缩）↔ 1737.4 km（真实） */
 const MOON_RADIUS = 1.12
+/** 月球球心固定在世界原点；遮挡判定统一以它为球心 */
+const sphereOrigin = new THREE.Vector3()
 const MOON_SCENE_SCALE = MOON_RADIUS / 1737.4
 /** 轨道高度夸张（与地球 ALTITUDE_EXAGGERATION=3.2 同思路）：超出月面的部分放大 3 倍——
  *  真实 LRO 轨道仅高出月面 5% 半径，视觉上贴脸飞行，聚焦时像"月球放大"而非"绕月飞行" */
@@ -849,7 +857,7 @@ function buildCraft(spec: MoonSpacecraft) {
   }
 
   scene.add(plane)
-  craftRuntimes.push({ spec, plane, dot, line, nu: initialNu })
+  craftRuntimes.push({ spec, plane, dot, line, nu: initialNu, initialNu, startedAtSeconds: Date.now() / 1000 })
 }
 
 /** 经纬度 → 球面坐标（与地球页 latLonToVector 同公式） */
@@ -1160,17 +1168,11 @@ function isNearMoon(clientX: number, clientY: number, exactDisk = false) {
   return Math.hypot(clientX - centerX, clientY - centerY) <= radius
 }
 
-/** 飞行器是否被月球遮挡：视线段（相机→飞行器）与月球球体（半径 MOON_RADIUS）相交 */
+/** 飞行器是否被月球遮挡：视线段（相机→飞行器）与月球球体（半径 MOON_RADIUS）相交。
+ *  与地球 ORBIT、火星、行星特写、土卫六共用同一视线-球体判据。 */
 function isCraftOccluded(world: THREE.Vector3) {
   if (!camera) return false
-  const dir = world.clone().sub(camera.position)
-  const distance = dir.length()
-  dir.normalize()
-  // 最近点必须在视线段之内（否则是飞行器后面的月球，不算遮挡）
-  const t = -camera.position.dot(dir)
-  if (t <= 0 || t >= distance) return false
-  const closest = camera.position.clone().addScaledVector(dir, t)
-  return closest.length() < MOON_RADIUS
+  return isOccludedBySphere(world, camera.position, sphereOrigin, MOON_RADIUS)
 }
 
 /** 滚轮：在月球上 → 缩放月球；在边缘区域 → 交给页面滚动（与地球一致） */

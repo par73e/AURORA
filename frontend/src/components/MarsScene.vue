@@ -205,6 +205,8 @@ import type { MissionDetail } from '../missionPresentation'
 import { spacecraftFields, spacecraftFocusDistance, surfaceMissionFields, spacecraftTypeLabel, landingCategoryLabel } from '../missionPresentation'
 import type { SceneAnnotationLayout, SurfaceAnnotationLayout } from '../surfaceAnnotations'
 import { layoutSceneAnnotations, sceneAnnotationStyle, projectedSphereRadiusPx, orbitMarkerRadiusPx, sceneMarkerWorldRadius, surfaceMarkerRadiusPx, surfaceMarkerWorldRadius } from '../surfaceAnnotations'
+import { isOccludedBySphere } from '../sphereOcclusion'
+import { orbitProgress, orbitPeriodSeconds, orbitPeriodText } from '../missionOrbits'
 
 const marsProfile = MARS_PAGE.profile
 
@@ -382,7 +384,8 @@ const selectedCraftDetail = computed<MissionDetail | null>(() => {
       launch,
       inclination: hasOrbit ? `${craft.displayInclination}°` : '',
       eccentricity: hasOrbit ? craft.displayEccentricity : '',
-      period: hasOrbit ? craft.displayPeriod : '',
+      period: hasOrbit ? orbitPeriodText(orbitPeriodSeconds(craft)) : '',
+      orbitStage: hasOrbit ? (craft.snapshot ? '轨道快照所对应阶段' : '公开标称任务轨道') : '',
     }),
     source: `${epoch}${craft.sourceName}`,
   }
@@ -487,12 +490,12 @@ function startCraftFocus(id: string) {
   planFocusMotion(world, spacecraftFocusDistance(MARS_RADIUS, camera.position.length(), world.length()))
 }
 
-/** 着陆点聚焦：方向对准着陆点（观察距离 5.2——火面区域与周边地形整体可见） */
+/** 着陆点聚焦：更近的火面特写，按半径取距离以保留落点与周边地形。 */
 function startSiteFocus(id: string) {
   const marker = siteMarkers.get(id)
   if (!marker || !camera) return
   const world = marker.getWorldPosition(focusTmp).clone()
-  planFocusMotion(world, 7.4) // 着陆点聚焦距离统一 ≈2.5R（地球 5.4/2.15≈2.5R、月球 6.4/2.6≈2.5R）
+  planFocusMotion(world, MARS_RADIUS * 2.2)
 }
 
 watch(selectedCraft, (id) => {
@@ -540,6 +543,8 @@ interface CraftRuntime {
   dot: THREE.Object3D
   line: THREE.Line | null
   nu: number
+  initialNu: number
+  startedAtSeconds: number
 }
 
 const craftRuntimes: CraftRuntime[] = []
@@ -649,14 +654,12 @@ onMounted(() => {
 
   renderer.render(scene, camera)
 
-  let lastTime = performance.now()
   let lastSunUpdate = 0
   const animate = () => {
     frameId = requestAnimationFrame(animate)
     if (!renderer || !scene || !camera) return
     const now = performance.now()
-    const delta = Math.min((now - lastTime) / 1000, 0.05)
-    lastTime = now
+    const orbitNowSeconds = Date.now() / 1000
 
     // 入场自转（自西向东绕自转轴，停稳后静止）
     updateMarsSpin(now)
@@ -667,8 +670,8 @@ onMounted(() => {
       const sn = runtime.spec.snapshot ?? null
       // 快照存在时用真实公转周期（JPL 日同步，如 MRO 约 112 分钟）；
       // 无快照时回退静态轨道周期（迁移 034 起已改为真实周期）
-      const periodSec = sn ? sn.periodSeconds : runtime.spec.periodSeconds
-      runtime.nu += (Math.PI * 2 / periodSec) * delta
+      const periodSec = orbitPeriodSeconds(runtime.spec)
+      runtime.nu = orbitProgress(orbitNowSeconds - runtime.startedAtSeconds, periodSec, runtime.initialNu / (Math.PI * 2)) * Math.PI * 2
       const a = exaggeratedA(sn ? sn.aKm * MARS_SCENE_SCALE : runtime.spec.orbitA)
       const e = sn ? sn.eccentricity : runtime.spec.orbitE
       const argp = sn ? sn.argPeriapsisDeg : runtime.spec.argPeriapsisDeg
@@ -760,6 +763,8 @@ onMounted(() => {
 
 /** 场景单位 ↔ 真实尺寸：火星半径 1.57（场景，按地球 2.15 的 sqrt 压缩）↔ 3389.5 km（真实） */
 const MARS_RADIUS = 1.57
+/** 火星球心固定在世界原点；遮挡判定统一以它为球心 */
+const sphereOrigin = new THREE.Vector3()
 const MARS_SCENE_SCALE = MARS_RADIUS / 3389.5
 /** 轨道高度夸张（与地球 ALTITUDE_EXAGGERATION=3.2 同思路）：超出火面的部分放大 1.5 倍——
  *  MRO 真实轨道仅高出火面 ~8% 半径，视觉上贴面飞行；MAVEN/天问一号轨道本身达 2–3 倍
@@ -860,7 +865,7 @@ function buildCraft(spec: MarsSpacecraft) {
   }
 
   scene.add(plane)
-  craftRuntimes.push({ spec, plane, dot, line, nu: initialNu })
+  craftRuntimes.push({ spec, plane, dot, line, nu: initialNu, initialNu, startedAtSeconds: Date.now() / 1000 })
 }
 
 /** 经纬度 → 球面坐标（与地球页 latLonToVector 同公式） */
@@ -1174,27 +1179,16 @@ function isNearMars(clientX: number, clientY: number, exactDisk = false) {
   return Math.hypot(clientX - centerX, clientY - centerY) <= radius
 }
 
-/** 飞行器是否被火星遮挡：视线段（相机→飞行器）与火星球体（半径 MARS_RADIUS）相交 */
+/** 飞行器是否被火星遮挡：视线段（相机→飞行器）与火星球体（半径 MARS_RADIUS）相交。
+ *  与地球 ORBIT、月球、行星特写、土卫六共用同一视线-球体判据。
+ *  0.04 掠射余量 = 圆点半径：视线被球挡住才隐藏，飞行器一出火星边缘立即可见
+ *  （透明圆点另由 GPU 深度兜底盘面像素）。
+ *  球内点（大偏心轨道近日段 r<MARS_RADIUS，如 MOM 近日 r≈0.97）由共享判据单独处理，
+ *  球内阈值不带该余量——着陆点在表面上 r=MARS_RADIUS，带余量会把全部着陆点误隐藏。
+ *  （历史：曾用"背半球判定 world·camera<0"与"盘面角锥"，都会过度隐藏，已移除） */
 function isCraftOccluded(world: THREE.Vector3) {
   if (!camera) return false
-  // 0) 位于火星内部（大偏心轨道近日段 r<MARS_RADIUS，如 MOM 近日 r≈0.97）：球内绝不可见。
-  //    射线-球体判定对"球体与相机之间的球内点"会漏判（最近点越过目标点）。
-  //    严格按球面 3.0 判定（留 1e-3 浮点余量，cos²+sin² 表面点可能 ≈2.9999）——
-  //    不能带 3.04 圆点余量：着陆点在表面上 r=3.0，带余量会把全部着陆点误隐藏
-  if (world.length() < MARS_RADIUS - 1e-3) return true
-  // 1) 视线段与火星球体相交（含掠射带 1.61 = 星球 1.57 + 圆点半径 0.04）：
-  //    与地球 isOccludedByEarth / 月球 isCraftOccluded 同款"射线-球体"判定——
-  //    视线被球挡住才隐藏，飞行器一出火星边缘立即可见（透明圆点另由 GPU 深度兜底盘面像素）。
-  //    （历史：曾加过"背半球判定 world·camera<0"，会把飞行器藏到越过球心平面才显示，
-  //     即转到盘面正中才见——过度隐藏，已移除；本函数历史上还有"盘面角锥"版本同理被弃）
-  const toDot = world.clone().sub(camera.position)
-  const dir = toDot.clone().normalize()
-  const t = -camera.position.dot(dir)
-  if (t > 0 && t < toDot.length()) {
-    const closest = camera.position.clone().addScaledVector(dir, t)
-    if (closest.length() < MARS_RADIUS + 0.04) return true
-  }
-  return false
+  return isOccludedBySphere(world, camera.position, sphereOrigin, MARS_RADIUS, 0.04)
 }
 
 /** 滚轮：在火星上 → 缩放火星；在边缘区域 → 交给页面滚动（与地球一致） */
