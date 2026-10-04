@@ -19,6 +19,7 @@ import { marsHdReady, moonHdReady, orbitTexturesReady, preloadMarsHdTexture, pre
 import type { LaunchEvent, LaunchSite, OrbitOverview, SceneLayers, Selection, SpacecraftCatalogPage } from './types'
 import { primaryOperator } from './operators'
 import { createDefaultSceneLayers } from './sceneLayers'
+import { sectionFromHash, surfaceFromHash as resolveSurfaceFromHash, type AppSurface } from './routes'
 
 // 大型 Three.js 场景按路径加载。导入动作总是在原有的黑幕/推镜预热阶段启动，
 // 因而不改变用户已经调校过的入场节奏，只减少封面首次下载的负担。
@@ -63,10 +64,8 @@ let observerLocationRequested = false
 let observerLocationRevision = 0
 let observerLookupController: AbortController | undefined
 const dayNightEnabled = ref(false)
-type AppSurface = 'cover' | 'sky' | 'solar-system' | 'orbit' | 'moon' | 'mars' | 'mercury' | 'venus' | 'saturn' | 'jupiter' | 'uranus' | 'neptune' | 'sun'
+// 刷新和直接访问都由当前 URL 恢复页面；无 hash 时进入首页。
 
-// 初始页面：纯 hash 决定（无 hash = 首页；#earth/#moon/#solar-system = 对应页）。
-// 不用 sessionStorage 恢复——打开网站应总是首页（上次会话的页面残留会导致"打开就是 #solar-system"）
 const surface = ref<AppSurface>(surfaceFromHash())
 const solarSystemRef = ref<{ resetView?: () => void; waitForTexturesReady?: () => Promise<void> } | null>(null)
 /** 地球界面"进入边界"信号：遮罩开始淡出时递增，OrbitScene 据此播放入场渐亮 */
@@ -445,19 +444,39 @@ function transitionTo(nextSurface: AppSurface, zoom = 1, origin = '50% 50%', tim
 }
 
 function surfaceFromHash(): AppSurface {
-  if (['#astronomy', '#astronomy-conditions', '#astronomy-sky', '#astronomy-events', '#astronomy-tonight', '#astronomy-windows', '#astronomy-targets'].includes(window.location.hash)) return 'sky'
-  if (window.location.hash === '#solar-system') return 'solar-system'
-  if (['#moon', '#moon-scene', '#moon-profile', '#moon-objects', '#moon-sites'].includes(window.location.hash)) return 'moon'
-  if (['#mars', '#mars-scene', '#mars-profile', '#mars-objects', '#mars-sites'].includes(window.location.hash)) return 'mars'
-  if (['#venus', '#venus-scene', '#venus-profile', '#venus-objects', '#venus-sites'].includes(window.location.hash)) return 'venus'
-  if (['#saturn', '#saturn-scene', '#saturn-profile', '#saturn-objects', '#saturn-sites'].includes(window.location.hash)) return 'saturn'
-  if (['#jupiter', '#jupiter-scene', '#jupiter-profile', '#jupiter-objects', '#jupiter-sites'].includes(window.location.hash)) return 'jupiter'
-  if (['#mercury', '#mercury-scene', '#mercury-profile', '#mercury-objects', '#mercury-sites'].includes(window.location.hash)) return 'mercury'
-  if (['#uranus', '#uranus-scene', '#uranus-profile', '#uranus-objects'].includes(window.location.hash)) return 'uranus'
-  if (['#neptune', '#neptune-scene', '#neptune-profile', '#neptune-objects'].includes(window.location.hash)) return 'neptune'
-  if (['#sun', '#sun-scene', '#sun-profile', '#sun-objects'].includes(window.location.hash)) return 'sun'
-  if (['#earth', '#objects', '#sites', '#launches'].includes(window.location.hash)) return 'orbit'
-  return 'cover'
+  return resolveSurfaceFromHash(window.location.hash)
+}
+
+// 浏览器首次定位锚点时，异步场景可能还没挂载。等目标栏目出现再恢复。
+const initialHash = window.location.hash
+let initialSectionObserver: MutationObserver | undefined
+let initialSectionFrame: number | undefined
+function restoreInitialSection() {
+  const sectionId = sectionFromHash(initialHash)
+  if (!sectionId) return
+  const restore = () => {
+    if (window.location.hash !== initialHash) {
+      initialSectionObserver?.disconnect()
+      return true
+    }
+    const section = document.getElementById(sectionId)
+    if (!section) return false
+    initialSectionObserver?.disconnect()
+    initialSectionFrame = window.requestAnimationFrame(() => {
+      // 等浏览器完成加载后的原生锚点处理，再定位已挂载的栏目。
+      initialSectionFrame = window.requestAnimationFrame(() => {
+        initialSectionFrame = undefined
+        if (window.location.hash !== initialHash) return
+        section.scrollIntoView({ behavior: 'instant', block: 'start' })
+        updateActivePage()
+      })
+    })
+    return true
+  }
+  if (!restore()) {
+    initialSectionObserver = new MutationObserver(restore)
+    initialSectionObserver.observe(document.getElementById('app')!, { childList: true, subtree: true })
+  }
 }
 
 const selectedSpacecraft = computed(() => selection.value?.kind === 'spacecraft'
@@ -1831,6 +1850,8 @@ function onGlobalKeydown(event: KeyboardEvent) {
 }
 
 onMounted(() => {
+  if (document.readyState === 'complete') restoreInitialSection()
+  else window.addEventListener('load', restoreInitialSection, { once: true })
   window.addEventListener('popstate', onPopState)
   window.addEventListener('keydown', onGlobalKeydown)
   // 首页仍不挂载三维场景或请求权限；只预取约 50 kB 的太阳系组件代码，
@@ -1887,6 +1908,9 @@ onMounted(() => {
   }, 1000)
 })
 onBeforeUnmount(() => {
+  window.removeEventListener('load', restoreInitialSection)
+  initialSectionObserver?.disconnect()
+  if (initialSectionFrame !== undefined) window.cancelAnimationFrame(initialSectionFrame)
   if (clock) window.clearInterval(clock)
   if (skyModulePreloadTimer !== undefined) window.clearTimeout(skyModulePreloadTimer)
   if (pageSurfaceFrame) window.cancelAnimationFrame(pageSurfaceFrame)

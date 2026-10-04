@@ -1,6 +1,8 @@
 import { createApp } from 'vue'
 import App from './App.vue'
 import './style.css'
+import { sectionFromHash } from './routes'
+
 
 // 路径归一化：无论以什么路径打开（旧大写 /AURORA/、拼凑的 /aurora/AURORA/、无尾斜杠等
 // 脏路径，Vite SPA fallback 都会返回应用），统一替换为 base 路径，仅保留 hash 路由，
@@ -9,6 +11,8 @@ import './style.css'
   // 部分沙箱/iframe 环境禁止 JS 导航 API（replaceState 会抛 SecurityError）——
   // 归一化失败时静默降级，应用照常按 hash 路由运行
   try {
+    // 栏目定位由应用在异步组件挂载后完成，避免旧滚动位置覆盖它。
+    if (sectionFromHash(window.location.hash)) window.history.scrollRestoration = 'manual'
     const base = import.meta.env.BASE_URL // 以 / 结尾，如 '/aurora/'
     const path = window.location.pathname.endsWith('/')
       ? window.location.pathname

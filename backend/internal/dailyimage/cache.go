@@ -109,7 +109,7 @@ func wallCacheable(wall ImageWall) bool {
 		return false
 	}
 	for _, window := range wall.Recent {
-		if window.Status != "ready" || window.MediaType != "image" {
+		if window.Status != "ready" || window.MediaType != "image" || invalidAPODContent(window.Title, window.ImageURL) {
 			return false
 		}
 	}

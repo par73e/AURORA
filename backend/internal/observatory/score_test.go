@@ -68,7 +68,7 @@ func TestScoreObservingWithinWindow(t *testing.T) {
 	if *score.Score != 91 {
 		t.Errorf("score = %d，期望 91", *score.Score)
 	}
-	if score.Verdict != "条件出色，适合安排观测" {
+	if score.Verdict != "条件出色，今晚值得多看一会儿" {
 		t.Errorf("verdict = %q", score.Verdict)
 	}
 	if score.Weather == nil || score.Weather.Time != "2026-08-09T10:00" {

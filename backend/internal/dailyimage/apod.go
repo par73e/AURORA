@@ -46,13 +46,26 @@ type APODClient struct {
 	key        string
 	baseURL    string
 	httpClient *http.Client
+	pageURL    string
 }
 
 func NewAPODClient(key string) *APODClient {
-	return &APODClient{key: strings.TrimSpace(key), baseURL: apodURL, httpClient: &http.Client{Timeout: 10 * time.Second}}
+	return &APODClient{key: strings.TrimSpace(key), baseURL: apodURL, pageURL: "https://science.nasa.gov/apod/", httpClient: &http.Client{Timeout: 10 * time.Second}}
 }
 
 func (client *APODClient) Daily(ctx context.Context, date time.Time) (Image, error) {
+	image, err := client.dailyAPI(ctx, date)
+	if err == nil || errors.Is(err, ErrNotConfigured) {
+		return image, err
+	}
+	images, pageErr := client.pageImages(ctx, date, 1, true)
+	if pageErr != nil {
+		return Image{}, fmt.Errorf("APOD API unavailable (%v); official page: %w", err, pageErr)
+	}
+	return images[0], nil
+}
+
+func (client *APODClient) dailyAPI(ctx context.Context, date time.Time) (Image, error) {
 	if client.key == "" {
 		return Image{}, ErrNotConfigured
 	}
@@ -85,6 +98,18 @@ func (client *APODClient) Daily(ctx context.Context, date time.Time) (Image, err
 }
 
 func (client *APODClient) Recent(ctx context.Context, end time.Time, count int) ([]Image, error) {
+	images, err := client.recentAPI(ctx, end, count)
+	if err == nil || errors.Is(err, ErrNotConfigured) {
+		return images, err
+	}
+	images, pageErr := client.pageImages(ctx, end, count, false)
+	if pageErr != nil {
+		return nil, fmt.Errorf("APOD API unavailable (%v); official page: %w", err, pageErr)
+	}
+	return images, nil
+}
+
+func (client *APODClient) recentAPI(ctx context.Context, end time.Time, count int) ([]Image, error) {
 	if client.key == "" {
 		return nil, ErrNotConfigured
 	}
@@ -117,6 +142,12 @@ func (client *APODClient) Recent(ctx context.Context, end time.Time, count int) 
 	if err := json.NewDecoder(response.Body).Decode(&payloads); err != nil {
 		return nil, errors.New("decode recent APOD response")
 	}
+	// Reject a corrupted batch in full rather than mixing site chrome with APOD.
+	for _, payload := range payloads {
+		if invalidAPODContent(payload.Title, payload.URL) {
+			return nil, errors.New("recent APOD response contains site branding")
+		}
+	}
 	images := make([]Image, 0, count)
 	for index := len(payloads) - 1; index >= 0 && len(images) < count; index-- {
 		image, err := payloads[index].image()
@@ -142,6 +173,9 @@ type apodPayload struct {
 }
 
 func (payload apodPayload) image() (Image, error) {
+	if invalidAPODContent(payload.Title, payload.URL) {
+		return Image{}, errors.New("APOD response contains site branding")
+	}
 	if payload.Date == "" || payload.Title == "" || payload.URL == "" || (payload.MediaType != "image" && payload.MediaType != "video") {
 		return Image{}, errors.New("daily image response is incomplete")
 	}

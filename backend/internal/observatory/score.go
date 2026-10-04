@@ -278,13 +278,13 @@ func moonPenaltyFrom(illumination, altitude float64) float64 {
 func scoreVerdict(score int) string {
 	switch {
 	case score >= 85:
-		return "条件出色，适合安排观测"
+		return "条件出色，今晚值得多看一会儿"
 	case score >= 65:
-		return "条件良好，适合多种目标"
+		return "条件良好，今晚有不少天体值得一看"
 	case score >= 40:
-		return "条件一般，优先安排亮目标"
+		return "条件一般，明亮的天体更容易看清"
 	default:
-		return "条件受限，建议短时观察亮目标"
+		return "条件受限，今晚不太容易看清天体"
 	}
 }
 

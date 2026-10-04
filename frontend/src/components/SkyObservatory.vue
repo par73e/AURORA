@@ -17,7 +17,7 @@ import moonNearsideTexture from '../assets/solar/2k_moon.jpg'
 import AuroraBrand from './AuroraBrand.vue'
 import ObservatoryClock from './ObservatoryClock.vue'
 
-type SkyPage = 'conditions' | 'sky' | 'events' | 'daily-image'
+import { skyPageFromHash, type SkyPage } from '../routes'
 
 const emit = defineEmits<{ home: [] }>()
 
@@ -29,11 +29,7 @@ const menu = [
 ]
 
 function pageFromHash(): SkyPage {
-  const hash = window.location.hash
-  if (hash === '#astronomy-daily-image') return 'daily-image'
-  if (hash === '#astronomy-events') return 'events'
-  if (hash === '#astronomy-sky' || hash === '#astronomy-tonight' || hash === '#astronomy-windows' || hash === '#astronomy-targets') return 'sky'
-  return 'conditions'
+  return skyPageFromHash(window.location.hash)
 }
 
 const activePage = ref<SkyPage>(pageFromHash())
@@ -1494,7 +1490,7 @@ watch(todayDateKey, () => {
 })
 watch(activePage, (page) => {
   if (page === 'daily-image' && imageWallStatus.value === 'idle') void loadImageWall()
-})
+}, { immediate: true })
 watch(moon, renderMoon)
 watch(moonDay, renderMoon)
 watch(moonCanvas, (canvas) => {
