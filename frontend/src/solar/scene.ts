@@ -2,6 +2,7 @@
 // 轨道线、小行星带、柯伊伯带完整绘制；34° 斜俯视构图，仅保留滚轮缩放交互。
 
 import * as THREE from 'three'
+import { ScenePerformance } from '../performance/scenePerformance'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import {
   ASTEROID_BELT,
@@ -191,6 +192,8 @@ export class SolarSystemScene {
   private elapsed = 0
   private timeScale = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 1
   private motionQuery: MediaQueryList
+  private performanceMonitor: ScenePerformance
+  private paused = false
   private disposed = false
   /** 相机基向量（由俯仰/方位角确定） */
   private dir = new THREE.Vector3()
@@ -295,6 +298,7 @@ export class SolarSystemScene {
       logarithmicDepthBuffer: true, // 近 0.05 ~ 远 120000 的跨度过大，对数深度防止 z-fighting
     })
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    this.performanceMonitor = new ScenePerformance('solar-system', this.renderer)
     this.renderer.setSize(host.clientWidth, host.clientHeight)
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
@@ -351,7 +355,23 @@ export class SolarSystemScene {
     this.renderer.render(this.scene, this.camera)
   }
 
+  pause() {
+    this.paused = true
+    cancelAnimationFrame(this.frameId)
+    this.performanceMonitor.pause()
+  }
+
+  resume() {
+    if (this.disposed || !this.paused) return
+    this.paused = false
+    this.clock.getDelta()
+    this.performanceMonitor.resume()
+    this.onResize()
+    this.animate()
+  }
+
   dispose() {
+    this.performanceMonitor.dispose()
     cancelAnimationFrame(this.frameId)
     this.disposed = true
     this.motionQuery.removeEventListener('change', this.onMotionChange)
@@ -841,11 +861,15 @@ export class SolarSystemScene {
   // ---- 帧循环 ------------------------------------------------------------
 
   private animate = () => {
+    if (this.paused || this.disposed) return
     this.frameId = requestAnimationFrame(this.animate)
+    this.performanceMonitor.beginFrame()
     try {
       this.tick()
     } catch (error) {
       console.error('SolarSystemScene animate 异常:', error)
+    } finally {
+      this.performanceMonitor.endFrame()
     }
   }
 
@@ -1151,6 +1175,7 @@ export class SolarSystemScene {
   }
 
   private updateLabels() {
+    // 标签与同一帧的镜头投影保持同步；限频会让文字在缩放/飞行中阶梯式移动。
     const width = this.host.clientWidth
     const height = this.host.clientHeight
     if (width === 0 || height === 0) return

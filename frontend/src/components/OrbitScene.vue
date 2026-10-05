@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as THREE from 'three'
+import { DetailTexture } from '../solar/detailTexture'
+import { OrbitPositions } from '../orbit/positions'
+import { ScenePerformance } from '../performance/scenePerformance'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { LaunchEvent, LaunchSite, SceneLayers, Selection, Spacecraft } from '../types'
 import { EARTH_DAY_TEXTURE_URL, EARTH_NIGHT_TEXTURE_URL, EARTH_RADIUS, EARTH_TILT_QUATERNION, latLonToVector, sampleOrbit, spacecraftPoint } from '../orbit/coordinates'
@@ -206,6 +209,8 @@ const pointerNearEarth = ref(false)
 /** 悬停选中的航天器（不触发展开/运镜，仅驱动高亮：标记+标签+轨道线联动） */
 const hoveredSpacecraftId = ref<string | null>(null)
 
+let detailTexture: DetailTexture | undefined
+let performanceMonitor: ScenePerformance | undefined
 let renderer: THREE.WebGLRenderer | undefined
 let scene: THREE.Scene | undefined
 let camera: THREE.PerspectiveCamera | undefined
@@ -281,6 +286,8 @@ const toOcclusionTarget = new THREE.Vector3()
 const pointer = new THREE.Vector2()
 const pointerStart = new THREE.Vector2()
 let pointerViewChangeAnnounced = false
+let orbitPositions: OrbitPositions | undefined
+const orbitPositionTmp = new THREE.Vector3()
 let lastOrbitUpdate = 0
 let lastSunUpdate = 0
 let focusAnimation: {
@@ -440,6 +447,7 @@ function cachedOrbitPoints(craft: Spacecraft, now: Date): THREE.Vector3[] {
   const bucket = Math.floor(now.getTime() / 60_000)
   const hit = orbitSampleCache.get(craft.id)
   if (hit && hit.at === bucket) return hit.points
+  if (orbitPositions?.available) return hit?.points ?? []
   const points = sampleOrbit(craft, now)
   orbitSampleCache.set(craft.id, { at: bucket, points })
   return points
@@ -541,6 +549,7 @@ function updateSpacecraftPositions(now: Date) {
     const point = spacecraftPoint(craft, now)
     const marker = markerObjects.get(`spacecraft:${craft.id}`)
     if (!point || !marker) continue
+    marker.visible = true
     marker.position.copy(point.position)
   }
 }
@@ -628,7 +637,7 @@ function updateLabels() {
 
   const projectedCrafts = props.spacecraft.flatMap((craft) => {
     const marker = markerObjects.get(`spacecraft:${craft.id}`)
-    if (!marker || !props.layers.spacecraft) return []
+    if (!marker || !marker.visible || !props.layers.spacecraft) return []
     const position = marker.getWorldPosition(labelWorldTmp)
     labelProjTmp.copy(position).project(cam)
     return [{
@@ -725,6 +734,8 @@ function setupScene() {
 
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+  performanceMonitor = new ScenePerformance('earth', renderer)
+  performanceMonitor.setDiagnostics(() => ({ orbit: orbitPositions?.status(), surfaceTextureWidth: earthDayMaterial?.map?.image?.width ?? 0 }))
   renderer.setSize(host.clientWidth, host.clientHeight)
   renderer.outputColorSpace = THREE.SRGBColorSpace
   renderer.toneMapping = THREE.ACESFilmicToneMapping
@@ -761,32 +772,35 @@ function setupScene() {
   earth.visible = false
   if (earthSystemGroup) earthSystemGroup.visible = false
   spinGroup.add(earth)
-  loader.load(
-    EARTH_DAY_TEXTURE_URL,
-    (texture) => {
-      texture.colorSpace = THREE.SRGBColorSpace
-      if (earthDayMaterial) {
-        earthDayMaterial.map = texture
-        earthDayMaterial.color.set(0xffffff)
-        earthDayMaterial.needsUpdate = true
-      }
-      if (nightLightsMaterial) nightLightsMaterial.uniforms.surfaceMap.value = texture
-      textureState.value = 'ready'
-      if (earth) earth.visible = true // 纹理就绪瞬间显示（黑屏后直接是带纹理的地球）
-      if (earthSystemGroup) earthSystemGroup.visible = true // 大气/夜间层随地球一起出现
-      emitTexturesReady()
-    },
-    undefined,
-    () => {
-      textureState.value = 'fallback'
-      if (earth) earth.visible = true // 失败降级为纯色地球，不能永久隐藏
-      if (earthSystemGroup) earthSystemGroup.visible = true
-    },
-  )
+  detailTexture = new DetailTexture(EARTH_DAY_TEXTURE_URL, texture => {
+    if (earthDayMaterial) { earthDayMaterial.map = texture; earthDayMaterial.needsUpdate = true }
+    if (nightLightsMaterial) nightLightsMaterial.uniforms.surfaceMap.value = texture
+  }, () => {
+    if (earthDayMaterial) {
+      const loaded = earthDayMaterial.map?.image
+      earthDayMaterial.color.set(loaded ? 0xffffff : 0x244a63)
+      if (!loaded) earthDayMaterial.map = null
+      earthDayMaterial.needsUpdate = true
+    }
+    if (nightLightsMaterial && detailTexture) nightLightsMaterial.uniforms.surfaceMap.value = detailTexture.preview
+    textureState.value = earthDayMaterial?.map?.image ? 'ready' : 'fallback'
+    if (earth) earth.visible = true
+    if (earthSystemGroup) earthSystemGroup.visible = true
+    emitTexturesReady()
+  })
+  detailTexture.preview.colorSpace = THREE.SRGBColorSpace
+  earthDayMaterial.map = detailTexture.preview
+  if (detailTexture.preview.image) {
+    earth.visible = true
+    if (earthSystemGroup) earthSystemGroup.visible = true
+    earthDayMaterial.color.set(0xffffff)
+    textureState.value = 'ready'
+    emitTexturesReady()
+  }
 
   nightLightsMaterial = new THREE.ShaderMaterial({
     uniforms: {
-      surfaceMap: { value: null },
+      surfaceMap: { value: detailTexture.preview },
       nightMap: { value: null },
       sunDirection: { value: new THREE.Vector3(0, 0, 1) },
     },
@@ -905,6 +919,19 @@ function setupScene() {
   host.addEventListener('wheel', onSceneWheel, { passive: false })
   resizeObserver = new ResizeObserver(resize)
   resizeObserver.observe(host)
+  orbitPositions = new OrbitPositions((tracks) => {
+    for (const track of tracks) {
+      const points: THREE.Vector3[] = []
+      for (let i = 0; i < track.points.length; i += 3) points.push(new THREE.Vector3(track.points[i], track.points[i + 1], track.points[i + 2]))
+      orbitSampleCache.set(track.id, { at: Math.floor(Date.now() / 60000), points })
+      const runtime = lineObjects.get(`spacecraft:${track.id}`)
+      if (runtime) {
+        runtime.line.geometry.dispose()
+        runtime.line.geometry = new THREE.BufferGeometry().setFromPoints(points)
+      }
+    }
+  }, () => rebuildDataLayers())
+  orbitPositions.setCrafts(props.spacecraft)
   rebuildDataLayers()
   rebuildObserverMarker()
   // 分阶段入场：由 revealTick 递增触发（scheduleRevealLayers），与月球页同基准
@@ -1063,6 +1090,8 @@ function onPointerUp(event: PointerEvent) {
 
 function animate(time = 0) {
   frameId = requestAnimationFrame(animate)
+  performanceMonitor?.beginFrame()
+  if (camera && renderer) detailTexture?.update(EARTH_RADIUS / Math.max(camera.position.length(), 0.01) * (canvasHost.value?.clientHeight ?? 0) / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * renderer.getPixelRatio())
   // 共享 800ms 时间轴：只从 -12° 向东到 0°，相机保持静止。
   if (spinGroup && spinPhase !== 'done') {
     spinGroup.rotation.y = entrySpinAngle(SPIN_INITIAL_OFFSET, spinStartAt, time)
@@ -1099,7 +1128,15 @@ function animate(time = 0) {
     )
     controls.rotateSpeed = 0.2 + t * 0.5
   }
-  if (time - lastOrbitUpdate > 1000) {
+  if (orbitPositions?.available) {
+    for (const craft of props.spacecraft) {
+      const marker = markerObjects.get(`spacecraft:${craft.id}`)
+      if (marker) {
+        marker.visible = orbitPositions.position(craft.id, orbitPositionTmp, Date.now())
+        if (marker.visible) marker.position.copy(orbitPositionTmp)
+      }
+    }
+  } else if (time - lastOrbitUpdate > 1000) {
     updateSpacecraftPositions(new Date())
     lastOrbitUpdate = time
   }
@@ -1197,9 +1234,11 @@ function animate(time = 0) {
   updateLabels()
   updateReveals()
   if (scene && camera && renderer) renderer.render(scene, camera)
+  performanceMonitor?.endFrame()
 }
 
 watch(() => [props.spacecraft, props.sites], async () => {
+  orbitPositions?.setCrafts(props.spacecraft)
   orbitSampleCache.clear() // TLE 刷新（同 id 新 omm）时清轨道采样缓存，避免 1 分钟桶内旧轨道
   await nextTick()
   rebuildDataLayers()
@@ -1219,6 +1258,9 @@ watch(() => props.dayNightEnabled, applyDayNightMode)
 
 onMounted(setupScene)
 onBeforeUnmount(() => {
+  detailTexture?.dispose()
+  orbitPositions?.dispose()
+  performanceMonitor?.dispose()
   cancelAnimationFrame(frameId)
   resizeObserver?.disconnect()
   if (renderer) {

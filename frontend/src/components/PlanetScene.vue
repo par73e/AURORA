@@ -202,7 +202,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as THREE from 'three'
+import { ScenePerformance } from '../performance/scenePerformance'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { DetailTexture } from '../solar/detailTexture'
 import { solarTexture } from '../solar/textures'
 import { entrySpinAngle, entrySpinFinished } from '../entrySpin'
 import type { PlanetCraft, PlanetCraftTrajectory, PlanetPageConfig } from '../planetPages'
@@ -632,6 +634,8 @@ watch(
   { immediate: true },
 )
 
+let detailTexture: DetailTexture | undefined
+let performanceMonitor: ScenePerformance | undefined
 let renderer: THREE.WebGLRenderer | undefined
 let scene: THREE.Scene | undefined
 let camera: THREE.PerspectiveCamera | undefined
@@ -775,6 +779,8 @@ onMounted(() => {
 
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+  performanceMonitor = new ScenePerformance(props.planet.key, renderer)
+  performanceMonitor.setDiagnostics(() => ({ surfaceTextureWidth: planetMaterial?.map?.image?.width ?? 0 }))
   const initialWidth = host.clientWidth || window.innerWidth
   const initialHeight = host.clientHeight || window.innerHeight
   renderer.setSize(initialWidth, initialHeight)
@@ -820,7 +826,10 @@ onMounted(() => {
   controls.maxDistance = Math.max(props.planet.radius * 6.7, props.planet.defaultDistance)
 
   // 行星本体：行星用 PBR 材质（受光照，晨昏线依赖明暗）；恒星（太阳）用自发光 Basic 材质（不受光照）
-  const texture = solarTexture(props.planet.textureUrl, () => emitTexturesReady())
+  detailTexture = new DetailTexture(props.planet.textureUrl, texture => {
+    if (planetMaterial) { planetMaterial.map = texture; planetMaterial.needsUpdate = true }
+  }, () => emitTexturesReady())
+  const texture = detailTexture.preview
   texture.colorSpace = THREE.SRGBColorSpace
   texture.anisotropy = 16
   planetMaterial = props.planet.star
@@ -1104,6 +1113,8 @@ onMounted(() => {
   const animate = () => {
     frameId = requestAnimationFrame(animate)
     if (!renderer || !scene || !camera) return
+    performanceMonitor?.beginFrame()
+    detailTexture?.update((props.planet.radius / Math.max(camera.position.length(), 0.01)) * (canvasHost.value?.clientHeight ?? 0) / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * renderer.getPixelRatio())
     const now = performance.now()
     const elementsOpacity = entryElementsOpacity(now) * exitElementsOpacity(now)
 
@@ -1206,6 +1217,7 @@ onMounted(() => {
       updateCraftLabels(siteLabels.value)
     }
     renderer.render(scene, camera)
+    performanceMonitor?.endFrame()
   }
   animate()
 })
@@ -1383,6 +1395,8 @@ function onSceneWheel(event: WheelEvent) {
 }
 
 onBeforeUnmount(() => {
+  detailTexture?.dispose()
+  performanceMonitor?.dispose()
   if (focusTimer !== undefined) clearTimeout(focusTimer)
   cancelAnimationFrame(frameId)
   resizeObserver?.disconnect()

@@ -188,8 +188,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as THREE from 'three'
+import { ScenePerformance } from '../performance/scenePerformance'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { MOON_HD } from '../solar/data'
+import { DetailTexture } from '../solar/detailTexture'
 import { solarTexture } from '../solar/textures'
 import type { MoonLandingSite, MoonSpacecraft } from '../types'
 import { fetchMoonLandingSites, fetchMoonSpacecraft } from '../api'
@@ -516,6 +518,8 @@ watch(selectedCraft, (id) => {
 
 // 着陆点聚焦改由 selectSite/focusSite 显式触发（watch 有 flush 时序与同 id 不触发的问题）
 
+let detailTexture: DetailTexture | undefined
+let performanceMonitor: ScenePerformance | undefined
 let renderer: THREE.WebGLRenderer | undefined
 let scene: THREE.Scene | undefined
 let camera: THREE.PerspectiveCamera | undefined
@@ -568,6 +572,8 @@ onMounted(() => {
 
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+  performanceMonitor = new ScenePerformance('moon', renderer)
+  performanceMonitor.setDiagnostics(() => ({ surfaceTextureWidth: moonMaterial?.map?.image?.width ?? 0 }))
   const initialWidth = host.clientWidth || window.innerWidth
   const initialHeight = host.clientHeight || window.innerHeight
   renderer.setSize(initialWidth, initialHeight)
@@ -609,7 +615,10 @@ onMounted(() => {
   controls.maxDistance = 15.5 // 缩到最远：与地球视大小统一（地球 12 → 视半径 10.3°；月球 15.5 → 4.1°）——需 > 默认距离 9
 
   // 月球本体：8k 贴图 + PBR 材质（保留质感，同地球模式）
-  const texture = solarTexture(MOON_HD.textureUrl, () => emitTexturesReady())
+  detailTexture = new DetailTexture(MOON_HD.textureUrl, texture => {
+    if (moonMaterial) { moonMaterial.map = texture; moonMaterial.needsUpdate = true }
+  }, () => emitTexturesReady())
+  const texture = detailTexture.preview
   texture.colorSpace = THREE.SRGBColorSpace
   texture.anisotropy = 16
   moonMaterial = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.92, metalness: 0.02 })
@@ -662,6 +671,8 @@ onMounted(() => {
   const animate = () => {
     frameId = requestAnimationFrame(animate)
     if (!renderer || !scene || !camera) return
+    performanceMonitor?.beginFrame()
+    detailTexture?.update((MOON_RADIUS / Math.max(camera.position.length(), 0.01)) * (canvasHost.value?.clientHeight ?? 0) / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * renderer.getPixelRatio())
     const now = performance.now()
     const orbitNowSeconds = Date.now() / 1000
 
@@ -754,6 +765,7 @@ onMounted(() => {
     updateLabels()
     updateSiteMarkerProximity()
     renderer.render(scene, camera)
+    performanceMonitor?.endFrame()
   }
   animate()
 })
@@ -1251,6 +1263,8 @@ function updateLabels() {
 }
 
 onBeforeUnmount(() => {
+  detailTexture?.dispose()
+  performanceMonitor?.dispose()
   abortSceneData()
   if (focusTimer !== undefined) clearTimeout(focusTimer)
   cancelAnimationFrame(frameId)

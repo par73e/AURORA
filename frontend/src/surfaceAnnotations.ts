@@ -1,3 +1,4 @@
+import { stableLayouts } from './performance/stableLayouts.ts'
 export type SceneAnnotationMode = 'full' | 'compact' | 'cluster'
 export type SceneAnnotationSide = 'left' | 'right'
 
@@ -145,11 +146,11 @@ function distance(a: SceneAnchorProjection, b: SceneAnchorProjection) {
 /** x 是靠近圆点的标签边缘；左侧按真实 DOM 宽度定位，不猜测文字宽度。 */
 export function sceneAnnotationStyle(label: SceneAnnotationLayout) {
   return {
-    left: `${label.x}px`,
-    top: `${label.y}px`,
+    left: '0px',
+    top: '0px',
     transform: label.side === 'left'
-      ? `translate(-100%, -50%) scale(${label.scale})`
-      : `translateY(-50%) scale(${label.scale})`,
+      ? `translate3d(${label.x}px, ${label.y}px, 0) translate(-100%, -50%) scale(${label.scale})`
+      : `translate3d(${label.x}px, ${label.y}px, 0) translateY(-50%) scale(${label.scale})`,
     transformOrigin: `${label.side === 'left' ? 'right' : 'left'} center`,
   }
 }
@@ -332,7 +333,7 @@ export function layoutSceneAnnotations<T extends SceneAnchorProjection>(
     }
   }
 
-  return anchors.map((item) => layouts.get(item.id) ?? {
+  const result = anchors.map((item) => layouts.get(item.id) ?? {
     ...item,
     x: item.anchorX,
     y: item.anchorY,
@@ -343,4 +344,5 @@ export function layoutSceneAnnotations<T extends SceneAnchorProjection>(
     clusterCount: 1,
     memberIds: [item.id],
   }) as Array<T & SceneAnnotationLayout>
+  return stableLayouts(previous as Array<T & SceneAnnotationLayout>, result)
 }

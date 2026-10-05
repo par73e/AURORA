@@ -1,6 +1,7 @@
 // 页面切换前的资源预热：利用过渡动画时间提前加载目标页的重纹理，
 // 避免切换后出现"建模加载"式的卡顿（尤其远端的地球纹理）。
 
+import { previewTextureUrl } from './solar/textureLevels'
 import { EARTH_DAY_TEXTURE_URL, EARTH_NIGHT_TEXTURE_URL } from './orbit/coordinates'
 import { MARS_HD, MOON_HD } from './solar/data'
 import { preloadSolarTextures as preloadSolarTextureObjects } from './solar/textures'
@@ -43,32 +44,31 @@ export function preloadSolarTextures() {
 
 /** 预热 ORBIT 地球纹理（远端 unpkg，提前加载可避免进场时地球灰模/弹出） */
 export function preloadOrbitTextures() {
-  warm(EARTH_DAY_TEXTURE_URL)
+  warm(previewTextureUrl(EARTH_DAY_TEXTURE_URL))
   warm(EARTH_NIGHT_TEXTURE_URL)
 }
 
-/** 地球纹理解码就绪（黑幕期间等待；就绪才揭示，避免 21k 解码卡顿） */
+/** 地球纹理解码就绪（黑幕期间等待；就绪才揭示，避免大图解码卡顿） */
 export function orbitTexturesReady(): Promise<void> {
-  return Promise.all([warmAndDecode(EARTH_DAY_TEXTURE_URL), warmAndDecode(EARTH_NIGHT_TEXTURE_URL)]).then(() => undefined)
+  return Promise.all([warmAndDecode(previewTextureUrl(EARTH_DAY_TEXTURE_URL)), warmAndDecode(EARTH_NIGHT_TEXTURE_URL)]).then(() => undefined)
 }
 
-/** 预热月球高清贴图：仅下载不解码（THREE 加载器会立即主线程解码 16k，点击瞬间解码会卡镜头动画；
- *  解码由 moonHdReady 在遮罩全黑后显式触发） */
+/** 预热月球预览贴图；高清贴图由独立场景按屏幕尺寸请求 */
 export function preloadMoonHdTexture() {
-  warm(MOON_HD.textureUrl)
+  warm(previewTextureUrl(MOON_HD.textureUrl))
 }
 
-/** 月球 16k 纹理解码就绪（黑幕期间等待） */
+/** 月球预览纹理解码就绪（黑幕期间等待） */
 export function moonHdReady(): Promise<void> {
-  return warmAndDecode(MOON_HD.textureUrl)
+  return warmAndDecode(previewTextureUrl(MOON_HD.textureUrl))
 }
 
-/** 预热火星高清贴图（本地 8k，提前下载避免切换后卡顿） */
+/** 预热火星预览贴图，高清贴图按需加载 */
 export function preloadMarsHdTexture() {
-  warm(MARS_HD.textureUrl)
+  warm(previewTextureUrl(MARS_HD.textureUrl))
 }
 
-/** 火星 8k 纹理解码就绪（黑幕期间等待） */
+/** 火星预览纹理解码就绪（黑幕期间等待） */
 export function marsHdReady(): Promise<void> {
-  return warmAndDecode(MARS_HD.textureUrl)
+  return warmAndDecode(previewTextureUrl(MARS_HD.textureUrl))
 }

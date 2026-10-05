@@ -2136,6 +2136,7 @@ onBeforeUnmount(() => {
         @textures-ready="onSunSceneReady"
       />
 
+      <KeepAlive :max="1">
       <SolarSystem
         ref="solarSystemRef"
         v-if="surface === 'solar-system' || (surface === 'cover' && solarHomePrewarming)"
@@ -2185,7 +2186,9 @@ onBeforeUnmount(() => {
         @select-sun="onSunSelect"
       />
 
-      <template v-else-if="surface === 'orbit'">
+      </KeepAlive>
+
+      <template v-if="surface === 'orbit'">
       <section id="earth" ref="orbitSection" class="orbit-section" :class="{ leaving: orbitSectionLeaving, 'elements-revealed': orbitElementsRevealed }">
         <div class="page-frame">
           <div ref="orbitSceneFrame" class="scene-frame">

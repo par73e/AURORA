@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onActivated, onDeactivated, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { stableLayouts } from '../performance/stableLayouts'
 import { SolarSystemScene, type SolarLabel } from '../solar/scene'
 import { solarSession } from '../solar/session'
 import { MOON, planets, SUN, type PlanetSpec } from '../solar/data'
@@ -325,7 +326,7 @@ onMounted(() => {
       },
     },
     (next) => {
-      labels.value = next
+      labels.value = stableLayouts(labels.value, next)
     },
   )
   scene.setProbesVisible(spacecraftEnabled.value)
@@ -382,6 +383,41 @@ onMounted(() => {
       if (controller.signal.aborted) return
       console.error('加载深空探测器数据失败:', error)
     })
+})
+
+let suspended = false
+onDeactivated(() => {
+  suspended = true
+  scene?.pause()
+  window.removeEventListener('keydown', onKeydown)
+})
+onActivated(() => {
+  if (!suspended) return
+  suspended = false
+  window.addEventListener('keydown', onKeydown)
+  selectedProbe.value = null
+  flightPlanet = null
+  scene?.resume()
+  const sources = [
+    ['sun', props.enterFromSun], ['neptune', props.enterFromNeptune],
+    ['uranus', props.enterFromUranus], ['mercury', props.enterFromMercury],
+    ['jupiter', props.enterFromJupiter], ['saturn', props.enterFromSaturn],
+    ['venus', props.enterFromVenus], ['mars', props.enterFromMars],
+    ['moon', props.enterFromMoon], ['earth', props.enterFromOrbit],
+  ] as const
+  const source = sources.find(([, returning]) => returning)?.[0]
+  if (source) {
+    activeId.value = source
+    const returns = {
+      sun: () => scene?.flyFromSun(), neptune: () => scene?.flyFromNeptune(),
+      uranus: () => scene?.flyFromUranus(), mercury: () => scene?.flyFromMercury(),
+      jupiter: () => scene?.flyFromJupiter(), saturn: () => scene?.flyFromSaturn(),
+      venus: () => scene?.flyFromVenus(), mars: () => scene?.flyFromMars(),
+      moon: () => scene?.flyFromMoon(), earth: () => scene?.flyFromEarth(),
+    }
+    returns[source]()
+    scene?.setSelected(source)
+  } else if (props.playEntryFly) scene?.flyInFromDistance(props.flyDelay ?? 0)
 })
 
 onBeforeUnmount(() => {

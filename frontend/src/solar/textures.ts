@@ -5,6 +5,7 @@
  */
 import * as THREE from 'three'
 import { ALL_TEXTURE_URLS } from './data'
+import { previewTextureUrl } from './textureLevels'
 
 type TextureStatus = 'loading' | 'ready' | 'error'
 
@@ -41,8 +42,12 @@ function loadSolarTexture(url: string): TextureEntry {
     undefined,
     () => {
       entry.status = 'error'
-      entry.callbacks.clear()
-      settle()
+      try {
+        for (const callback of entry.callbacks) callback(entry.texture)
+      } finally {
+        entry.callbacks.clear()
+        settle()
+      }
     },
   )
   entry = { texture, status: 'loading', callbacks, settled }
@@ -52,12 +57,12 @@ function loadSolarTexture(url: string): TextureEntry {
 
 /**
  * 获取太阳系纹理：优先复用预热好的 Texture；未预热时现场加载（行为与旧版一致）。
- * 纹理已就绪时同步返回；回调在纹理可用时触发（用于需要 map 就绪后更新的材质）。
+ * 纹理已就绪时同步返回；回调在加载结束时触发，失败时 texture.image 为空。
  */
-export function solarTexture(url: string, onReady?: (texture: THREE.Texture) => void): THREE.Texture {
-  const entry = loadSolarTexture(url)
+export function solarTexture(url: string, onReady?: (texture: THREE.Texture) => void, detail = false): THREE.Texture {
+  const entry = loadSolarTexture(detail ? url : previewTextureUrl(url))
   if (onReady) {
-    if (entry.status === 'ready') onReady(entry.texture)
+    if (entry.status !== 'loading') onReady(entry.texture)
     else if (entry.status === 'loading') entry.callbacks.add(onReady)
   }
   return entry.texture
@@ -65,7 +70,7 @@ export function solarTexture(url: string, onReady?: (texture: THREE.Texture) => 
 
 /** 启动预热：由场景复用同一批 TextureLoader 图像，不再另建 Image 重复解码。 */
 export function preloadSolarTextures() {
-  for (const url of ALL_TEXTURE_URLS) loadSolarTexture(url)
+  for (const url of ALL_TEXTURE_URLS) loadSolarTexture(previewTextureUrl(url))
 }
 
 /**
@@ -73,5 +78,5 @@ export function preloadSolarTextures() {
  * 加载失败同样结束等待，避免过渡永久卡住。
  */
 export function solarTexturesReady(): Promise<void> {
-  return Promise.all(ALL_TEXTURE_URLS.map((url) => loadSolarTexture(url).settled)).then(() => undefined)
+  return Promise.all(ALL_TEXTURE_URLS.map((url) => loadSolarTexture(previewTextureUrl(url)).settled)).then(() => undefined)
 }

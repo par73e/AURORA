@@ -25,6 +25,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as THREE from 'three'
+import { ScenePerformance } from '../performance/scenePerformance'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { PlanetSite } from '../planetPages'
 import MissionSceneLabel from './MissionSceneLabel.vue'
@@ -57,6 +58,7 @@ function siteGlyph(_icon: 'lander') {
   return '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M6 12.5h8M8 5h4l2 7H6l2-7Zm-2 7-2 4m10-4 2 4M4 16.5h3m6 0h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>'
 }
 
+let performanceMonitor: ScenePerformance | undefined
 let renderer: THREE.WebGLRenderer | null = null
 let scene: THREE.Scene | null = null
 let camera: THREE.PerspectiveCamera | null = null
@@ -125,6 +127,7 @@ onMounted(() => {
   camera.position.set(0, 0.15, 5.2)
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+  performanceMonitor = new ScenePerformance('titan-landing', renderer)
   renderer.setSize(width, height)
   renderer.outputColorSpace = THREE.SRGBColorSpace
   root.prepend(renderer.domElement)
@@ -172,6 +175,7 @@ onMounted(() => {
   const animate = () => {
     frame = requestAnimationFrame(animate)
     if (!camera || !renderer || !scene || !marker || !host.value) return
+    performanceMonitor?.beginFrame()
     if (focusAnimation) {
       const t = Math.min(1, (performance.now() - focusAnimation.startedAt) / 750)
       const eased = 1 - Math.pow(1 - t, 3)
@@ -201,11 +205,13 @@ onMounted(() => {
     }], { width: host.value.clientWidth, height, currentPlanetRadiusPx: currentRadius, referencePlanetRadiusPx: referenceRadius,
       safeTopPx: 72, preferFullLabels: true }, label.value ? [label.value] : [])[0] ?? null) : null
     renderer.render(scene, camera)
+    performanceMonitor?.endFrame()
   }
   animate()
 })
 
 onBeforeUnmount(() => {
+  performanceMonitor?.dispose()
   cancelAnimationFrame(frame)
   resizeObserver?.disconnect()
   controls?.dispose()
