@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AURORA SKY · 原页面配色样板</title>
+  <style>
+    html, body { width: 100%; height: 100%; margin: 0; background: #0b1322; }
+    iframe { display: block; width: 100%; height: 100%; border: 0; visibility: hidden; }
+  </style>
+</head>
+<body>
+  <iframe title="AURORA 天文观测原页面配色样板" aria-label="AURORA 天文观测原页面配色样板"></iframe>
+  <script>
+    const routes = {
+      conditions: '观星条件',
+      sky: '星图',
+      events: '天象',
+      image: '每日一图',
+    }
+    const page = new URLSearchParams(window.location.search).get('page') || 'conditions'
+    const frame = document.querySelector('iframe')
+
+    // Preview-only styles are injected into the existing Vue page. No markup,
+    // content, application state, data source, or interaction is replaced.
+    const previewStyles = `
+      .sky-shell.sky-shell {
+        --sky-ink: #e5effa !important;
+        --sky-muted: #a2b4ca !important;
+        --sky-line: rgba(145, 191, 226, .18) !important;
+        --sky-panel: #142039 !important;
+        --sky-sunken: #0e1b2e !important;
+        --sky-deep: #0b1527 !important;
+        --sky-lunar: #e0ecf8 !important;
+        --sky-amber: #8fd5ff !important;
+        --sky-cyan: #a7ddff !important;
+      }
+      .sky-shell .events-lead { border-top-width: 1px !important; }
+      .sky-shell .instrument-grid .light-reading { background: rgba(143, 213, 255, .025) !important; }
+      .sky-shell .catalog-messier > i { color: #8fd5ff !important; }
+      .sky-shell .catalog-messier:hover > i,
+      .sky-shell .catalog-messier.selected > i {
+        color: #a7ddff !important;
+        text-shadow: 0 0 12px rgba(143, 213, 255, .55) !important;
+      }
+    `
+    frame.addEventListener('load', () => {
+      try {
+        const document = frame.contentDocument
+        let style = document.getElementById('aurora-sky-preview-colors')
+        if (!style) {
+          style = document.createElement('style')
+          style.id = 'aurora-sky-preview-colors'
+          document.head.append(style)
+        }
+        style.textContent = previewStyles
+        if (page !== 'conditions' && routes[page]) {
+          const selectPage = (attempt = 0) => {
+            const button = [...document.querySelectorAll('.sky-menu button')]
+              .find((item) => item.textContent.includes(routes[page]))
+            if (button) button.click()
+            else if (attempt < 100) window.setTimeout(() => selectPage(attempt + 1), 50)
+          }
+          selectPage()
+        }
+      } finally {
+        frame.style.visibility = 'visible'
+      }
+    })
+    frame.src = './#astronomy-conditions'
+  </script>
+</body>
+</html>

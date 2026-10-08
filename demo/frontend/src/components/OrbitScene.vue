@@ -1,0 +1,1446 @@
+<script setup lang="ts">
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import * as THREE from 'three'
+import { DetailTexture } from '../solar/detailTexture'
+import { OrbitPositions } from '../orbit/positions'
+import { ScenePerformance } from '../performance/scenePerformance'
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import type { LaunchEvent, LaunchSite, SceneLayers, Selection, Spacecraft } from '../types'
+import { EARTH_DAY_TEXTURE_URL, EARTH_NIGHT_TEXTURE_URL, EARTH_RADIUS, EARTH_TILT_QUATERNION, latLonToVector, sampleOrbit, spacecraftPoint } from '../orbit/coordinates'
+import { bilingualName } from '../bilingual'
+import MissionDetailPanel from './MissionDetailPanel.vue'
+import MissionSceneLabel from './MissionSceneLabel.vue'
+import type { MissionDetail } from '../missionPresentation'
+import { spacecraftFields } from '../missionPresentation'
+import { ENTRY_SPIN_DURATION_MS, entrySpinAngle, entrySpinFinished } from '../entrySpin'
+import type { SceneAnnotationLayout, SurfaceAnnotationLayout } from '../surfaceAnnotations'
+import { layoutSceneAnnotations, sceneAnnotationStyle, projectedSphereRadiusPx, orbitMarkerRadiusPx, sceneMarkerWorldRadius, surfaceMarkerRadiusPx, surfaceMarkerWorldRadius } from '../surfaceAnnotations'
+
+/** 挂载时南海的预设偏角：黑幕中先把南海从中心转开 12°，
+ *  随后自西向东转，终点恰好 0°（南海正中） */
+const SPIN_INITIAL_OFFSET = -THREE.MathUtils.degToRad(12)
+
+const props = defineProps<{
+  spacecraft: Spacecraft[]
+  sites: LaunchSite[]
+  events: LaunchEvent[] // 面板迁移时漏声明：selectedEvent 依赖它，缺失导致面板内容空白
+  layers: SceneLayers
+  selection: Selection | null
+  headerExpanded?: boolean
+  focusTarget?: { latitude: number; longitude: number; distance?: number; key: string } | null
+  observerTarget?: { latitude: number; longitude: number; label: string } | null
+  observerActive?: boolean
+  dayNightEnabled?: boolean
+  revealTick?: number
+  enterFromSolar?: boolean
+  /** 离开信号：所有多余元素（自转轴/轨道/航天器/发射场/观测标记）统一淡出，只留裸地球 */
+  leaving?: boolean
+}>()
+
+const emit = defineEmits<{
+  select: [selection: Selection]
+  'view-change': []
+  'blank-click': []
+  /** 场景首帧贴图渲染完成（解码 + GPU 上传后）——过渡遮罩等待此信号再揭示 */
+  'textures-ready': []
+  /** 入场自转停稳后的统一元素揭示边界，供 App 的工具栏/读数与 3D 元素同帧启动。 */
+  'elements-reveal': []
+  /** 面板关闭（同步 App 的 selection） */
+  'clear-selection': []
+}>()
+
+let texturesReadySent = false
+/** 纹理上传完成信号：双 rAF（等 renderer.render 真正把贴图传到 GPU 之后） */
+function emitTexturesReady() {
+  if (texturesReadySent) return
+  texturesReadySent = true
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      emit('textures-ready')
+    })
+  })
+}
+
+const canvasHost = ref<HTMLDivElement | null>(null)
+const labels = ref<Array<SceneAnnotationLayout & { kind: 'spacecraft'; name: string }>>([])
+const siteLabels = ref<Array<SurfaceAnnotationLayout & { name: string }>>([])
+const observerLabel = ref<(SurfaceAnnotationLayout & { name: string }) | null>(null)
+/** 入场渐亮：进入边界（revealTick 递增）时置 true，0.2s 过渡；直接加载默认已亮 */
+const sceneRevealed = ref(!props.revealTick)
+/** 分阶段揭示是否已排程（revealTick 递增时才启动——与月球同基准：渐亮开始时计时） */
+let revealScheduled = false
+/** revealTick 最近一次递增的时刻——所有入场任务（旋转停止/3D 弹出）的统一计时基准。
+ *  兜底路径（挂载时 revealTick 已非 0）也用它，避免从挂载时刻起算导致元素提前入场 */
+let revealTickAt = 0
+watch(
+  () => props.revealTick,
+  (tick) => {
+    if (tick) {
+      sceneRevealed.value = true
+      revealTickAt = performance.now()
+      startEarthSpin()
+    }
+    // axisGuide 等场景对象在 onMounted 构建——watch 可能早于构建触发（首次进入路径），
+    // 提前调用 scheduleRevealLayers 会 ReferenceError 并损坏渲染器（信息栏不弹的根因）
+    if (tick && !revealScheduled && axisGuide) {
+      revealScheduled = true
+      scheduleRevealLayers()
+    }
+  },
+)
+/** 离开：全部多余元素 250ms 一次性淡出，只留裸地球；host 随后接力渐隐地球本体；
+ *  离开被中止（hash 守卫失败）时 leaving 回 false → 恢复到淡出前状态 */
+watch(
+  () => props.leaving,
+  (leaving) => {
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (leaving) {
+      elementsLeavingAt = performance.now()
+      scheduleHideAll(reduced ? 1 : 250)
+    } else {
+      scheduleRestoreAll(reduced ? 1 : 250)
+    }
+  },
+)
+/** 本地选中状态：面板渲染只依赖它（与 App 全局 selection 解耦——参照月球组件内面板架构，
+ *  避免 App 渲染异常时信息栏不弹） */
+const localSelection = ref<Selection | null>(null)
+const showEventOriginal = ref(false)
+watch(
+  () => props.selection,
+  (next) => {
+    if (next) localSelection.value = next // App 驱动（下方列表点击）→ 同步本地
+  },
+  { immediate: true },
+)
+const selectedSpacecraft = computed(() =>
+  localSelection.value?.kind === 'spacecraft' ? props.spacecraft.find((item) => item.id === localSelection.value?.id) : undefined,
+)
+const selectedSite = computed(() =>
+  localSelection.value?.kind === 'site' ? props.sites.find((item) => item.id === localSelection.value?.id) : undefined,
+)
+const selectedEvent = computed(() =>
+  localSelection.value?.kind === 'event' ? props.events.find((item) => item.externalId === localSelection.value?.id) : undefined,
+)
+const selectedEventSite = computed(() => (selectedEvent.value ? nearestSite(selectedEvent.value) : undefined))
+
+/** 双语名称（统一规则，与 App/月球/火星一致）：全部中文主，外国对象附英文注释 */
+function bName(zh: string, en: string) {
+  return bilingualName(zh, en)
+}
+/** 发射事件双语：中文任务名为主（附英文注释）；无中文名则显示英文任务名 */
+const eventPanelName = computed(() => {
+  const e = selectedEvent.value
+  if (!e) return { primary: '', secondary: '', lang: 'en' }
+  const en = (e.missionName || e.name || '').trim()
+  const zh = (e.missionNameZh || '').trim()
+  const primary = zh || en
+  const secondary = zh && en && zh !== en ? en : ''
+  return { primary, secondary, lang: zh ? 'zh-CN' : 'en' }
+})
+watch(() => selectedEvent.value?.externalId, () => {
+  showEventOriginal.value = false
+})
+function nearestSite(event: LaunchEvent): LaunchSite | undefined {
+  if (event.latitude == null || event.longitude == null) return undefined
+  let best: LaunchSite | undefined
+  let bestDistance = Infinity
+  for (const site of props.sites) {
+    const distance = (site.latitude - event.latitude) ** 2 + (site.longitude - event.longitude) ** 2
+    if (distance < bestDistance) {
+      bestDistance = distance
+      best = site
+    }
+  }
+  return best
+}
+/** 轨道历元统一 UTC 显示（与探测器面板同步时间格式一致，避免本地/UTC 混用） */
+function formatEpochUTC(iso: string) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC`
+}
+
+function orbitPeriodText(meanMotion: string | number) {
+  const mm = Number(meanMotion)
+  if (!Number.isFinite(mm) || mm <= 0) return '—'
+  return `${(1440 / mm).toFixed(1)} 分钟`
+}
+const selectedSpacecraftDetail = computed<MissionDetail | null>(() => {
+  const craft = selectedSpacecraft.value
+  if (!craft) return null
+  const name = bName(craft.nameZh, craft.nameEn)
+  const launch = [craft.launchDate, craft.launchSite, craft.launchVehicle].filter(Boolean).join(' · ')
+  return {
+    kind: 'spacecraft',
+    typeZh: '飞行器',
+    typeEn: 'SPACECRAFT',
+    meta: [{ label: 'NORAD', value: String(craft.noradCatalogId) }],
+    nameZh: name.primary,
+    nameEn: name.secondary,
+    description: craft.description,
+    fields: spacecraftFields({
+      operator: craft.operatorName,
+      launch,
+      inclination: `${Number(craft.omm.INCLINATION).toFixed(2)}°`,
+      eccentricity: Number(craft.omm.ECCENTRICITY).toFixed(6),
+      period: orbitPeriodText(craft.omm.MEAN_MOTION),
+    }),
+    source: `轨道历元 ${formatEpochUTC(craft.orbitEpoch)} · ${craft.sourceName}`,
+  }
+})
+function formatCoordinate(value: number, positive: string, negative: string) {
+  return `${Math.abs(value).toFixed(2)}° ${value >= 0 ? positive : negative}`
+}
+function eventDate(value: string) {
+  const date = new Date(value)
+  return {
+    day: new Intl.DateTimeFormat('zh-CN', { day: '2-digit', timeZone: 'Asia/Shanghai' }).format(date),
+    month: new Intl.DateTimeFormat('en-US', { month: 'short', timeZone: 'Asia/Shanghai' }).format(date).toUpperCase(),
+    time: new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Shanghai' }).format(date),
+  }
+}
+function launchVehicleName(event: LaunchEvent) {
+  return event.name.split(' | ')[0]?.trim() || event.providerName || '运载火箭待确认'
+}
+const textureState = ref<'loading' | 'ready' | 'fallback'>('loading')
+const pointerNearEarth = ref(false)
+/** 悬停选中的航天器（不触发展开/运镜，仅驱动高亮：标记+标签+轨道线联动） */
+const hoveredSpacecraftId = ref<string | null>(null)
+
+let detailTexture: DetailTexture | undefined
+let performanceMonitor: ScenePerformance | undefined
+let renderer: THREE.WebGLRenderer | undefined
+let scene: THREE.Scene | undefined
+let camera: THREE.PerspectiveCamera | undefined
+let controls: OrbitControls | undefined
+let frameId = 0
+let resizeObserver: ResizeObserver | undefined
+let earthSystemGroup: THREE.Group | undefined
+/** 自转参考系：所有经纬度定位对象（地表/夜面灯光/大气/发射场/航天器/轨道线/观测标记）
+ *  整体绕自转轴（earthSystemGroup 局部 Y）旋转——相对关系不变 */
+let spinGroup: THREE.Group | undefined
+/** 减弱动态效果下不转（与太阳系 timeScale 同策略） */
+const spinReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+let spinPhase: 'spin' | 'done' = 'done'
+let spinStartAt = 0
+/** 800ms 转动后留一帧余量，再显示轨道、标签和界面信息。 */
+const ELEMENTS_REVEAL_DELAY_MS = ENTRY_SPIN_DURATION_MS + 20
+
+function startEarthSpin() {
+  if (!spinGroup || spinPhase !== 'done' || !props.enterFromSolar) return
+  spinPhase = spinReduced ? 'done' : 'spin'
+  spinStartAt = performance.now()
+}
+/** 元素揭示是否已完成（进入时 false，全部淡入任务完成后 true；直接加载默认 true） */
+let elementsShown = true
+/** 退出淡出开始时刻（leaving 置 true 时记录，用于每帧元素可见度计算） */
+let elementsLeavingAt = 0
+/** 元素整体可见度（0..1）：observerMarker 每帧强制应用，任何重建都无法绕过隐藏。
+ *  进入：revealTickAt 起延迟入场自转时长再加 20ms，随后 300ms 淡入到 1；退出：250ms 淡出到 0；
+ *  直接加载（revealTickAt=0）只跳过入场，不得跳过退出；reduced 退出压缩为 1ms。 */
+function elementsFadeNow(now = performance.now()): number {
+  if (props.leaving) {
+    const duration = spinReduced ? 1 : 250
+    return THREE.MathUtils.clamp(1 - (now - elementsLeavingAt) / duration, 0, 1)
+  }
+  if (spinReduced || revealTickAt === 0) return 1
+  return THREE.MathUtils.clamp((now - revealTickAt - ELEMENTS_REVEAL_DELAY_MS) / 300, 0, 1)
+}
+let axisGuide: THREE.Line | undefined
+let poleTips: THREE.Mesh[] = []
+let eclipticGuide: THREE.LineLoop | undefined
+let spacecraftGroup: THREE.Group | undefined
+let orbitGroup: THREE.Group | undefined
+let siteGroup: THREE.Group | undefined
+let observerMarker: THREE.Group | undefined
+let earth: THREE.Mesh | undefined
+let earthDayMaterial: THREE.MeshPhongMaterial | undefined
+let nightLights: THREE.Mesh | undefined
+let ambientLight: THREE.AmbientLight | undefined
+let observationLight: THREE.DirectionalLight | undefined
+let sunLight: THREE.DirectionalLight | undefined
+let nightLightsMaterial: THREE.ShaderMaterial | undefined
+const markerObjects = new Map<string, THREE.Object3D>()
+/** 轨道线（含近地标志）：默认只显示 LEO/SSO，选中/悬停时点亮任意飞行器的轨道 */
+const lineObjects = new Map<string, { line: THREE.Line; near: boolean; isActive: boolean }>()
+/** 悬停命中球（不可见放大版，标记的子节点）：让"鼠标放上去"更易触发高亮预览 */
+const hoverTargets = new Map<string, THREE.Mesh>()
+/** 轨道采样缓存（1 分钟桶）：选中重建时免重复 SGP4 采样（24 颗 × 121 次传播→缓存命中一次） */
+const orbitSampleCache = new Map<string, { at: number; points: THREE.Vector3[] }>()
+const raycaster = new THREE.Raycaster()
+/** 标记点距离补偿临时向量（每帧复用，避免分配） */
+const markerScaleTmp = new THREE.Vector3()
+// 标签投影/方向复用向量（每帧零分配）与标签索引（updateLabels 原地更新用）
+const labelProjTmp = new THREE.Vector3()
+const labelWorldTmp = new THREE.Vector3()
+const labelAuxTmp = new THREE.Vector3()
+const labelCamTmp = new THREE.Vector3()
+// 标记 scale/opacity 状态缓存：仅变化时写 THREE（滚动目录时相机静止 → 零写入）
+const markerStates = new Map<string, { scale: number; opacity: number }>()
+const earthOcclusionSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), EARTH_RADIUS * 1.004)
+const earthOcclusionRay = new THREE.Ray()
+const earthOcclusionHit = new THREE.Vector3()
+const toOcclusionTarget = new THREE.Vector3()
+const pointer = new THREE.Vector2()
+const pointerStart = new THREE.Vector2()
+let pointerViewChangeAnnounced = false
+let orbitPositions: OrbitPositions | undefined
+const orbitPositionTmp = new THREE.Vector3()
+let lastOrbitUpdate = 0
+let lastSunUpdate = 0
+let focusAnimation: {
+  from: THREE.Vector3
+  to: THREE.Vector3
+  startedAt: number
+  duration: number
+} | undefined
+
+// ---- 统一入场/退出：裸地球先 0.3s 渐入（scene-host），随后全部元素一次性 0.3s 淡入；
+//      退出时全部元素一次性淡出，只留裸地球（由 App 的遮罩完成星球渐暗） ----
+interface RevealEntry {
+  material: THREE.Material
+  from: number
+  to: number
+  restoreTransparent: boolean
+}
+interface RevealTask {
+  started: number
+  delay: number
+  duration: number
+  entries: RevealEntry[]
+}
+let revealTasks: RevealTask[] = []
+
+/** 把对象的全部材质透明度归零，并安排 delay 后开始、duration 内淡入到原值。
+ *  计时基准 = revealTick 递增时刻（revealTickAt）——与旋转停止/App 的 DOM 弹出同一时钟 */
+function scheduleReveal(object: THREE.Object3D, delay: number, duration: number) {
+  const entries: RevealEntry[] = []
+  object.traverse((child) => {
+    const material = (child as THREE.Mesh).material
+    if (!material) return
+    const list = Array.isArray(material) ? material : [material]
+    for (const item of list) {
+      const restore = !item.transparent
+      const to = item.opacity
+      if (restore) item.transparent = true
+      item.opacity = 0
+      entries.push({ material: item, from: 0, to, restoreTransparent: restore })
+    }
+  })
+  if (entries.length > 0) revealTasks.push({ started: revealTickAt, delay, duration, entries })
+}
+
+/** 全部多余元素一次性淡出（leaving 时调用）：只留裸地球。
+ *  同时取消未完成的入场任务（防止进入中途退出时元素被拉回）并快照各材质淡出前的状态，供中止恢复 */
+let hideSnapshot: { material: THREE.Material; from: number; restoreTransparent: boolean }[] | null = null
+function scheduleHideAll(duration: number) {
+  // 未完成入场任务的"目标透明度"：进入中途退出后若中止恢复，应回到完整目标而非中途值
+  const revealTo = new Map<THREE.Material, number>()
+  for (const task of revealTasks) {
+    for (const entry of task.entries) revealTo.set(entry.material, entry.to)
+  }
+  revealTasks = []
+  hideSnapshot = []
+  const entries: RevealEntry[] = []
+  const hide = (object: THREE.Object3D | undefined) => {
+    if (!object) return
+    const snapshot = hideSnapshot
+    if (!snapshot) return
+    object.traverse((child) => {
+      const material = (child as THREE.Mesh).material
+      if (!material) return
+      const list = Array.isArray(material) ? material : [material]
+      for (const item of list) {
+        const wasTransparent = item.transparent
+        if (!wasTransparent) item.transparent = true
+        const from = revealTo.get(item) ?? item.opacity
+        snapshot.push({ material: item, from, restoreTransparent: !wasTransparent })
+        entries.push({ material: item, from, to: 0, restoreTransparent: false })
+      }
+    })
+  }
+  hide(axisGuide)
+  for (const tip of poleTips) hide(tip)
+  hide(eclipticGuide)
+  hide(orbitGroup)
+  hide(spacecraftGroup)
+  hide(siteGroup)
+  hide(observerMarker)
+  if (entries.length > 0) revealTasks.push({ started: performance.now(), delay: 0, duration, entries })
+}
+
+/** 退出被中止（hash 守卫失败等）：把元素恢复到淡出前的状态（从当前透明度平滑过渡） */
+function scheduleRestoreAll(duration: number) {
+  if (!hideSnapshot || hideSnapshot.length === 0) return
+  revealTasks = []
+  const now = performance.now()
+  const entries: RevealEntry[] = hideSnapshot.map((snap) => ({
+    material: snap.material,
+    from: snap.material.opacity, // 当前值（可能正处于淡出中途，避免跳变）
+    to: snap.from,
+    restoreTransparent: snap.restoreTransparent,
+  }))
+  hideSnapshot = null
+  revealTasks.push({ started: now, delay: 0, duration, entries })
+}
+
+/** 统一入场（revealTick 递增时调用）：裸地球先 0.3s 渐入（scene-host）并减速旋转至完全停住
+ *  （800ms），再缓冲约一帧后自转轴/轨道/航天器/发射场/观测标记一次性 0.3s 淡入——
+ *  元素弹出严格发生在旋转静止之后。与月球页基准一致：从"遮罩渐亮开始"计时 */
+function scheduleRevealLayers() {
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const delay = reduced ? 0 : ELEMENTS_REVEAL_DELAY_MS
+  const duration = reduced ? 1 : 300
+  elementsShown = false // 进入揭示期：标签隐藏，3D 元素归零待淡入
+  // 标签与 3D 淡入同刻出现：在淡入开始（delay）时置 true，而非淡入完成（delay+duration）后——
+  // 否则标签会比点晚 300ms 出现
+  window.setTimeout(() => {
+    elementsShown = true
+    emit('elements-reveal')
+  }, delay)
+  // 航天器/发射场/观测标记的隐藏与淡入由每帧 elementsFadeNow 统一驱动（含距离透明度），
+  // 不再进 revealTasks——避免两套写入互相覆盖
+  if (axisGuide) scheduleReveal(axisGuide, delay, duration)
+  for (const tip of poleTips) scheduleReveal(tip, delay, duration)
+  if (eclipticGuide) scheduleReveal(eclipticGuide, delay, duration)
+  if (orbitGroup) scheduleReveal(orbitGroup, delay, duration)
+}
+
+function updateReveals() {
+  if (revealTasks.length === 0) return
+  const now = performance.now()
+  for (const task of revealTasks) {
+    const t = THREE.MathUtils.clamp((now - task.started - task.delay) / task.duration, 0, 1)
+    const eased = 1 - Math.pow(1 - t, 3)
+    for (const entry of task.entries) {
+      entry.material.opacity = entry.from + (entry.to - entry.from) * eased
+      if (t >= 1 && entry.restoreTransparent) entry.material.transparent = false
+    }
+  }
+  const before = revealTasks.length
+  revealTasks = revealTasks.filter((task) => now < task.started + task.delay + task.duration)
+  void before // 标签出现时机由 scheduleRevealLayers 的定时器控制（与 3D 淡入开始同步），不再依赖任务完成时刻
+}
+
+const selectionKey = computed(() => props.selection ? `${props.selection.kind}:${props.selection.id}` : '')
+/** 高亮键：悬停优先，无悬停时回退到点击选中（选中态保持粘滞） */
+const activeKey = computed(() => (hoveredSpacecraftId.value ? `spacecraft:${hoveredSpacecraftId.value}` : selectionKey.value))
+
+function disposeGroup(group?: THREE.Group) {
+  if (!group) return
+  group.traverse((object) => {
+    if (object instanceof THREE.Mesh || object instanceof THREE.Line) {
+      object.geometry.dispose()
+      const material = object.material
+      if (Array.isArray(material)) material.forEach((item) => item.dispose())
+      else material.dispose()
+    }
+  })
+  group.clear()
+  group.parent?.remove(group)
+}
+
+/** 轨道采样缓存读取：1 分钟桶内复用（选中重建时免重复 SGP4 采样；环的参考 GMST 离当前 ≤1 分钟） */
+function cachedOrbitPoints(craft: Spacecraft, now: Date): THREE.Vector3[] {
+  const bucket = Math.floor(now.getTime() / 60_000)
+  const hit = orbitSampleCache.get(craft.id)
+  if (hit && hit.at === bucket) return hit.points
+  if (orbitPositions?.available) return hit?.points ?? []
+  const points = sampleOrbit(craft, now)
+  orbitSampleCache.set(craft.id, { at: bucket, points })
+  return points
+}
+
+function markerMaterial(color: number, selected: boolean) {
+  return new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity: selected ? 1 : 0.82,
+    depthTest: true,
+  })
+}
+
+function rebuildDataLayers() {
+  if (!earthSystemGroup || !spinGroup) return
+  markerObjects.clear()
+  hoverTargets.clear()
+  lineObjects.clear()
+  markerStates.clear() // 标记重建后 scale/opacity 状态缓存作废（防新标记跳过首次写入）
+  disposeGroup(spacecraftGroup)
+  disposeGroup(orbitGroup)
+  disposeGroup(siteGroup)
+
+  spacecraftGroup = new THREE.Group()
+  orbitGroup = new THREE.Group()
+  siteGroup = new THREE.Group()
+  // 物理正确分层：航天器/轨道线挂在惯性参考系（不随地表视觉自转——真实中卫星轨道
+  // 惯性固定、地球在下面转，飞行器按真实速度缓慢漂移）；发射场随地表转（经纬度地表固定）
+  earthSystemGroup.add(spacecraftGroup, orbitGroup)
+  spinGroup.add(siteGroup)
+
+  const now = new Date()
+  for (const craft of props.spacecraft) {
+    const point = spacecraftPoint(craft, now)
+    if (!point) continue
+    const key = `spacecraft:${craft.id}`
+    const marker = new THREE.Mesh(
+      new THREE.SphereGeometry(1, 16, 16),
+      markerMaterial(0x72d7ff, false),
+    )
+    marker.position.copy(point.position)
+    marker.userData = { kind: 'spacecraft', id: craft.id }
+    spacecraftGroup.add(marker)
+    markerObjects.set(key, marker)
+
+    // 不可见放大命中球（标记子节点，继承位置/缩放）：悬停预览的宽容目标，视觉不渲染
+    const hit = new THREE.Mesh(
+      new THREE.SphereGeometry(3.4, 8, 8),
+      new THREE.MeshBasicMaterial({ visible: false }),
+    )
+    hit.userData = { kind: 'spacecraft', id: craft.id }
+    marker.add(hit)
+    hoverTargets.set(key, hit)
+
+    // 轨道线仅画近地轨道（LEO/SSO，如 ISS/天宫/哈勃/Terra）——近地轨道在默认视锥内
+    // 呈贴地圆环，视觉干净；MEO/GEO/HEO（GNSS 星座、气象静止星、XMM/Integral 等极端椭圆
+    // 科学星）的轨道在近地视角下横穿、溢出画面或呈开口 8 字（真实进动），不画线——
+    // 只保留真实位置标记 + 标签 + 面板；选中时点亮本已存在的轨道线
+    if (craft.category?.startsWith('LEO') || craft.category?.startsWith('SSO')) {
+      const isActive = activeKey.value === key
+      const line = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(cachedOrbitPoints(craft, now)),
+        new THREE.LineBasicMaterial({ color: isActive ? 0x8eeaff : 0x42b7e8, transparent: true, opacity: isActive ? 0.95 : 0.22 }),
+      )
+      lineObjects.set(key, { line, near: true, isActive })
+      orbitGroup.add(line)
+    }
+  }
+
+  for (const site of props.sites) {
+    const key = `site:${site.id}`
+    const position = latLonToVector(site.latitude, site.longitude, EARTH_RADIUS)
+    const marker = new THREE.Mesh(
+      new THREE.SphereGeometry(1, 12, 12),
+      markerMaterial(0xffb866, false),
+    )
+    marker.position.copy(position)
+    marker.userData = { kind: 'site', id: site.id }
+    const hit = new THREE.Mesh(
+      new THREE.SphereGeometry(3.4, 8, 8),
+      new THREE.MeshBasicMaterial({ visible: false }),
+    )
+    hit.userData = { kind: 'site', id: site.id }
+    marker.add(hit)
+    siteGroup.add(marker)
+    markerObjects.set(key, marker)
+    hoverTargets.set(key, hit)
+  }
+
+  spacecraftGroup.visible = props.layers.spacecraft
+  orbitGroup.visible = props.layers.orbits
+  siteGroup.visible = props.layers.sites
+}
+
+function updateSpacecraftPositions(now: Date) {
+  if (!spacecraftGroup) return
+  for (const craft of props.spacecraft) {
+    const point = spacecraftPoint(craft, now)
+    const marker = markerObjects.get(`spacecraft:${craft.id}`)
+    if (!point || !marker) continue
+    marker.visible = true
+    marker.position.copy(point.position)
+  }
+}
+
+function rebuildObserverMarker() {
+  disposeGroup(observerMarker)
+  observerMarker = undefined
+  markerStates.delete('observer') // 观测器重建：状态缓存作废（防新标记跳过首次写入）
+  if (!earthSystemGroup || !props.observerTarget || !spinGroup) return
+
+  const position = latLonToVector(
+    props.observerTarget.latitude,
+    props.observerTarget.longitude,
+    EARTH_RADIUS,
+  )
+  observerMarker = new THREE.Group()
+  observerMarker.position.copy(position)
+  const active = props.observerActive !== false
+  // 显现时保持真实可辨的颜色（inactive 不再淡到 0.28）；active/inactive 仍略有区分
+  const basePoint = active ? 1 : 0.9
+  const baseRing = active ? 0.55 : 0.5
+
+  const point = new THREE.Mesh(
+    new THREE.SphereGeometry(1, 18, 18),
+    new THREE.MeshBasicMaterial({ color: 0x79e3bd, transparent: true, opacity: basePoint }),
+  )
+  point.material.userData.baseOpacity = basePoint
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(1.77, 2.05, 32),
+    new THREE.MeshBasicMaterial({ color: 0x79e3bd, transparent: true, opacity: baseRing, side: THREE.DoubleSide }),
+  )
+  ring.material.userData.baseOpacity = baseRing
+  ring.lookAt(camera?.position ?? new THREE.Vector3(0, 0, 8))
+  observerMarker.add(point, ring)
+  spinGroup.add(observerMarker)
+  // 重建瞬间同步当前元素可见度（下一帧起由 animate 每帧强制，任何时序都覆盖）
+  const fade = elementsFadeNow()
+  observerMarker.visible = fade > 0.001
+  point.material.opacity = basePoint * fade
+  ring.material.opacity = baseRing * fade
+}
+
+function applyDayNightMode() {
+  const enabled = props.dayNightEnabled !== false
+  if (earth && earthDayMaterial) {
+    earth.material = earthDayMaterial
+    earthDayMaterial.emissive.setHex(0x000000)
+    earthDayMaterial.emissiveIntensity = 0
+  }
+  if (nightLights) nightLights.visible = enabled
+  if (ambientLight) {
+    ambientLight.color.setHex(0x315873)
+    ambientLight.intensity = 1.08
+  }
+  if (observationLight) observationLight.intensity = enabled ? 0 : 3.1
+  if (sunLight) sunLight.intensity = enabled ? 3.1 : 0
+}
+
+function isOccludedByEarth(position: THREE.Vector3) {
+  if (!camera) return false
+  toOcclusionTarget.copy(position).sub(camera.position)
+  const targetDistance = toOcclusionTarget.length()
+  if (targetDistance === 0) return false
+  earthOcclusionRay.set(camera.position, toOcclusionTarget.normalize())
+  const intersection = earthOcclusionRay.intersectSphere(earthOcclusionSphere, earthOcclusionHit)
+  if (!intersection) return false
+  const intersectionDistance = camera.position.distanceTo(intersection)
+  return intersectionDistance < targetDistance - 0.035
+}
+
+function updateLabels() {
+  if (!camera || !canvasHost) return
+  const cam = camera
+  const width = canvasHost.value?.clientWidth ?? 0
+  const height = canvasHost.value?.clientHeight ?? 0
+  const annotationViewport = {
+    width,
+    height,
+    currentPlanetRadiusPx: projectedSphereRadiusPx(EARTH_RADIUS, cam.position.length(), 42, height),
+    referencePlanetRadiusPx: projectedSphereRadiusPx(EARTH_RADIUS, 7.6, 42, height),
+    clusterOverlappingLabels: true,
+    preferFullLabels: true,
+    safeTopPx: props.headerExpanded ? 76 : 8,
+  }
+
+  const projectedCrafts = props.spacecraft.flatMap((craft) => {
+    const marker = markerObjects.get(`spacecraft:${craft.id}`)
+    if (!marker || !marker.visible || !props.layers.spacecraft) return []
+    const position = marker.getWorldPosition(labelWorldTmp)
+    labelProjTmp.copy(position).project(cam)
+    return [{
+      id: craft.id,
+      kind: 'spacecraft' as const,
+      name: craft.nameZh,
+      anchorX: (labelProjTmp.x * 0.5 + 0.5) * width,
+      anchorY: (-labelProjTmp.y * 0.5 + 0.5) * height,
+      visible: labelProjTmp.z > -1 && labelProjTmp.z < 1 && !isOccludedByEarth(position),
+      selected: activeKey.value === `spacecraft:${craft.id}`,
+      hovered: hoveredSpacecraftId.value === craft.id,
+    }]
+  })
+  const projectedSites: Array<{ id: string; name: string; anchorX: number; anchorY: number; visible: boolean; selected: boolean }> = []
+  for (const site of props.sites) {
+    const marker = markerObjects.get(`site:${site.id}`)
+    if (!marker || !props.layers.sites) continue
+    const position = marker.getWorldPosition(labelWorldTmp)
+    labelProjTmp.copy(position).project(camera)
+    const outward = labelAuxTmp.copy(position).normalize()
+    const towardCamera = labelCamTmp.copy(camera.position).sub(position).normalize()
+    projectedSites.push({
+      id: site.id,
+      name: site.nameZh,
+      anchorX: (labelProjTmp.x * 0.5 + 0.5) * width,
+      anchorY: (-labelProjTmp.y * 0.5 + 0.5) * height,
+      visible: labelProjTmp.z > -1 && labelProjTmp.z < 1 && outward.dot(towardCamera) > -0.05 && !isOccludedByEarth(position),
+      selected: activeKey.value === `site:${site.id}`,
+    })
+  }
+  const projectedSurfaces: Array<{
+    id: string
+    name: string
+    kind: 'site' | 'observer'
+    anchorX: number
+    anchorY: number
+    visible: boolean
+    selected: boolean
+    variant?: 'observer'
+    inactive?: boolean
+  }> = projectedSites.map((site) => ({ ...site, kind: 'site' as const }))
+  if (observerMarker && props.observerTarget) {
+    const position = observerMarker.getWorldPosition(labelWorldTmp)
+    labelProjTmp.copy(position).project(camera)
+    const outward = labelAuxTmp.copy(position).normalize()
+    const towardCamera = labelCamTmp.copy(camera.position).sub(position).normalize()
+    projectedSurfaces.push({
+      id: 'observer-location',
+      name: props.observerTarget.label,
+      kind: 'observer',
+      anchorX: (labelProjTmp.x * 0.5 + 0.5) * width,
+      anchorY: (-labelProjTmp.y * 0.5 + 0.5) * height,
+      visible: labelProjTmp.z > -1 && labelProjTmp.z < 1 && outward.dot(towardCamera) > -0.05 && !isOccludedByEarth(position),
+      selected: props.observerActive !== false,
+      variant: 'observer',
+      inactive: props.observerActive === false,
+    })
+  }
+  const previousSurfaces = observerLabel.value ? [...siteLabels.value, observerLabel.value] : siteLabels.value
+  const craftIsActive = activeKey.value?.startsWith('spacecraft:') || !!hoveredSpacecraftId.value
+  if (craftIsActive) labels.value = layoutSceneAnnotations(projectedCrafts, annotationViewport, labels.value)
+  const surfaceLayouts = layoutSceneAnnotations(projectedSurfaces, annotationViewport, previousSurfaces, craftIsActive ? labels.value : [])
+  siteLabels.value = surfaceLayouts.filter((label) => label.kind === 'site')
+  observerLabel.value = surfaceLayouts.find((label) => label.kind === 'observer') ?? null
+  if (!craftIsActive) labels.value = layoutSceneAnnotations(projectedCrafts, annotationViewport, labels.value, surfaceLayouts)
+}
+
+const annotationLabelStyle = sceneAnnotationStyle
+
+function setupScene() {
+  const host = canvasHost.value
+  if (!host) return
+
+  scene = new THREE.Scene()
+  earthSystemGroup = new THREE.Group()
+  earthSystemGroup.name = 'earth-equatorial-frame'
+  earthSystemGroup.quaternion.copy(EARTH_TILT_QUATERNION)
+  scene.add(earthSystemGroup)
+  // 自转参考系挂在倾斜参考系下：局部 Y = 自转轴（23.44° 倾角由父级承担）
+  spinGroup = new THREE.Group()
+  spinGroup.name = 'earth-spin-frame'
+  earthSystemGroup.add(spinGroup)
+  // 黑幕中的第一帧就放在自转起点；揭幕后只向东转，不再从 0° 突然拨回 -15°。
+  // 直接打开 #earth 和 reduced-motion 均保持最终朝向 0°。
+  spinGroup.rotation.y = props.enterFromSolar && !spinReduced ? SPIN_INITIAL_OFFSET : 0
+  if (revealTickAt > 0) startEarthSpin()
+  camera = new THREE.PerspectiveCamera(42, host.clientWidth / host.clientHeight, 0.1, 400) // far 400：容纳 60–150 星空壳层
+  // 默认视角：对准东亚大陆，以南海为中心（约 12°N, 115°E）；
+  // 自转轴仍保持黄道面参考的 23.44° 倾角（公转平面平行关系不变）
+  const defaultDirection = latLonToVector(12, 115, 1)
+    .normalize()
+    .applyQuaternion(earthSystemGroup?.quaternion ?? EARTH_TILT_QUATERNION)
+  camera.position.copy(defaultDirection.multiplyScalar(7.6))
+
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' })
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+  performanceMonitor = new ScenePerformance('earth', renderer)
+  performanceMonitor.setDiagnostics(() => ({ orbit: orbitPositions?.status(), surfaceTextureWidth: earthDayMaterial?.map?.image?.width ?? 0 }))
+  renderer.setSize(host.clientWidth, host.clientHeight)
+  renderer.outputColorSpace = THREE.SRGBColorSpace
+  renderer.toneMapping = THREE.ACESFilmicToneMapping
+  renderer.toneMappingExposure = 0.96
+  host.appendChild(renderer.domElement)
+
+  controls = new OrbitControls(camera, renderer.domElement)
+  controls.enableDamping = true
+  controls.dampingFactor = 0.055
+  controls.enablePan = false
+  controls.minDistance = 3.0 // 最大放大倍率：距地心 3.0（地表约 0.85，仍在大气层外）——原 4.4 放大空间太小
+  controls.maxDistance = 12
+  controls.rotateSpeed = 0.48
+  controls.enableZoom = false
+
+  // 夜面保留一层低强度冷色环境光，让海陆轮廓可读但不会像白昼一样明亮。
+  ambientLight = new THREE.AmbientLight(0x315873, 1.08)
+  scene.add(ambientLight)
+  // 关闭晨昏线时让同色温白昼光跟随相机，明暗边界落在球体轮廓之外。
+  observationLight = new THREE.DirectionalLight(0xfff3dd, 0)
+  observationLight.position.copy(camera.position)
+  scene.add(observationLight)
+  sunLight = new THREE.DirectionalLight(0xfff3dd, 3.1)
+  scene.add(sunLight)
+
+  const loader = new THREE.TextureLoader()
+  earthDayMaterial = new THREE.MeshPhongMaterial({ color: 0x244a63, shininess: 7, specular: 0x17364b })
+  earth = new THREE.Mesh(
+    new THREE.SphereGeometry(EARTH_RADIUS, 128, 128),
+    earthDayMaterial,
+  )
+  // 纹理就绪前整个地球系统不可见（避免"裸水球"或"亮球"——大气辉光层在球体不可见时仍发光）；
+  // 就绪瞬间整个系统（地球+大气+夜间层）一起出现
+  earth.visible = false
+  if (earthSystemGroup) earthSystemGroup.visible = false
+  spinGroup.add(earth)
+  detailTexture = new DetailTexture(EARTH_DAY_TEXTURE_URL, texture => {
+    if (earthDayMaterial) { earthDayMaterial.map = texture; earthDayMaterial.needsUpdate = true }
+    if (nightLightsMaterial) nightLightsMaterial.uniforms.surfaceMap.value = texture
+  }, () => {
+    if (earthDayMaterial) {
+      const loaded = earthDayMaterial.map?.image
+      earthDayMaterial.color.set(loaded ? 0xffffff : 0x244a63)
+      if (!loaded) earthDayMaterial.map = null
+      earthDayMaterial.needsUpdate = true
+    }
+    if (nightLightsMaterial && detailTexture) nightLightsMaterial.uniforms.surfaceMap.value = detailTexture.preview
+    textureState.value = earthDayMaterial?.map?.image ? 'ready' : 'fallback'
+    if (earth) earth.visible = true
+    if (earthSystemGroup) earthSystemGroup.visible = true
+    emitTexturesReady()
+  })
+  detailTexture.preview.colorSpace = THREE.SRGBColorSpace
+  earthDayMaterial.map = detailTexture.preview
+  if (detailTexture.preview.image) {
+    earth.visible = true
+    if (earthSystemGroup) earthSystemGroup.visible = true
+    earthDayMaterial.color.set(0xffffff)
+    textureState.value = 'ready'
+    emitTexturesReady()
+  }
+
+  nightLightsMaterial = new THREE.ShaderMaterial({
+    uniforms: {
+      surfaceMap: { value: detailTexture.preview },
+      nightMap: { value: null },
+      sunDirection: { value: new THREE.Vector3(0, 0, 1) },
+    },
+    transparent: true,
+    depthWrite: false,
+    vertexShader: `
+      varying vec2 vUv;
+      varying vec3 vWorldNormal;
+      void main() {
+        vUv = uv;
+        vWorldNormal = normalize(mat3(modelMatrix) * normal);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D surfaceMap;
+      uniform sampler2D nightMap;
+      uniform vec3 sunDirection;
+      varying vec2 vUv;
+      varying vec3 vWorldNormal;
+      void main() {
+        vec3 surface = texture2D(surfaceMap, vUv).rgb;
+        vec3 lights = texture2D(nightMap, vUv).rgb;
+        float solar = dot(normalize(vWorldNormal), normalize(sunDirection));
+        float night = 1.0 - smoothstep(-0.22, 0.10, solar);
+        float energy = max(lights.r, max(lights.g, lights.b));
+        float cityMask = smoothstep(0.07, 0.46, energy);
+        vec3 geography = surface * vec3(0.30, 0.39, 0.53);
+        vec3 cityLights = lights * cityMask * 1.55;
+        gl_FragColor = vec4(geography + cityLights, night * 0.86);
+      }
+    `,
+  })
+  nightLights = new THREE.Mesh(
+    new THREE.SphereGeometry(EARTH_RADIUS * 1.0015, 128, 128),
+    nightLightsMaterial,
+  )
+  nightLights.visible = props.dayNightEnabled !== false
+  spinGroup.add(nightLights)
+  applyDayNightMode()
+  loader.load(
+    EARTH_NIGHT_TEXTURE_URL,
+    (texture) => {
+      texture.colorSpace = THREE.SRGBColorSpace
+      if (nightLightsMaterial) nightLightsMaterial.uniforms.nightMap.value = texture
+    },
+  )
+  updateSun(new Date())
+
+  const atmosphere = new THREE.Mesh(
+    new THREE.SphereGeometry(EARTH_RADIUS * 1.035, 96, 96),
+    new THREE.ShaderMaterial({
+      transparent: true,
+      side: THREE.BackSide,
+      blending: THREE.AdditiveBlending,
+      vertexShader: `varying vec3 vNormal; void main(){vNormal=normalize(normalMatrix*normal);gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
+      fragmentShader: `varying vec3 vNormal; void main(){float i=pow(0.72-dot(vNormal,vec3(0.0,0.0,1.0)),3.0);gl_FragColor=vec4(0.18,0.65,1.0,1.0)*i;}`,
+    }),
+  )
+  spinGroup.add(atmosphere) // 同心壳层，随转无视觉差异
+
+  axisGuide = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, -EARTH_RADIUS * 1.38, 0),
+      new THREE.Vector3(0, EARTH_RADIUS * 1.38, 0),
+    ]),
+    new THREE.LineBasicMaterial({ color: 0x72d7ff, transparent: true, opacity: 0.58 }),
+  )
+  axisGuide.name = 'earth-rotation-axis'
+  earthSystemGroup.add(axisGuide)
+  poleTips = []
+  for (const pole of [-1, 1]) {
+    const poleTip = new THREE.Mesh(
+      new THREE.SphereGeometry(0.027, 12, 12),
+      new THREE.MeshBasicMaterial({ color: 0x72d7ff, transparent: true, opacity: 0.82 }),
+    )
+    poleTip.position.set(0, pole * EARTH_RADIUS * 1.38, 0)
+    poleTips.push(poleTip)
+    earthSystemGroup.add(poleTip)
+  }
+
+  const eclipticPoints: THREE.Vector3[] = []
+  const eclipticRadius = EARTH_RADIUS * 1.43
+  for (let index = 0; index < 180; index += 1) {
+    const angle = (index / 180) * Math.PI * 2
+    eclipticPoints.push(new THREE.Vector3(Math.cos(angle) * eclipticRadius, 0, Math.sin(angle) * eclipticRadius))
+  }
+  eclipticGuide = new THREE.LineLoop(
+    new THREE.BufferGeometry().setFromPoints(eclipticPoints),
+    new THREE.LineDashedMaterial({ color: 0xffb866, transparent: true, opacity: 0.16, dashSize: 0.11, gapSize: 0.09 }),
+  )
+  eclipticGuide.name = 'ecliptic-reference-plane'
+  eclipticGuide.computeLineDistances()
+  scene.add(eclipticGuide)
+
+  // 星空粒子球（与月球同参数）：3000 颗、壳层 60–150、浅蓝主题色
+  const starGeometry = new THREE.BufferGeometry()
+  const starData: number[] = []
+  for (let index = 0; index < 3000; index += 1) {
+    const radius = 60 + Math.random() * 90
+    const theta = Math.random() * Math.PI * 2
+    const phi = Math.acos(2 * Math.random() - 1)
+    starData.push(radius * Math.sin(phi) * Math.cos(theta), radius * Math.cos(phi), radius * Math.sin(phi) * Math.sin(theta))
+  }
+  starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starData, 3))
+  // 背景星空挂在相机上：屏幕固定，不随星球/相机旋转（世界固定会有视差，看起来像跟着星球转）
+  const starPoints = new THREE.Points(starGeometry, new THREE.PointsMaterial({ color: 0xb4d2e8, size: 0.15, transparent: true, opacity: 0.75 }))
+  starPoints.name = 'background-stars'
+  scene.add(camera)
+  camera.add(starPoints)
+
+  renderer.domElement.addEventListener('pointerdown', onPointerDown)
+  renderer.domElement.addEventListener('pointerup', onPointerUp)
+  renderer.domElement.addEventListener('pointermove', onPointerMove)
+  renderer.domElement.addEventListener('pointerleave', onPointerLeave)
+  host.addEventListener('wheel', onSceneWheel, { passive: false })
+  resizeObserver = new ResizeObserver(resize)
+  resizeObserver.observe(host)
+  orbitPositions = new OrbitPositions((tracks) => {
+    for (const track of tracks) {
+      const points: THREE.Vector3[] = []
+      for (let i = 0; i < track.points.length; i += 3) points.push(new THREE.Vector3(track.points[i], track.points[i + 1], track.points[i + 2]))
+      orbitSampleCache.set(track.id, { at: Math.floor(Date.now() / 60000), points })
+      const runtime = lineObjects.get(`spacecraft:${track.id}`)
+      if (runtime) {
+        runtime.line.geometry.dispose()
+        runtime.line.geometry = new THREE.BufferGeometry().setFromPoints(points)
+      }
+    }
+  }, () => rebuildDataLayers())
+  orbitPositions.setCrafts(props.spacecraft)
+  rebuildDataLayers()
+  rebuildObserverMarker()
+  // 分阶段入场：由 revealTick 递增触发（scheduleRevealLayers），与月球页同基准
+  beginFocus()
+  // 默认相机保持静止：原先绕世界 Y 轴回摆 0.5 rad，会盖过地球向东自转，
+  // 视觉上先向西再扭回来。仅用户明确选择目标时才运行 beginFocus 的运镜。
+  animate()
+  // 构建完成后的兜底排程：仅当 watch 已触发（revealTickAt > 0）但被 axisGuide 判空跳过时补上——
+  // 用 revealTickAt 作计时基准，避免从挂载时刻起算导致元素提前入场；
+  // 重新进入（挂载时 tick 非 0）时 watch 尚未触发，等 App 递增 revealTick 自然排程
+  if (revealTickAt > 0 && !revealScheduled && axisGuide) {
+    revealScheduled = true
+    scheduleRevealLayers()
+  }
+}
+
+function beginFocus() {
+  if (!camera || !props.focusTarget) return
+  const distance = THREE.MathUtils.clamp(
+    props.focusTarget.distance ?? camera.position.length(),
+    controls?.minDistance ?? 3.0,
+    controls?.maxDistance ?? 12,
+  )
+  const targetDirection = latLonToVector(
+    props.focusTarget.latitude,
+    props.focusTarget.longitude,
+    1,
+  )
+    .normalize()
+    .applyQuaternion(earthSystemGroup?.quaternion ?? EARTH_TILT_QUATERNION)
+    // 不叠加自转相位：聚焦目标按自转终态（0° 南海相位）计算——
+    // 自转进行中时 marker 与相机相向会合，自转结束即精确对准
+  focusAnimation = {
+    from: camera.position.clone(),
+    to: targetDirection.multiplyScalar(distance),
+    startedAt: performance.now(),
+    duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 1 : 950,
+  }
+  if (controls) controls.enabled = false
+}
+
+function updateSun(date: Date) {
+  if (!sunLight) return
+  const yearStart = Date.UTC(date.getUTCFullYear(), 0, 0)
+  const dayOfYear = Math.floor((date.getTime() - yearStart) / 86_400_000)
+  const declination = 23.44 * Math.sin(THREE.MathUtils.degToRad((360 / 365) * (dayOfYear - 81)))
+  const utcHours = date.getUTCHours() + date.getUTCMinutes() / 60 + date.getUTCSeconds() / 3600
+  const subsolarLongitude = 180 - utcHours * 15
+  const localSunDirection = latLonToVector(declination, subsolarLongitude, 12)
+  localSunDirection.applyQuaternion(earthSystemGroup?.quaternion ?? EARTH_TILT_QUATERNION)
+  sunLight.position.copy(localSunDirection)
+  nightLightsMaterial?.uniforms.sunDirection.value.copy(sunLight.position).normalize()
+}
+
+function resize() {
+  const host = canvasHost.value
+  if (!host || !renderer || !camera) return
+  camera.aspect = host.clientWidth / host.clientHeight
+  camera.updateProjectionMatrix()
+  renderer.setSize(host.clientWidth, host.clientHeight)
+}
+
+function onPointerDown(event: PointerEvent) {
+  // 按下即清悬停：避免拖拽期间残留点亮；点击选中由 selectionKey 继续驱动高亮
+  hoveredSpacecraftId.value = null
+  pointerStart.set(event.clientX, event.clientY)
+  pointerViewChangeAnnounced = false
+  // 按下瞬间：按在地球上 → 立即收起页头（拖拽中页头不应遮挡操作）
+  if (isNearEarth(event.clientX, event.clientY)) emit('blank-click')
+}
+
+function isNearEarth(clientX: number, clientY: number, exactDisk = false) {
+  if (!renderer || !camera) return false
+  const bounds = renderer.domElement.getBoundingClientRect()
+  const projectedCenter = new THREE.Vector3(0, 0, 0).project(camera)
+  const cameraRight = new THREE.Vector3(1, 0, 0)
+    .applyQuaternion(camera.quaternion)
+    .multiplyScalar(EARTH_RADIUS * 1.08)
+    .project(camera)
+  const centerX = bounds.left + (projectedCenter.x * 0.5 + 0.5) * bounds.width
+  const centerY = bounds.top + (-projectedCenter.y * 0.5 + 0.5) * bounds.height
+  const radius = exactDisk
+    ? projectedSphereRadiusPx(EARTH_RADIUS, camera.position.length(), camera.fov, bounds.height)
+    : Math.abs(cameraRight.x - projectedCenter.x) * bounds.width * 0.5 * 1.12
+  return Math.hypot(clientX - centerX, clientY - centerY) <= radius
+}
+
+function onPointerMove(event: PointerEvent) {
+  pointerNearEarth.value = isNearEarth(event.clientX, event.clientY)
+  if (event.buttons !== 0 && !pointerViewChangeAnnounced && pointerStart.distanceTo(new THREE.Vector2(event.clientX, event.clientY)) > 5) {
+    pointerViewChangeAnnounced = true
+    emit('view-change')
+  }
+  // 悬停高亮（仅航天器）：命中标记即点亮标签+轨道线；拖拽中不更新避免闪烁；
+  // 航天器图层隐藏/淡出期不触发（避免点亮不可见飞行器）
+  if (event.buttons === 0 && camera && renderer && spacecraftGroup?.visible) {
+    const bounds = renderer.domElement.getBoundingClientRect()
+    pointer.set(((event.clientX - bounds.left) / bounds.width) * 2 - 1, -((event.clientY - bounds.top) / bounds.height) * 2 + 1)
+    raycaster.setFromCamera(pointer, camera)
+    const hovered = raycaster.intersectObjects([...hoverTargets.values(), ...markerObjects.values()])[0]?.object.userData as
+      | { kind?: 'spacecraft'; id?: string }
+      | undefined
+    if (hovered?.kind === 'spacecraft' && hovered.id) hoveredSpacecraftId.value = hovered.id
+    else {
+      hoveredSpacecraftId.value = null
+    }
+  }
+}
+
+function onPointerLeave() {
+  pointerNearEarth.value = false
+  hoveredSpacecraftId.value = null
+}
+
+/** 标签悬停：航天器标签也参与点亮（标签范围同样可选中/高亮） */
+function onLabelEnter(label: { kind: 'spacecraft' | 'site'; id: string }) {
+  if (label.kind === 'spacecraft') hoveredSpacecraftId.value = label.id
+}
+function onLabelLeave(label: { kind: 'spacecraft' | 'site'; id: string }) {
+  if (label.kind === 'spacecraft') hoveredSpacecraftId.value = null
+}
+
+function onSceneWheel(event: WheelEvent) {
+  if ((event.target as Element).closest('.mission-detail-panel, .context-panel')) return
+  if (!camera || !controls || !isNearEarth(event.clientX, event.clientY, true)) return
+  event.preventDefault()
+  emit('view-change')
+  focusAnimation = undefined
+  controls.enabled = true
+  const normalizedDelta = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? event.deltaY * 16 : event.deltaY
+  const nextDistance = THREE.MathUtils.clamp(
+    camera.position.length() * Math.exp(normalizedDelta * 0.0012),
+    controls.minDistance,
+    controls.maxDistance,
+  )
+  camera.position.setLength(nextDistance)
+  controls.update()
+}
+
+function onPointerUp(event: PointerEvent) {
+  if (!renderer || !camera) return
+  const dragged = pointerStart.distanceTo(new THREE.Vector2(event.clientX, event.clientY)) > 5
+  if (dragged) return // 拖拽收起已在按下瞬间处理
+  const bounds = renderer.domElement.getBoundingClientRect()
+  pointer.set(((event.clientX - bounds.left) / bounds.width) * 2 - 1, -((event.clientY - bounds.top) / bounds.height) * 2 + 1)
+  raycaster.setFromCamera(pointer, camera)
+  const hits = raycaster.intersectObjects([...markerObjects.values()], true)
+  const target = hits[0]?.object.userData as { kind?: 'spacecraft' | 'site'; id?: string }
+  if (target?.kind && target.id) {
+    localSelection.value = { kind: target.kind, id: target.id } // 本地立即驱动面板（不依赖 App 渲染）
+    emit('select', { kind: target.kind, id: target.id })
+    return
+  }
+  emit('blank-click')
+}
+
+function animate(time = 0) {
+  frameId = requestAnimationFrame(animate)
+  performanceMonitor?.beginFrame()
+  if (camera && renderer) detailTexture?.update(EARTH_RADIUS / Math.max(camera.position.length(), 0.01) * (canvasHost.value?.clientHeight ?? 0) / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * renderer.getPixelRatio())
+  // 共享 800ms 时间轴：只从 -12° 向东到 0°，相机保持静止。
+  if (spinGroup && spinPhase !== 'done') {
+    spinGroup.rotation.y = entrySpinAngle(SPIN_INITIAL_OFFSET, spinStartAt, time)
+    if (entrySpinFinished(spinStartAt, time)) spinPhase = 'done'
+  }
+  if (focusAnimation && camera) {
+    const progress = Math.min(1, (time - focusAnimation.startedAt) / focusAnimation.duration)
+    const eased = 1 - Math.pow(1 - progress, 3)
+    const distance = THREE.MathUtils.lerp(focusAnimation.from.length(), focusAnimation.to.length(), eased)
+    camera.position
+      .copy(focusAnimation.from)
+      .normalize()
+      .lerp(focusAnimation.to.clone().normalize(), eased)
+      .normalize()
+      .multiplyScalar(distance)
+    camera.lookAt(0, 0, 0)
+    if (progress >= 1) {
+      focusAnimation = undefined
+      if (controls) {
+        controls.enabled = true
+        controls.update()
+      }
+    }
+  } else {
+    controls?.update()
+  }
+  // 动态拖动灵敏度：OrbitControls 每像素固定角度，相机距离近时同样角度在屏幕上的位移更大，
+  // 操作显得过于灵敏——按距离反向补偿：最近处 0.2（约原 0.48 的 40%）、默认视角 7.6 处 ~0.46（手感不变）、最远处 0.7
+  if (camera && controls && !focusAnimation) {
+    const t = THREE.MathUtils.clamp(
+      (camera.position.length() - controls.minDistance) / (controls.maxDistance - controls.minDistance),
+      0,
+      1,
+    )
+    controls.rotateSpeed = 0.2 + t * 0.5
+  }
+  if (orbitPositions?.available) {
+    for (const craft of props.spacecraft) {
+      const marker = markerObjects.get(`spacecraft:${craft.id}`)
+      if (marker) {
+        marker.visible = orbitPositions.position(craft.id, orbitPositionTmp, Date.now())
+        if (marker.visible) marker.position.copy(orbitPositionTmp)
+      }
+    }
+  } else if (time - lastOrbitUpdate > 1000) {
+    updateSpacecraftPositions(new Date())
+    lastOrbitUpdate = time
+  }
+  if (time - lastSunUpdate > 60_000) {
+    updateSun(new Date())
+    lastSunUpdate = time
+  }
+  // 点、短线和标签共享同一屏幕空间缩放；选中只点亮，不改变点的几何大小。
+  if (camera) {
+    const refDistance = 7.6 // 默认视角相机距离（scale = 1 的基准）
+    const minDistance = 3.0 // 最近（放大极限）——此处距离透明度为 1（实色）
+    const fade = elementsFadeNow(time)
+    const distOpacity = (d: number) => 0.7 + 0.3 * THREE.MathUtils.clamp((refDistance - d) / (refDistance - minDistance), 0, 1)
+    const viewportHeight = canvasHost.value?.clientHeight ?? 0
+    const currentPlanetRadiusPx = projectedSphereRadiusPx(EARTH_RADIUS, camera.position.length(), 42, viewportHeight)
+    const referencePlanetRadiusPx = projectedSphereRadiusPx(EARTH_RADIUS, refDistance, 42, viewportHeight)
+    for (const [key, marker] of markerObjects) {
+      const d = marker.getWorldPosition(markerScaleTmp).distanceTo(camera.position)
+      const isActive = activeKey.value === key
+      const scale = key.startsWith('spacecraft:')
+        ? sceneMarkerWorldRadius(
+            d,
+            42,
+            viewportHeight,
+            orbitMarkerRadiusPx(currentPlanetRadiusPx, referencePlanetRadiusPx),
+          )
+        : surfaceMarkerWorldRadius(
+            d,
+            42,
+            viewportHeight,
+            surfaceMarkerRadiusPx(currentPlanetRadiusPx, referencePlanetRadiusPx, isActive),
+          )
+      const material = (marker as THREE.Mesh).material as THREE.MeshBasicMaterial | undefined
+      const opacity = (isActive ? 1 : distOpacity(d)) * fade
+      // 仅变化时写（相机静止时 scale/opacity 恒定 → 每帧零材质/几何写，减滚动掉帧）
+      let st = markerStates.get(key)
+      if (!st) markerStates.set(key, (st = { scale: -1, opacity: -1 }))
+      if (Math.abs(st.scale - scale) > 1e-4) {
+        marker.scale.setScalar(scale)
+        st.scale = scale
+      }
+      if (material && Math.abs(st.opacity - opacity) > 1e-3) {
+        material.opacity = opacity
+        st.opacity = opacity
+      }
+    }
+    for (const [key, entry] of lineObjects) {
+      const isActive = activeKey.value === key
+      const show = entry.near || isActive
+      if (entry.line.visible !== show) entry.line.visible = show
+      // 仅状态变化时写材质（避免每帧 color.set 触发渲染失效）
+      if (entry.isActive !== isActive) {
+        entry.isActive = isActive
+        const material = entry.line.material as THREE.LineBasicMaterial
+        material.opacity = isActive ? 0.95 : 0.22
+        material.color.set(isActive ? 0x8eeaff : 0x42b7e8)
+      }
+    }
+    if (observerMarker) {
+      const d = observerMarker.getWorldPosition(markerScaleTmp).distanceTo(camera.position)
+      const scale = surfaceMarkerWorldRadius(
+        d,
+        42,
+        viewportHeight,
+        surfaceMarkerRadiusPx(currentPlanetRadiusPx, referencePlanetRadiusPx, props.observerActive !== false),
+      )
+      const opacity = distOpacity(d) * fade
+      let st = markerStates.get('observer')
+      if (!st) markerStates.set('observer', (st = { scale: -1, opacity: -1 }))
+      if (Math.abs(st.scale - scale) > 1e-4) {
+        observerMarker.scale.setScalar(scale)
+        st.scale = scale
+      }
+      if (Math.abs(st.opacity - opacity) > 1e-3) {
+        const mats: THREE.MeshBasicMaterial[] = []
+        observerMarker.traverse((item) => {
+          const m = (item as THREE.Mesh).material as THREE.MeshBasicMaterial | undefined
+          if (m) mats.push(m)
+        })
+        for (const m of mats) m.opacity = opacity
+        st.opacity = opacity
+      }
+    }
+  }
+  observerMarker?.traverse((item) => {
+    if (item instanceof THREE.Mesh && item.geometry.type === 'RingGeometry' && camera) item.lookAt(camera.position)
+  })
+  // observerMarker 每帧强制随元素整体可见度：进入隐藏期不渲染（visible 兜底，任何材质写入无法绕过）
+  if (observerMarker) {
+    observerMarker.visible = elementsFadeNow(time) > 0.001
+  }
+  if (observationLight && camera && props.dayNightEnabled === false) {
+    observationLight.position.copy(camera.position).normalize().multiplyScalar(12)
+  }
+  updateLabels()
+  updateReveals()
+  if (scene && camera && renderer) renderer.render(scene, camera)
+  performanceMonitor?.endFrame()
+}
+
+watch(() => [props.spacecraft, props.sites], async () => {
+  orbitPositions?.setCrafts(props.spacecraft)
+  orbitSampleCache.clear() // TLE 刷新（同 id 新 omm）时清轨道采样缓存，避免 1 分钟桶内旧轨道
+  await nextTick()
+  rebuildDataLayers()
+})
+
+watch(() => props.layers, () => {
+  if (spacecraftGroup) spacecraftGroup.visible = props.layers.spacecraft
+  if (orbitGroup) orbitGroup.visible = props.layers.orbits
+  if (siteGroup) siteGroup.visible = props.layers.sites
+}, { deep: true })
+
+// 选中态由渲染循环原地更新 marker / line 的高亮与透明度；不能为一次点击销毁并重建全部轨道。
+// 数据集变更才走 rebuildDataLayers，才能承受未来数百个对象的目录与场景联动。
+watch(() => props.focusTarget?.key, beginFocus)
+watch(() => [props.observerTarget, props.observerActive], rebuildObserverMarker, { deep: true })
+watch(() => props.dayNightEnabled, applyDayNightMode)
+
+onMounted(setupScene)
+onBeforeUnmount(() => {
+  detailTexture?.dispose()
+  orbitPositions?.dispose()
+  performanceMonitor?.dispose()
+  cancelAnimationFrame(frameId)
+  resizeObserver?.disconnect()
+  if (renderer) {
+    renderer.domElement.removeEventListener('pointerdown', onPointerDown)
+    renderer.domElement.removeEventListener('pointerup', onPointerUp)
+    renderer.domElement.removeEventListener('pointermove', onPointerMove)
+    renderer.domElement.removeEventListener('pointerleave', onPointerLeave)
+    canvasHost.value?.removeEventListener('wheel', onSceneWheel)
+    renderer.dispose()
+    renderer.domElement.remove()
+  }
+  controls?.dispose()
+})
+</script>
+
+<template>
+  <div ref="canvasHost" class="scene-host" :class="{ revealed: sceneRevealed, 'pointer-near-earth': pointerNearEarth, 'leaving-body': leaving }" aria-label="可拖动的三维地球轨道场景">
+    <template v-for="label in labels" :key="`${label.kind}:${label.id}`">
+      <MissionSceneLabel
+        v-if="label.kind === 'spacecraft'"
+        v-show="label.visible && elementsShown"
+        class="scene-spacecraft-label"
+        :leaving="leaving"
+        kind="spacecraft"
+        :name-zh="bName(props.spacecraft.find((item) => item.id === label.id)?.nameZh ?? label.name, props.spacecraft.find((item) => item.id === label.id)?.nameEn ?? '').primary"
+        :name-en="bName(props.spacecraft.find((item) => item.id === label.id)?.nameZh ?? label.name, props.spacecraft.find((item) => item.id === label.id)?.nameEn ?? '').secondary"
+        :selected="activeKey === `${label.kind}:${label.id}`"
+        :mode="label.mode"
+        :side="label.side"
+        :cluster-count="label.clusterCount"
+        :cluster-items="label.memberIds.map((id) => ({ id, name: props.spacecraft.find((item) => item.id === id)?.nameZh ?? id }))"
+        :style="annotationLabelStyle(label)"
+        @pointerenter="label.mode !== 'cluster' && onLabelEnter(label)"
+        @pointerleave="onLabelLeave(label)"
+        @click="localSelection = { kind: label.kind, id: label.id }; emit('select', { kind: label.kind, id: label.id })"
+        @select-member="localSelection = { kind: 'spacecraft', id: $event }; emit('select', { kind: 'spacecraft', id: $event })"
+      />
+    </template>
+    <MissionSceneLabel
+      v-for="label in siteLabels"
+      v-show="label.visible && props.layers.sites && elementsShown"
+      :key="`site:${label.id}`"
+      class="scene-site-label"
+      :leaving="leaving"
+      kind="surface"
+      :name-zh="bName(props.sites.find((item) => item.id === label.id)?.nameZh ?? label.name, props.sites.find((item) => item.id === label.id)?.nameEn ?? '').primary"
+      :name-en="bName(props.sites.find((item) => item.id === label.id)?.nameZh ?? label.name, props.sites.find((item) => item.id === label.id)?.nameEn ?? '').secondary"
+      :selected="activeKey === `site:${label.id}`"
+      :mode="label.mode"
+      :side="label.side"
+      :cluster-count="label.clusterCount"
+      :cluster-items="label.memberIds.map((id) => ({ id, name: props.sites.find((item) => item.id === id)?.nameZh ?? id }))"
+      :style="annotationLabelStyle(label)"
+      @click="localSelection = { kind: 'site', id: label.id }; emit('select', { kind: 'site', id: label.id })"
+      @select-member="localSelection = { kind: 'site', id: $event }; emit('select', { kind: 'site', id: $event })"
+    />
+    <MissionSceneLabel
+      v-if="observerLabel"
+      v-show="observerLabel.visible && elementsShown"
+      class="scene-observer-label"
+      :class="{ inactive: props.observerActive === false }"
+      kind="surface"
+      :name-zh="observerLabel.name"
+      :selected="props.observerActive !== false"
+      :mode="observerLabel.mode"
+      :side="observerLabel.side"
+      :cluster-count="observerLabel.clusterCount"
+      :style="annotationLabelStyle(observerLabel)"
+      :tabindex="-1"
+      aria-disabled="true"
+    />
+    <div v-if="textureState === 'fallback'" class="texture-warning">地球影像暂不可用</div>
+
+    <!-- 信息面板（组件内渲染，本地 selection 驱动——参照月球架构，不依赖 App 全局渲染） -->
+    <MissionDetailPanel
+      v-if="selectedSpacecraftDetail"
+      :detail="selectedSpacecraftDetail"
+      :style="props.headerExpanded ? { '--header-overlay-offset': '76px' } : undefined"
+      @close="localSelection = null; emit('clear-selection')"
+    />
+    <aside v-else-if="localSelection" class="context-panel" aria-label="所选对象详情" :style="props.headerExpanded ? { transform: 'translateY(76px)' } : undefined">
+      <button class="panel-close" aria-label="关闭详情" @click="localSelection = null; emit('clear-selection')">关闭</button>
+
+      <template v-if="selectedSite">
+        <p class="context-type launch-context">LAUNCH SITE · {{ selectedSite.countryCode }}</p>
+        <h2>{{ bName(selectedSite.nameZh, selectedSite.nameEn).primary }}</h2>
+        <p v-if="bName(selectedSite.nameZh, selectedSite.nameEn).secondary" class="context-subtitle">（{{ bName(selectedSite.nameZh, selectedSite.nameEn).secondary }}）</p>
+        <p class="context-description">{{ selectedSite.description }}</p>
+        <dl>
+          <div><dt>国家 / 地区</dt><dd>{{ selectedSite.countryNameZh }}</dd></div>
+          <div><dt>纬度</dt><dd>{{ formatCoordinate(selectedSite.latitude, 'N', 'S') }}</dd></div>
+          <div><dt>经度</dt><dd>{{ formatCoordinate(selectedSite.longitude, 'E', 'W') }}</dd></div>
+        </dl>
+      </template>
+
+      <template v-else-if="selectedEvent">
+        <p class="context-type launch-context">LAUNCH · {{ selectedEvent.statusAbbrev }}</p>
+        <h2 :lang="eventPanelName.lang">{{ eventPanelName.primary }}</h2>
+        <p v-if="eventPanelName.secondary" class="context-translation">（{{ eventPanelName.secondary }}）</p>
+        <p class="context-subtitle">
+          {{ launchVehicleName(selectedEvent) }}<template v-if="selectedEvent.providerName"> · {{ selectedEvent.providerName }}</template>
+        </p>
+        <div class="event-clock"><strong>{{ eventDate(selectedEvent.net).month }} {{ eventDate(selectedEvent.net).day }}</strong><span>{{ eventDate(selectedEvent.net).time }} UTC+8</span></div>
+        <p class="context-description">{{ selectedEvent.missionDescriptionZh || '任务详情暂未公开。' }}</p>
+        <dl>
+          <div><dt>任务类型</dt><dd>{{ selectedEvent.missionTypeZh || '待确认' }}</dd></div>
+          <div><dt>状态</dt><dd>{{ selectedEvent.statusNameZh }}</dd></div>
+          <div><dt>发射台</dt><dd>{{ selectedEvent.padNameZh || '待确认' }}</dd></div>
+          <div><dt>地点</dt><dd>{{ selectedEvent.locationNameZh || '待确认' }}</dd></div>
+        </dl>
+        <div class="site-context">
+          <p>发射场</p>
+          <template v-if="selectedEventSite">
+            <strong>{{ selectedEventSite.nameZh }}</strong>
+            <span>{{ selectedEventSite.description }}</span>
+          </template>
+          <template v-else>
+            <strong>{{ selectedEvent.padNameZh || selectedEvent.locationNameZh }}</strong>
+          </template>
+        </div>
+        <div v-if="selectedEvent.hasOriginal" class="event-original-disclosure">
+          <button
+            type="button"
+            :aria-expanded="showEventOriginal"
+            @click="showEventOriginal = !showEventOriginal"
+          >
+            {{ showEventOriginal ? '收起原文' : '查看原文' }}
+          </button>
+          <div v-if="showEventOriginal" class="event-original-copy">
+            <p>来源原文</p>
+            <strong>{{ selectedEvent.missionName || selectedEvent.name }}</strong>
+            <span>{{ selectedEvent.name }}</span>
+            <dl>
+              <div><dt>STATUS</dt><dd>{{ selectedEvent.statusName }}</dd></div>
+              <div v-if="selectedEvent.padName"><dt>PAD</dt><dd>{{ selectedEvent.padName }}</dd></div>
+              <div v-if="selectedEvent.locationName"><dt>LOCATION</dt><dd>{{ selectedEvent.locationName }}</dd></div>
+            </dl>
+          </div>
+        </div>
+      </template>
+    </aside>
+  </div>
+</template>
+
+<style scoped>
+.scene-host {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  cursor: default;
+  --mission-accent: #72d7ff;
+  --mission-accent-dim: rgba(114, 215, 255, .38);
+  --mission-line: rgba(139, 180, 202, .2);
+  --mission-text: #ecf5f9;
+  --mission-quiet: #7f98a7;
+  --mission-body: #a8c0cc;
+  --mission-panel-surface: rgba(5, 14, 22, .95);
+}
+/* 地球场景入场：进入边界触发 0.3s 渐亮（裸星球先出现；默认隐藏，revealed 时过渡显现） */
+.scene-host { opacity: 0; transition: opacity 0.3s ease; }
+.scene-host.revealed { opacity: 1; }
+.scene-host.revealed.leaving-body {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .32s cubic-bezier(.4, 0, 1, 1) .3s;
+}
+.scene-host.pointer-near-earth { cursor: grab; }
+.scene-host.pointer-near-earth:active { cursor: grabbing; }
+.scene-host::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(circle at 50% 48%, transparent 26%, rgba(3, 7, 12, .13) 58%, rgba(3, 7, 12, .68) 100%); }
+.scene-label { position: absolute; left: 0; top: 0; z-index: 3; display: flex; gap: 7px; align-items: center; padding: 5px 8px; border: 1px solid rgba(124, 184, 216, .22); background: rgba(3, 10, 17, .74); color: #bfd1dc; font: 500 10px/1.2 var(--font-sans); letter-spacing: .04em; white-space: nowrap; backdrop-filter: blur(8px); cursor: pointer; transition: border-color .2s, color .2s; }
+.scene-label::before { content: ''; position: absolute; right: 100%; top: 50%; width: 14px; height: 1px; background: rgba(120, 188, 222, .35); }
+.scene-label i { width: 4px; height: 4px; border-radius: 50%; background: #72d7ff; box-shadow: 0 0 8px #72d7ff; }
+.scene-label.site i { background: #ffb866; box-shadow: 0 0 8px #ffb866; }
+.scene-label:hover { color: #dce9f0; border-color: rgba(124, 184, 216, .4); background: rgba(5, 14, 22, .8); }
+.scene-label.selected { color: #e8f4fb; border-color: rgba(114, 215, 255, .5); background: rgba(6, 17, 26, .82); }
+.scene-label.selected i { box-shadow: 0 0 8px #72d7ff; }
+.scene-observer-label { --mission-accent: #79e3bd; --mission-accent-dim: rgba(121, 227, 189, .4); --mission-line: rgba(121, 227, 189, .34); --mission-text: #c7eee1; pointer-events: none; }
+.scene-observer-label.inactive { opacity: .34; }
+.texture-warning { position: absolute; z-index: 4; top: 82px; left: 50%; transform: translateX(-50%); color: #e6b985; font: 11px var(--font-mono); }
+@media (prefers-reduced-motion: reduce) {
+  .scene-host.revealed.leaving-body { transition: opacity .1s linear .04s; }
+}
+</style>

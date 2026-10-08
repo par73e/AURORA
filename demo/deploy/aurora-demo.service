@@ -1,0 +1,23 @@
+[Unit]
+Description=AURORA offline demonstration API
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+EnvironmentFile=-/etc/aurora-demo.env
+WorkingDirectory=/opt/aurora-demo/current
+ExecStart=/opt/aurora-demo/current/bin/aurora-demo -addr 127.0.0.1:18082 -data /opt/aurora-demo/current/data
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=256M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

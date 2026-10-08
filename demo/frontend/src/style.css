@@ -1,0 +1,1231 @@
+
+/* 品牌字随应用本地部署并由 index.html 优先预载；block 阻止替代字形先绘制后跳变。 */
+@font-face {
+  font-family: 'Aurora Wordmark';
+  src: url('/fonts/aurora-montserrat-200-latin.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 200;
+  font-display: block;
+}
+
+:root {
+  --bg: #03070c;
+  --surface: #07131e;
+  --surface-raised: #0b1b28;
+  --ink: #ecf5f9;
+  --muted: #7f98a7;
+  --quiet: #526b79;
+  --line: rgba(139, 180, 202, .18);
+  --line-strong: rgba(139, 180, 202, .32);
+  --blue: #72d7ff;
+  --amber: #ffb866;
+  --font-sans: Manrope, 'Noto Sans SC', sans-serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-synthesis: none;
+  background: var(--bg);
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 72px; }
+html, body, #app { width: 100%; min-height: 100%; margin: 0; }
+body { overflow-x: hidden; background: var(--bg); }
+button, input, select { font: inherit; }
+button, a { color: inherit; }
+button { cursor: pointer; }
+.aurora-shell, .desktop-app, .desktop-cover { width: 100%; min-height: 100%; }
+
+/* 页面切换过渡：整页缩放推近/拉远（不能用 will-change: transform——
+   它会让 shell 成为 fixed 后代（页头）的包含块，滚动后页头会跑出视口） */
+.aurora-shell { transition: transform .58s cubic-bezier(.16, 1, .3, 1); }
+.surface-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  /* 提升为合成层：rAF 逐帧改 opacity 时只做合成，不再整屏重绘 41 层径向渐变
+     （不会像 will-change: transform 那样成为 fixed 后代的包含块，页头不受影响） */
+  will-change: opacity;
+  /* 星点过渡背景：黑幕期间显示深空星点（与太阳系背景同风格），
+     由多层径向渐变点 + 中央微亮椭圆 + 底色组成，随遮罩一起淡入淡出 */
+  background:
+    radial-gradient(1.3px 1.3px at 33.1% 16.5%, rgba(198, 225, 255, 0.37), transparent 100%),
+    radial-gradient(0.8px 0.8px at 53.4% 37.1%, rgba(198, 225, 255, 0.5), transparent 100%),
+    radial-gradient(0.8px 0.8px at 5.6% 43.6%, rgba(198, 225, 255, 0.38), transparent 100%),
+    radial-gradient(0.9px 0.9px at 42.8% 81.4%, rgba(198, 225, 255, 0.42), transparent 100%),
+    radial-gradient(1.2px 1.2px at 62.2% 93.0%, rgba(198, 225, 255, 0.47), transparent 100%),
+    radial-gradient(1.4px 1.4px at 95.7% 6.5%, rgba(198, 225, 255, 0.44), transparent 100%),
+    radial-gradient(1.0px 1.0px at 15.8% 13.3%, rgba(198, 225, 255, 0.59), transparent 100%),
+    radial-gradient(1.2px 1.2px at 19.3% 57.8%, rgba(198, 225, 255, 0.46), transparent 100%),
+    radial-gradient(0.8px 0.8px at 54.6% 8.0%, rgba(198, 225, 255, 0.41), transparent 100%),
+    radial-gradient(1.0px 1.0px at 67.3% 43.0%, rgba(198, 225, 255, 0.53), transparent 100%),
+    radial-gradient(1.4px 1.4px at 45.5% 30.8%, rgba(198, 225, 255, 0.56), transparent 100%),
+    radial-gradient(1.2px 1.2px at 25.4% 57.1%, rgba(198, 225, 255, 0.61), transparent 100%),
+    radial-gradient(1.5px 1.5px at 72.0% 29.6%, rgba(198, 225, 255, 0.39), transparent 100%),
+    radial-gradient(0.9px 0.9px at 42.1% 74.7%, rgba(198, 225, 255, 0.5), transparent 100%),
+    radial-gradient(1.3px 1.3px at 5.8% 66.1%, rgba(198, 225, 255, 0.52), transparent 100%),
+    radial-gradient(1.3px 1.3px at 86.0% 32.1%, rgba(198, 225, 255, 0.53), transparent 100%),
+    radial-gradient(1.4px 1.4px at 57.7% 45.8%, rgba(198, 225, 255, 0.63), transparent 100%),
+    radial-gradient(0.8px 0.8px at 47.5% 65.8%, rgba(198, 225, 255, 0.56), transparent 100%),
+    radial-gradient(1.4px 1.4px at 64.1% 97.3%, rgba(198, 225, 255, 0.44), transparent 100%),
+    radial-gradient(0.8px 0.8px at 39.0% 66.2%, rgba(198, 225, 255, 0.49), transparent 100%),
+    radial-gradient(0.8px 0.8px at 18.1% 13.2%, rgba(198, 225, 255, 0.58), transparent 100%),
+    radial-gradient(1.1px 1.1px at 14.4% 25.8%, rgba(198, 225, 255, 0.61), transparent 100%),
+    radial-gradient(1.2px 1.2px at 9.7% 45.1%, rgba(198, 225, 255, 0.62), transparent 100%),
+    radial-gradient(1.0px 1.0px at 80.7% 84.9%, rgba(198, 225, 255, 0.47), transparent 100%),
+    radial-gradient(1.5px 1.5px at 36.4% 86.9%, rgba(198, 225, 255, 0.4), transparent 100%),
+    radial-gradient(1.0px 1.0px at 18.9% 24.3%, rgba(198, 225, 255, 0.5), transparent 100%),
+    radial-gradient(0.8px 0.8px at 58.6% 27.2%, rgba(198, 225, 255, 0.48), transparent 100%),
+    radial-gradient(1.5px 1.5px at 37.4% 56.4%, rgba(198, 225, 255, 0.56), transparent 100%),
+    radial-gradient(1.3px 1.3px at 51.5% 61.3%, rgba(198, 225, 255, 0.37), transparent 100%),
+    radial-gradient(1.4px 1.4px at 88.4% 76.9%, rgba(198, 225, 255, 0.59), transparent 100%),
+    radial-gradient(0.9px 0.9px at 39.7% 40.3%, rgba(198, 225, 255, 0.54), transparent 100%),
+    radial-gradient(0.9px 0.9px at 8.0% 8.5%, rgba(198, 225, 255, 0.4), transparent 100%),
+    radial-gradient(0.8px 0.8px at 34.6% 7.0%, rgba(198, 225, 255, 0.4), transparent 100%),
+    radial-gradient(0.8px 0.8px at 11.7% 36.9%, rgba(198, 225, 255, 0.61), transparent 100%),
+    radial-gradient(1.0px 1.0px at 61.0% 16.3%, rgba(198, 225, 255, 0.45), transparent 100%),
+    radial-gradient(1.4px 1.4px at 37.0% 13.8%, rgba(198, 225, 255, 0.65), transparent 100%),
+    radial-gradient(0.9px 0.9px at 46.7% 48.4%, rgba(198, 225, 255, 0.38), transparent 100%),
+    radial-gradient(1.4px 1.4px at 34.9% 27.4%, rgba(198, 225, 255, 0.4), transparent 100%),
+    radial-gradient(1.2px 1.2px at 4.2% 93.3%, rgba(198, 225, 255, 0.39), transparent 100%),
+    radial-gradient(1.2px 1.2px at 54.1% 4.6%, rgba(198, 225, 255, 0.64), transparent 100%),
+    radial-gradient(ellipse at 50% 50%, #060b13 0%, #010307 100%),
+    #010307;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--veil-duration, .4s) ease;
+}
+.surface-veil.active { opacity: 1; pointer-events: auto; }
+.surface-veil.for-sky { background: #02080d; }
+.surface-veil.for-deep { background: #010307; }
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora-shell { transition: none; will-change: auto; }
+  .surface-veil { transition: none; }
+}
+.desktop-app { --header-overlay-offset: 72px; background: var(--bg); }
+.desktop-app.deep-prewarming {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
+.desktop-app.header-collapsed { --header-overlay-offset: 0px; }
+.desktop-only { display: none; }
+.page-frame { width: min(calc(100% - 64px), 1440px); margin: 0 auto; }
+
+.site-header { position: fixed; z-index: 40; top: 0; left: 0; right: 0; height: 72px; overflow: clip; background: rgba(3, 7, 12, .9); backdrop-filter: blur(18px); transition: transform .38s cubic-bezier(.22, 1, .36, 1); }
+.site-header::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: var(--line); transition: opacity .2s; }
+.site-header.collapsed { transform: translateY(-100%); }
+.site-header.collapsed::after { opacity: 0; }
+.desktop-app.deep-entering .site-header {
+  animation: deep-header-enter .18s .02s cubic-bezier(.16, 1, .3, 1) both;
+}
+.desktop-app.deep-leaving .site-header {
+  animation: deep-header-leave .28s cubic-bezier(.4, 0, 1, 1) both;
+  pointer-events: none;
+}
+@keyframes deep-header-enter {
+  from { opacity: 0; transform: translateY(-100%); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes deep-header-leave {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .desktop-app.deep-entering .site-header,
+  .desktop-app.deep-leaving .site-header { animation-duration: .04s; animation-delay: 0s; }
+}
+.header-inner { width: calc(100% - 64px); max-width: none; height: 72px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 32px; }
+.site-header nav { display: flex; align-items: center; gap: 30px; }
+.site-header nav a { color: #a8bbc5; font-size: 12px; text-decoration: none; transition: color .2s; }
+.site-header nav a:hover, .site-header nav a:focus-visible { color: #8ed4f6; }
+.site-header nav .nav-num { margin-right: 7px; color: #8299a6; font: 400 10px var(--font-mono); font-variant-numeric: tabular-nums; }
+.solar-clock { color: #a1b6bf; }
+.live-status { justify-self: end; display: flex; align-items: center; gap: 9px; color: var(--muted); font: 500 9px var(--font-mono); }
+.live-status strong { margin-left: 7px; color: var(--ink); font-weight: 500; }
+.status-dot { width: 6px; height: 6px; border-radius: 50%; background: #d06b62; }
+.status-dot.healthy { background: #79e3bd; }
+.status-dot.syncing { background: #5e7582; }
+
+.orbit-section { position: relative; height: 150dvh; min-height: 990px; padding: 0; background: radial-gradient(circle at 60% 34%, #0a2338 0, #05111d 34%, #03070c 72%); }
+.orbit-section > .page-frame { width: 100%; max-width: none; height: 100%; }
+.section-kicker { margin: 0 0 14px; color: var(--blue); font: 500 10px var(--font-mono); letter-spacing: .13em; }
+.launch-kicker { color: var(--amber); }
+.scene-frame { position: sticky; top: 0; height: 100dvh; min-height: 660px; overflow: hidden; border-radius: 0; background:
+    radial-gradient(1.2px 1.2px at 12% 22%, rgba(198, 225, 255, .8), transparent 100%),
+    radial-gradient(1px 1px at 23% 64%, rgba(198, 225, 255, .55), transparent 100%),
+    radial-gradient(.8px .8px at 31% 38%, rgba(198, 225, 255, .5), transparent 100%),
+    radial-gradient(1.4px 1.4px at 41% 82%, rgba(198, 225, 255, .7), transparent 100%),
+    radial-gradient(1px 1px at 55% 15%, rgba(198, 225, 255, .5), transparent 100%),
+    radial-gradient(.9px .9px at 62% 48%, rgba(198, 225, 255, .45), transparent 100%),
+    radial-gradient(1.3px 1.3px at 71% 74%, rgba(198, 225, 255, .65), transparent 100%),
+    radial-gradient(1px 1px at 79% 29%, rgba(198, 225, 255, .5), transparent 100%),
+    radial-gradient(.8px .8px at 88% 58%, rgba(198, 225, 255, .5), transparent 100%),
+    radial-gradient(1.1px 1.1px at 94% 12%, rgba(198, 225, 255, .6), transparent 100%),
+    radial-gradient(1px 1px at 7% 86%, rgba(198, 225, 255, .5), transparent 100%),
+    radial-gradient(.9px .9px at 49% 92%, rgba(198, 225, 255, .45), transparent 100%),
+    radial-gradient(1.2px 1.2px at 66% 4%, rgba(198, 225, 255, .55), transparent 100%),
+    radial-gradient(.8px .8px at 17% 45%, rgba(198, 225, 255, .5), transparent 100%),
+    radial-gradient(1px 1px at 28% 12%, rgba(198, 225, 255, .5), transparent 100%),
+    radial-gradient(.9px .9px at 37% 58%, rgba(198, 225, 255, .45), transparent 100%),
+    radial-gradient(1.2px 1.2px at 46% 30%, rgba(198, 225, 255, .6), transparent 100%),
+    radial-gradient(.8px .8px at 58% 72%, rgba(198, 225, 255, .5), transparent 100%),
+    radial-gradient(1px 1px at 67% 38%, rgba(198, 225, 255, .5), transparent 100%),
+    radial-gradient(.9px .9px at 75% 88%, rgba(198, 225, 255, .45), transparent 100%),
+    radial-gradient(1.1px 1.1px at 84% 8%, rgba(198, 225, 255, .55), transparent 100%),
+    radial-gradient(.8px .8px at 92% 42%, rgba(198, 225, 255, .5), transparent 100%),
+    radial-gradient(1px 1px at 3% 15%, rgba(198, 225, 255, .5), transparent 100%),
+    radial-gradient(.9px .9px at 15% 74%, rgba(198, 225, 255, .45), transparent 100%),
+    radial-gradient(1px 1px at 8% 42%, rgba(198, 225, 255, .5), transparent 100%),
+    radial-gradient(.8px .8px at 22% 8%, rgba(198, 225, 255, .45), transparent 100%),
+    radial-gradient(1.1px 1.1px at 36% 88%, rgba(198, 225, 255, .55), transparent 100%),
+    radial-gradient(.8px .8px at 44% 52%, rgba(198, 225, 255, .45), transparent 100%),
+    radial-gradient(1px 1px at 53% 38%, rgba(198, 225, 255, .5), transparent 100%),
+    radial-gradient(.9px .9px at 61% 20%, rgba(198, 225, 255, .45), transparent 100%),
+    radial-gradient(1.2px 1.2px at 70% 92%, rgba(198, 225, 255, .6), transparent 100%),
+    radial-gradient(.8px .8px at 82% 66%, rgba(198, 225, 255, .45), transparent 100%),
+    radial-gradient(1px 1px at 91% 34%, rgba(198, 225, 255, .5), transparent 100%),
+    radial-gradient(circle at 50% 48%, #09233a 0, #03070c 69%); }
+.scene-toolbar { position: absolute; z-index: 7; top: 18px; left: 32px; display: flex; align-items: center; gap: 6px; padding: 6px; border: 1px solid var(--line); border-radius: 4px; background: rgba(3, 9, 15, .8); backdrop-filter: blur(12px); }
+/* 注意：.scene-toolbar 的 transform 由 JS rAF 动画逐帧控制（CSS transform 会与 rAF 冲突导致首帧跳变再拉回） */
+.scene-toolbar > span { padding: 7px 9px; color: #8da6b3; font: 500 10px var(--font-mono); }
+.scene-toolbar label { position: relative; display: flex; align-items: center; gap: 7px; padding: 7px 9px; color: #bbccd4; font-size: 11px; cursor: pointer; }
+/* 仅键盘导航显示焦点框，鼠标点击图层开关不留下方框。 */
+.scene-toolbar label:has(input:focus-visible) { outline: 1px solid currentColor; outline-offset: 2px; }
+.scene-toolbar input { position: absolute; opacity: 0; }
+.scene-toolbar i { width: 5px; height: 5px; border-radius: 50%; background: #355161; }
+.scene-toolbar input:checked + i { background: var(--blue); }
+.scene-toolbar input:checked + i.amber { background: var(--amber); }
+.scene-toolbar i.terminator { width: 7px; height: 7px; border: 1px solid #587789; background: #26404f; transform: rotate(-20deg); }
+.scene-toolbar input:checked + i.terminator { border-color: rgba(114, 215, 255, .78); background: linear-gradient(90deg, #78d7f7 0 50%, #102634 50% 100%); }
+.scene-location { position: absolute; z-index: 7; top: 18px; left: 360px; display: flex; align-items: center; gap: 10px; min-height: 43px; padding: 7px 11px; border: 1px solid var(--line); border-radius: 4px; background: rgba(3, 9, 15, .8); color: var(--ink); text-align: left; backdrop-filter: blur(12px); }
+.scene-location:hover, .scene-location:focus-visible { border-color: rgba(114, 215, 255, .5); outline: 0; }
+.scene-location > i { width: 7px; height: 7px; border: 1px solid #426779; border-radius: 50%; opacity: .48; transition: opacity .2s, border-color .2s, background .2s, box-shadow .2s; }
+.scene-location > i.locating,
+.scene-location > i.resolving { animation: location-pulse 1.2s ease-out infinite; }
+.scene-location.active > i { border-color: var(--blue); opacity: 1; box-shadow: 0 0 0 3px rgba(114, 215, 255, .08); }
+.scene-location.active > i.located,
+.scene-location.active > i.partial { background: var(--blue); }
+.scene-location > i.fallback { border-color: var(--amber); }
+.scene-location span, .scene-location small, .scene-location strong { display: block; }
+.scene-location small { color: #8da6b3; font: 400 9px var(--font-mono); }
+.scene-location strong { max-width: 170px; margin-top: 3px; overflow: hidden; font-size: 10px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.scene-readout { position: absolute; z-index: 6; left: 32px; bottom: 22px; color: rgba(235, 242, 245, .92); }
+.scene-readout > span { color: rgba(114, 215, 255, .78); font: 500 8px var(--font-mono); letter-spacing: .15em; }
+.scene-readout strong { display: block; margin-top: 5px; font-size: 17px; font-weight: 500; }
+.scene-credits { position: absolute; z-index: 3; right: 34px; bottom: 30px; color: rgba(165, 192, 205, .76); font: 400 9px var(--font-mono); letter-spacing: .04em; text-align: right; pointer-events: none; }
+.context-panel { position: absolute; z-index: 8; top: 18px; right: 32px; width: clamp(368px, 25vw, 460px); max-height: calc(100% - 36px - var(--header-overlay-offset)); overflow-y: auto; padding: 28px; border-radius: 12px; background: rgba(5, 14, 22, .92); box-shadow: 0 24px 70px rgba(0, 8, 18, .45); transform: translateY(var(--header-overlay-offset)); transition: transform .38s cubic-bezier(.22, 1, .36, 1); backdrop-filter: blur(20px); scrollbar-width: thin; }
+.panel-close { position: absolute; top: 17px; right: 17px; padding: 5px 7px; border: 0; background: transparent; color: var(--muted); font-size: 10px; }
+.panel-close:hover, .panel-close:focus-visible { color: var(--ink); }
+.context-type { margin: 0 0 13px; color: var(--blue); font: 500 9px var(--font-mono); letter-spacing: .1em; }
+.launch-context { color: var(--amber); }
+.context-panel h2 { max-width: 300px; margin: 0; font-size: 26px; line-height: 1.18; letter-spacing: -.025em; }
+.context-translation { max-width: 32ch; margin: 8px 0 0; color: #8ba0aa; font-size: 11px; line-height: 1.55; letter-spacing: .01em; }
+.context-subtitle { margin: 7px 0 0; color: #708794; font: 400 9px var(--font-mono); line-height: 1.5; }
+.context-description { margin: 23px 0; color: #a2b4bd; font-size: 12px; line-height: 1.75; }
+.context-panel dl { margin: 0; }
+.context-panel dl div { display: grid; grid-template-columns: 100px 1fr; gap: 18px; padding: 11px 0; border-top: 1px solid var(--line); font-size: 10px; }
+.context-panel dt { color: #687f8c; }
+.context-panel dd { margin: 0; text-align: right; line-height: 1.5; }
+.source-caption { margin: 18px 0 0; color: #5f7785; font: 400 8px/1.6 var(--font-mono); }
+.event-clock { display: flex; justify-content: space-between; align-items: baseline; margin-top: 23px; padding: 15px 0; border-top: 1px solid rgba(255, 184, 102, .25); border-bottom: 1px solid rgba(255, 184, 102, .25); }
+.event-clock strong { color: var(--amber); font: 500 19px var(--font-mono); }
+.event-clock span { font: 500 11px var(--font-mono); }
+.site-context { margin-top: 22px; padding: 17px 0 0; border-top: 1px solid var(--line); }
+.site-context p { margin: 0 0 8px; color: var(--amber); font: 500 9px var(--font-mono); }
+.site-context strong, .site-context span { display: block; }
+.site-context strong { font-size: 13px; }
+.site-context span { margin-top: 8px; color: #8095a0; font-size: 10px; line-height: 1.7; }
+.event-original-disclosure { margin-top: 20px; border-top: 1px solid var(--line); }
+.event-original-disclosure > button { width: 100%; padding: 14px 0; border: 0; background: transparent; color: var(--amber); font-size: 10px; text-align: left; }
+.event-original-disclosure > button:hover, .event-original-disclosure > button:focus-visible { color: #ffd09a; outline: 0; }
+.event-original-copy { padding: 4px 0 2px; color: #718995; }
+.event-original-copy > p:first-child { margin: 0 0 9px; color: #607987; font: 500 8px var(--font-mono); }
+.event-original-copy > strong, .event-original-copy > span { display: block; }
+.event-original-copy > strong { color: #a9bac2; font-size: 11px; line-height: 1.55; }
+.event-original-copy > span { margin-top: 5px; color: #607784; font: 400 8px/1.5 var(--font-mono); }
+.event-original-copy dl { margin-top: 14px; }
+.event-original-copy dl div { grid-template-columns: 76px 1fr; padding: 8px 0; font-size: 9px; }
+.event-original-description { margin: 14px 0 0; color: #718995; font-size: 9px; line-height: 1.7; white-space: pre-line; }
+.event-original-copy a { display: inline-block; margin-top: 14px; color: var(--blue); font-size: 9px; text-decoration: none; }
+.event-original-copy a:hover, .event-original-copy a:focus-visible { color: #b5ecff; outline: 0; }
+.content-section { min-height: calc(100dvh - 72px); padding: 28px 0 72px; border-top: 1px solid var(--line); }
+.section-heading { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 24px; align-items: start; margin-bottom: 30px; }
+.section-heading > div { grid-column: 1 / span 5; }
+.section-heading > p { grid-column: 8 / span 5; max-width: 58ch; margin: 0; color: var(--muted); font-size: 14px; line-height: 1.75; }
+.section-heading h2 { margin: 0; font-size: clamp(34px, 3vw, 46px); font-weight: 500; letter-spacing: -.03em; }
+.section-heading h2 .sec-num { margin-right: 16px; color: var(--blue); font: 400 15px var(--font-mono); font-variant-numeric: tabular-nums; vertical-align: 6px; }
+.objects-section { background: #050b11; }
+.catalog-workspace { overflow: hidden; border-radius: 12px; background: var(--surface); }
+.catalog-controls { display: grid; grid-template-columns: minmax(420px, 1fr) 240px 180px; gap: 18px; padding: 26px; }
+.catalog-controls label { display: grid; gap: 8px; }
+.catalog-controls label > span { color: #9cb2bf; font-size: 11px; }
+.catalog-controls input, .catalog-controls select { width: 100%; height: 46px; padding: 0 13px; border: 1px solid var(--line-strong); border-radius: 4px; outline: 0; background: #06111a; color: var(--ink); }
+.catalog-controls input:focus, .catalog-controls select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(114, 215, 255, .1); }
+/* 下拉框：去掉原生箭头，用统一风格的自绘箭头，hover 高亮 */
+.catalog-controls select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 36px;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23758d99' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: right 13px center;
+  background-repeat: no-repeat;
+  cursor: pointer;
+  transition: border-color .18s, box-shadow .18s;
+}
+.catalog-controls select:hover { border-color: var(--blue); }
+.search-field input { font-family: var(--font-mono); }
+.query-error { margin: 0 26px 18px; color: #f2a197; font-size: 11px; }
+.catalog-meta { display: flex; justify-content: space-between; padding: 13px 26px; border-top: 1px solid var(--line); color: #8ca5b3; font: 400 10px var(--font-mono); }
+.object-table-head, .object-row { display: grid; grid-template-columns: 90px minmax(220px, 1.4fr) minmax(170px, 1fr) minmax(150px, .8fr) 130px; gap: 20px; align-items: center; }
+.object-table-head { padding: 12px 26px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); color: #8ca5b3; font: 500 10px var(--font-mono); }
+.object-row { width: 100%; min-height: 74px; padding: 12px 26px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: #94a9b4; text-align: left; transition: background .18s, color .18s; }
+.object-row:hover, .object-row:focus-visible { background: #0a1a27; color: var(--ink); outline: 0; }
+.object-row > span:first-child, .object-row > span:last-child { font: 400 10px var(--font-mono); }
+.object-row strong, .object-row small { display: block; }
+.object-row strong { color: var(--ink); font-size: 13px; }
+.object-row small { margin-top: 5px; color: #8ca5b3; font: 400 10px var(--font-mono); }
+.catalog-empty { padding: 48px 26px; color: var(--muted); font-size: 13px; text-align: center; }
+.pagination-space { display: flex; justify-content: space-between; align-items: center; padding: 18px 26px; color: #8ca5b3; font: 400 10px var(--font-mono); }
+.pagination-space div { display: flex; gap: 8px; }
+.pagination-space button {
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: transparent;
+  color: #536c79;
+  font-size: 9px;
+  cursor: pointer;
+  transition: border-color .16s, color .16s, background .16s, transform .08s, box-shadow .16s;
+}
+/* 分页按钮交互：首/末页对应按钮变暗（disabled）；悬停高亮；按动闪烁 */
+.pagination-space button:disabled {
+  opacity: .32;
+  cursor: default;
+}
+.pagination-space button:not(:disabled):hover {
+  border-color: var(--amber);
+  color: var(--amber);
+  background: rgba(255, 184, 102, .08);
+}
+.pagination-space button:not(:disabled):active {
+  transform: scale(.93);
+  background: rgba(255, 184, 102, .16);
+  box-shadow: 0 0 8px rgba(255, 184, 102, .25);
+}
+
+.launches-section { background: #050b11; }
+.launch-list { border-top: 1px solid var(--line-strong); }
+.launch-list-head, .launch-row { display: grid; grid-template-columns: 106px minmax(280px, 1.5fr) 165px minmax(230px, 1fr) 90px; gap: 24px; align-items: center; }
+.launch-list-head { padding: 12px 8px; color: #58717f; font: 500 9px var(--font-mono); }
+.launch-row { width: 100%; min-height: 94px; padding: 12px 8px; border: 0; border-top: 1px solid var(--line); background: transparent; color: #8da2ad; text-align: left; transition: background .18s; }
+.launch-row:hover, .launch-row:focus-visible { background: rgba(255, 184, 102, .045); outline: 0; }
+.launch-row time strong { display: block; color: var(--ink); font: 500 25px var(--font-mono); }
+.launch-row time span { display: block; margin-top: 3px; color: #687f8d; font: 400 8px var(--font-mono); }
+.launch-mission strong, .launch-mission small { display: block; }
+.launch-mission strong { color: var(--ink); font-size: 13px; font-weight: 500; line-height: 1.35; }
+.launch-mission small { max-width: 440px; margin-top: 5px; overflow: hidden; color: #748b97; font-size: 10px; line-height: 1.5; text-overflow: ellipsis; white-space: nowrap; }
+.launch-row > span:nth-child(3) { display: flex; align-items: center; gap: 8px; font-size: 10px; }
+.launch-row > span:nth-child(3) i { width: 5px; height: 5px; border-radius: 50%; background: var(--amber); }
+.launch-time { color: var(--ink); font: 500 12px var(--font-mono); text-align: right; }
+.launch-time small { display: block; margin-top: 4px; color: #5e7582; font-size: 8px; }
+
+.sites-section { background: var(--bg); }
+.site-directory { display: grid; grid-template-columns: 1fr 1fr; column-gap: 64px; border-top: 1px solid var(--line-strong); }
+.site-directory button { display: grid; grid-template-columns: 46px minmax(180px, .8fr) minmax(250px, 1.2fr) 120px; gap: 18px; align-items: start; min-height: 132px; padding: 28px 0; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: #91a5af; text-align: left; }
+.site-directory button:hover strong, .site-directory button:focus-visible strong { color: var(--amber); }
+.site-directory button:focus-visible { outline: 1px solid var(--amber); outline-offset: 4px; }
+.site-code { color: var(--amber); font: 500 10px var(--font-mono); }
+.site-directory strong, .site-directory small { display: block; }
+.site-directory strong { color: var(--ink); font-size: 13px; transition: color .18s; }
+.site-directory small { margin-top: 6px; color: #58717e; font: 400 8px/1.5 var(--font-mono); }
+.site-directory p { margin: 0; font-size: 10px; line-height: 1.7; }
+.site-coordinate { color: #6a828f; font: 400 9px/1.7 var(--font-mono); text-align: right; }
+
+.site-footer { padding: 54px 0 64px; border-top: 1px solid var(--line); background: #020509; }
+.footer-inner { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: end; }
+.footer-inner strong { font-size: 12px; letter-spacing: .12em; }
+.footer-inner p { margin: 8px 0 0; color: var(--quiet); font-size: 10px; }
+.source-list { display: grid; justify-items: end; gap: 7px; color: #58707d; font: 400 8px var(--font-mono); }
+.source-list i { display: inline-block; width: 5px; height: 5px; margin-right: 8px; border-radius: 50%; background: #b96b64; }
+.source-list i.healthy { background: #79e3bd; }
+
+.system-message { position: absolute; z-index: 15; left: 50%; top: 50%; transform: translate(-50%, -50%); display: grid; justify-items: center; gap: 9px; padding: 25px; color: #bcd2dd; }
+.system-message small { color: #5e7d8d; font: 400 8px var(--font-mono); letter-spacing: .13em; }
+.error-message button { padding: 8px 11px; border: 1px solid var(--line); border-radius: 4px; background: transparent; }
+
+@keyframes location-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(114, 215, 255, .26); }
+  70%, 100% { box-shadow: 0 0 0 7px rgba(114, 215, 255, 0); }
+}
+
+@media (min-width: 1100px) and (max-width: 1399px) {
+  .site-directory { grid-template-columns: 1fr; column-gap: 0; }
+  .site-directory button { grid-template-columns: 46px minmax(180px, .8fr) minmax(250px, 1.2fr) 120px; }
+}
+
+@media (max-width: 1099px) {
+  .desktop-app, .desktop-cover { display: none; }
+  .desktop-only { width: 100%; min-height: 100dvh; display: grid; place-content: center; padding: 30px; background: radial-gradient(circle at 50% 40%, #0b2940, #03070c 62%); text-align: center; }
+  .desktop-only span { color: var(--blue); font: 500 9px var(--font-mono); letter-spacing: .18em; }
+  .desktop-only h1 { margin: 17px 0 8px; font-size: 26px; }
+  .desktop-only p { max-width: 420px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.7; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
+  .scene-location > i.locating { animation: none; }
+}
+
+/* 月球页：页头状态文字、导航数字与导航链接银灰主题 */
+.desktop-app.moon .live-status,
+.desktop-app.moon .solar-clock { color: #8b959f; }
+.desktop-app.moon .nav-num { color: #9aa4ae; }
+.desktop-app.moon .site-header nav a { color: #9aa4ae; }
+.desktop-app.moon .site-header nav a:hover,
+.desktop-app.moon .site-header nav a:focus-visible { color: #e6ebf0; }
+
+/* 月球页：信息面板（context-panel 同结构，银灰配色） */
+.desktop-app.moon .context-panel {
+  border: 1px solid rgba(200, 208, 216, .18);
+  background: rgba(10, 14, 18, .92);
+}
+.desktop-app.moon .context-panel .context-type { color: #aab4be; }
+.desktop-app.moon .context-panel .context-subtitle { color: #7c8791; }
+.desktop-app.moon .context-panel .context-description { color: #b6bfc8; }
+.desktop-app.moon .context-panel dt { color: #8b959f; }
+.desktop-app.moon .context-panel dd { color: #d5dce3; }
+.desktop-app.moon .context-panel dl div { border-top-color: rgba(200, 208, 216, .12); }
+
+/* 火星页：页头状态文字、导航数字与导航链接陶土暖色主题 */
+.desktop-app.mars .live-status,
+.desktop-app.mars .solar-clock { color: #a89078; }
+.desktop-app.mars .nav-num { color: #b09070; }
+.desktop-app.mars .site-header nav a { color: #b09070; }
+.desktop-app.mars .site-header nav a:hover,
+.desktop-app.mars .site-header nav a:focus-visible { color: #ecd9c8; }
+.desktop-app.moon .source-caption { color: #7c8791; }
+
+/* 火星页：场景工具栏（与地球同结构，仅颜色陶土红）——无任何浅蓝元素 */
+.desktop-app.mars .scene-toolbar {
+  border-color: rgba(224, 168, 120, .22);
+  background: rgba(14, 9, 6, .8);
+}
+.desktop-app.mars .scene-toolbar > span { color: #a89078; }
+.desktop-app.mars .scene-toolbar label { color: #c09070; }
+.desktop-app.mars .scene-toolbar i { background: #6e4a30; }
+.desktop-app.mars .scene-toolbar input:checked + i {
+  background: #e0a878;
+  box-shadow: 0 0 6px rgba(224, 168, 120, .55);
+}
+.desktop-app.mars .scene-toolbar i.terminator { border-color: #8a6a52; background: #3a2a1e; }
+.desktop-app.mars .scene-toolbar input:checked + i.terminator {
+  border-color: rgba(224, 168, 120, .85);
+  background: linear-gradient(90deg, #e0a878 0 50%, #241710 50% 100%);
+}
+
+/* 火星页：返回首页徽标（brand）+ 太阳系图标，陶土红、无蓝色元素 */
+.desktop-app.mars .brand small { color: #a89078; }
+.desktop-app.mars .brand:hover small,
+.desktop-app.mars .brand:focus-visible small { color: #e0a878; }
+.desktop-app.mars .brand-mark {
+  border-color: rgba(224, 168, 120, .45);
+}
+.desktop-app.mars .brand-mark i:first-child { background: #e0a878; }
+.desktop-app.mars .brand-mark i:nth-child(2) { background: rgba(224, 168, 120, .4); }
+.desktop-app.mars .brand-mark i:nth-child(3) { border-color: rgba(224, 168, 120, .28); }
+.desktop-app.mars .brand:hover .brand-mark,
+.desktop-app.mars .brand:focus-visible .brand-mark {
+  border-color: rgba(240, 190, 150, .9);
+  box-shadow: 0 0 0 1px rgba(224, 168, 120, .22), 0 0 20px rgba(224, 168, 120, .35), inset 0 0 12px rgba(224, 168, 120, .18);
+  transform: translateY(-1px) scale(1.05);
+}
+.desktop-app.mars .brand:hover .brand-mark i:first-child,
+.desktop-app.mars .brand:focus-visible .brand-mark i:first-child { background: #f0be96; }
+.desktop-app.mars .brand:hover .brand-mark i:nth-child(3),
+.desktop-app.mars .brand:focus-visible .brand-mark i:nth-child(3) { background: #e0a878; }
+.desktop-app.mars .brand:hover .brand-mark i:nth-child(2),
+.desktop-app.mars .brand:focus-visible .brand-mark i:nth-child(2) { background: rgba(240, 190, 150, .95); }
+.desktop-app.mars .brand:hover .brand-mark i:nth-child(3),
+.desktop-app.mars .brand:focus-visible .brand-mark i:nth-child(3) { border-color: rgba(240, 190, 150, .72); }
+.desktop-app.mars .brand:hover strong,
+.desktop-app.mars .brand:focus-visible strong { color: #f6e6d4; text-shadow: 0 0 14px rgba(224, 168, 120, .4); }
+.desktop-app.mars .brand:hover small,
+.desktop-app.mars .brand:focus-visible small { color: #e0a878; }
+
+/* 火星页：太阳系图标（SolarSystemItem）蓝色元素 → 陶土红 */
+.desktop-app.mars .solar-system-item {
+  --orbit-blue: rgba(224, 168, 120, .85);
+  --orbit-cyan: rgba(224, 168, 120, .5);
+  --orbit-gold: rgba(255, 189, 81, .42);
+}
+.desktop-app.mars .solar-system-item .planet-blue {
+  background: radial-gradient(circle at 32% 28%, #f0be96, #e0a878 45%, #a87850 100%);
+  box-shadow: 0 0 3px rgba(224, 168, 120, .55), 0 0 5px rgba(224, 168, 120, .28);
+}
+.desktop-app.mars .solar-system-item .planet-cyan {
+  background: radial-gradient(circle at 32% 28%, #f0be96, #e0a878 48%, #a89078 100%);
+  box-shadow: 0 0 4px rgba(224, 168, 120, .5), 0 0 8px rgba(224, 168, 120, .22);
+}
+/* 两条轨道的高亮边线（含中轨，原组件漏覆盖）+ 蓝色辉光全部陶土红 */
+.desktop-app.mars .solar-system-item .orbit-outer::after,
+.desktop-app.mars .solar-system-item .orbit-middle::after {
+  border-top-color: rgba(240, 190, 150, .8);
+  filter: drop-shadow(0 0 3px rgba(224, 168, 120, .2));
+}
+.desktop-app.mars .solar-system-item .orbit-outer,
+.desktop-app.mars .solar-system-item .orbit-middle { box-shadow: none; }
+/* 悬停扫过光效：浅蓝 → 陶土红 */
+.desktop-app.mars .solar-system-item::after {
+  background: linear-gradient(90deg, transparent, rgba(224, 168, 120, .11), transparent);
+}
+/* 悬停标题发光：浅蓝 → 陶土红（类翻倍提特异性，避免与组件 scoped 规则平局） */
+.desktop-app.mars .solar-system-item.solar-system-item:not(.is-active):hover .solar-title,
+.desktop-app.mars .solar-system-item.solar-system-item:not(.is-active):focus-visible .solar-title {
+  color: #f6e6d4;
+  text-shadow: 0 0 10px rgba(224, 168, 120, .2), 0 0 18px rgba(224, 168, 120, .1);
+}
+.desktop-app.mars .solar-system-item .star-dot {
+  background: #e0a878;
+  box-shadow: 0 0 5px rgba(224, 168, 120, .4);
+}
+
+/* 火星页：飞行器信息面板（context-panel 内层元素）陶土红，无浅蓝 */
+.desktop-app.mars .context-panel {
+  border-color: rgba(224, 168, 120, .18);
+  background: rgba(18, 12, 8, .92);
+}
+.desktop-app.mars .context-panel .context-type { color: #d0a080; }
+.desktop-app.mars .context-panel .context-subtitle { color: #a89078; }
+.desktop-app.mars .context-panel .context-description { color: #c0a080; }
+.desktop-app.mars .context-panel dt { color: #a89078; }
+.desktop-app.mars .context-panel dd { color: #ecd9c8; }
+.desktop-app.mars .context-panel dl div { border-top-color: rgba(224, 168, 120, .12); }
+.desktop-app.mars .context-panel .panel-close { color: #a89078; }
+.desktop-app.mars .context-panel .panel-close:hover { color: #ecd9c8; }
+.desktop-app.mars .source-caption { color: #a89078; }
+
+/* 月球页：场景工具栏（与地球同结构，仅颜色银灰） */
+.desktop-app.moon .scene-toolbar {
+  border-color: rgba(200, 208, 216, .22);
+  background: rgba(6, 10, 14, .8);
+}
+.desktop-app.moon .scene-toolbar > span { color: #8b959f; }
+.desktop-app.moon .scene-toolbar label { color: #aab4be; }
+.desktop-app.moon .scene-toolbar i { background: #4a5560; }
+.desktop-app.moon .scene-toolbar input:checked + i {
+  background: #c8d0d8;
+  box-shadow: 0 0 6px rgba(200, 208, 216, .55);
+}
+.desktop-app.moon .scene-toolbar i.terminator { border-color: #5d6a75; background: #2a323a; }
+.desktop-app.moon .scene-toolbar input:checked + i.terminator {
+  border-color: rgba(200, 208, 216, .8);
+  background: linear-gradient(90deg, #d5dce3 0 50%, #141a20 50% 100%);
+}
+
+/* 月球页：太阳系图标（SolarSystemItem）蓝色元素 → 银灰 */
+.desktop-app.moon .solar-system-item {
+  --orbit-blue: rgba(200, 208, 216, .85);
+  --orbit-cyan: rgba(200, 208, 216, .5);
+  --orbit-gold: rgba(255, 189, 81, .42);
+}
+.desktop-app.moon .solar-system-item .planet-blue {
+  background: radial-gradient(circle at 32% 28%, #f2f6fa, #c8d0d8 45%, #8b959f 100%);
+  box-shadow: 0 0 3px rgba(200, 208, 216, .55), 0 0 5px rgba(200, 208, 216, .28);
+}
+.desktop-app.moon .solar-system-item .planet-cyan {
+  background: radial-gradient(circle at 32% 28%, #f2f6fa, #c8d0d8 48%, #7c8791 100%);
+  box-shadow: 0 0 4px rgba(200, 208, 216, .5), 0 0 8px rgba(200, 208, 216, .22);
+}
+.desktop-app.moon .solar-system-item .orbit-outer::after {
+  border-top-color: rgba(226, 232, 238, .8);
+  filter: drop-shadow(0 0 3px rgba(200, 208, 216, .2));
+}
+.desktop-app.moon .solar-system-item .star-dot {
+  background: #c8d0d8;
+  box-shadow: 0 0 5px rgba(200, 208, 216, .4);
+}
+
+/* 月球页：返回首页徽标（brand）全银灰，无蓝色元素 */
+.desktop-app.moon .brand small { color: #7c8791; }
+.desktop-app.moon .brand:hover small,
+.desktop-app.moon .brand:focus-visible small { color: #c8d0d8; }
+.desktop-app.moon .brand-mark {
+  border-color: rgba(200, 208, 216, .45);
+}
+.desktop-app.moon .brand-mark i:first-child { background: #c8d0d8; }
+.desktop-app.moon .brand-mark i:nth-child(2) { background: rgba(200, 208, 216, .4); }
+.desktop-app.moon .brand-mark i:nth-child(3) { border-color: rgba(200, 208, 216, .28); }
+.desktop-app.moon .brand:hover .brand-mark,
+.desktop-app.moon .brand:focus-visible .brand-mark {
+  border-color: rgba(210, 218, 226, .9);
+  box-shadow: 0 0 0 1px rgba(200, 208, 216, .22), 0 0 20px rgba(200, 208, 216, .35), inset 0 0 12px rgba(200, 208, 216, .18);
+  transform: translateY(-1px) scale(1.05);
+}
+.desktop-app.moon .brand:hover .brand-mark i:first-child,
+.desktop-app.moon .brand:focus-visible .brand-mark i:first-child { background: #e2e8ee; }
+/* 悬停时椭圆填充银灰（对应地球的浅蓝填充） */
+.desktop-app.moon .brand:hover .brand-mark i:nth-child(3),
+.desktop-app.moon .brand:focus-visible .brand-mark i:nth-child(3) { background: #c8d0d8; } /* 实色银灰填充 */
+.desktop-app.moon .brand:hover .brand-mark i:nth-child(2),
+.desktop-app.moon .brand:focus-visible .brand-mark i:nth-child(2) { background: rgba(226, 232, 238, .95); }
+.desktop-app.moon .brand:hover .brand-mark i:nth-child(3),
+.desktop-app.moon .brand:focus-visible .brand-mark i:nth-child(3) { border-color: rgba(226, 232, 238, .72); }
+.desktop-app.moon .brand:hover strong,
+.desktop-app.moon .brand:focus-visible strong { color: #f2f6f9; text-shadow: 0 0 14px rgba(200, 208, 216, .4); }
+.desktop-app.moon .brand:hover small,
+.desktop-app.moon .brand:focus-visible small { color: #c8d0d8; }
+
+/* 首屏 DOM 元素（标签/工具栏/读数）入场：由 .elements-revealed class 驱动（App 在
+   revealTick + 1000ms 加设，与 3D 弹出同一时钟）——transition 淡入 300ms。
+   不用 CSS animation-delay：动画从挂载起算会与 revealTick 错位（黑幕时长不定）。
+   选择器限定 .orbit-section：不影响月球页同名控件。
+   注意：下方内容板块（航天器目录/发射场/发射日程）不做入场动画——它们在首屏视口之外，
+   淡入动画不可见且会在弹出时刻触发整页大区块首次 paint 造成掉帧；
+   直接挂载渲染（黑幕中完成），用户滚动到时已就绪 */
+.orbit-section .scene-label,
+.orbit-section .scene-spacecraft-label,
+.orbit-section .scene-site-label,
+.orbit-section .scene-observer-label,
+.orbit-section .scene-toolbar,
+.orbit-section .scene-location,
+.orbit-section .scene-readout,
+.orbit-section .system-message {
+  opacity: 0;
+  transition: opacity .3s ease;
+}
+.orbit-section.elements-revealed .scene-label,
+.orbit-section.elements-revealed .scene-spacecraft-label,
+.orbit-section.elements-revealed .scene-site-label,
+.orbit-section.elements-revealed .scene-observer-label,
+.orbit-section.elements-revealed .scene-toolbar,
+.orbit-section.elements-revealed .scene-location,
+.orbit-section.elements-revealed .scene-readout,
+.orbit-section.elements-revealed .system-message {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orbit-section .scene-label, .orbit-section .scene-spacecraft-label, .orbit-section .scene-site-label, .orbit-section .scene-observer-label, .orbit-section .scene-toolbar,
+  .orbit-section .scene-location, .orbit-section .scene-readout, .orbit-section .system-message { transition: none; }
+}
+
+/* ORBIT 离开第一拍：页面信息淡出；第二拍由 OrbitScene host 渐隐地球本体 */
+.orbit-section.leaving .scene-label,
+.orbit-section.leaving .scene-spacecraft-label,
+.orbit-section.leaving .scene-site-label,
+.orbit-section.leaving .scene-observer-label,
+.orbit-section.leaving .scene-toolbar,
+.orbit-section.leaving .scene-location,
+.orbit-section.leaving .scene-readout,
+.orbit-section.leaving .context-panel, /* 右侧信息面板：随其他元素一起淡出（此前残留到遮罩渐暗） */
+.orbit-section.leaving .page-frame > *:not(.scene-frame) {
+  animation: none !important; /* 解除入场动画的 fill 压制 */
+  opacity: 0;
+  transition: opacity .3s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .orbit-section.leaving .scene-label,
+  .orbit-section.leaving .scene-spacecraft-label,
+  .orbit-section.leaving .scene-site-label,
+  .orbit-section.leaving .scene-observer-label,
+  .orbit-section.leaving .scene-toolbar,
+  .orbit-section.leaving .scene-location,
+  .orbit-section.leaving .scene-readout,
+  .orbit-section.leaving .context-panel,
+  .orbit-section.leaving .page-frame > *:not(.scene-frame) { transition: none; }
+}
+
+/* ===== 金星/土星/木星页：主题色区分（三个行星颜色接近，靠色相微差区分——
+   金星奶油淡黄 / 土星香槟金 / 木星赭橙；火星陶土红保留不变） ===== */
+
+/* 金星：页头状态文字、导航数字与导航链接奶油淡黄主题 */
+.desktop-app.venus .live-status,
+.desktop-app.venus .solar-clock { color: #c4b184; }
+.desktop-app.venus .nav-num { color: #c9b888; }
+.desktop-app.venus .site-header nav a { color: #c9b888; }
+.desktop-app.venus .site-header nav a:hover,
+.desktop-app.venus .site-header nav a:focus-visible { color: #f7efd8; }
+
+/* 金星：场景工具栏（与地球同结构，仅颜色奶油淡黄） */
+.desktop-app.venus .scene-toolbar {
+  border-color: rgba(240, 224, 178, .22);
+  background: rgba(20, 16, 10, .8);
+}
+.desktop-app.venus .scene-toolbar > span { color: #c4b184; }
+.desktop-app.venus .scene-toolbar label { color: #d8c9a0; }
+.desktop-app.venus .scene-toolbar i { background: #6e5c38; }
+.desktop-app.venus .scene-toolbar input:checked + i {
+  background: #f0e0b2;
+  box-shadow: 0 0 6px rgba(240, 224, 178, .55);
+}
+.desktop-app.venus .scene-toolbar i.terminator { border-color: #8a7a52; background: #3a3220; }
+.desktop-app.venus .scene-toolbar input:checked + i.terminator {
+  border-color: rgba(240, 224, 178, .85);
+  background: linear-gradient(90deg, #f0e0b2 0 50%, #241f10 50% 100%);
+}
+
+/* 金星：返回首页徽标（brand）+ 太阳系图标，奶油淡黄、无蓝色元素 */
+.desktop-app.venus .brand small { color: #c4b184; }
+.desktop-app.venus .brand:hover small,
+.desktop-app.venus .brand:focus-visible small { color: #f0e0b2; }
+.desktop-app.venus .brand-mark { border-color: rgba(240, 224, 178, .45); }
+.desktop-app.venus .brand-mark i:first-child { background: #f0e0b2; }
+.desktop-app.venus .brand-mark i:nth-child(2) { background: rgba(240, 224, 178, .4); }
+.desktop-app.venus .brand-mark i:nth-child(3) { border-color: rgba(240, 224, 178, .28); }
+.desktop-app.venus .brand:hover .brand-mark,
+.desktop-app.venus .brand:focus-visible .brand-mark {
+  border-color: rgba(250, 240, 205, .9);
+  box-shadow: 0 0 0 1px rgba(240, 224, 178, .22), 0 0 20px rgba(240, 224, 178, .35), inset 0 0 12px rgba(240, 224, 178, .18);
+  transform: translateY(-1px) scale(1.05);
+}
+.desktop-app.venus .brand:hover .brand-mark i:first-child,
+.desktop-app.venus .brand:focus-visible .brand-mark i:first-child { background: #faf0cd; }
+.desktop-app.venus .brand:hover .brand-mark i:nth-child(3),
+.desktop-app.venus .brand:focus-visible .brand-mark i:nth-child(3) { background: #f0e0b2; }
+.desktop-app.venus .brand:hover .brand-mark i:nth-child(2),
+.desktop-app.venus .brand:focus-visible .brand-mark i:nth-child(2) { background: rgba(250, 240, 205, .95); }
+.desktop-app.venus .brand:hover .brand-mark i:nth-child(3),
+.desktop-app.venus .brand:focus-visible .brand-mark i:nth-child(3) { border-color: rgba(250, 240, 205, .72); }
+.desktop-app.venus .brand:hover strong,
+.desktop-app.venus .brand:focus-visible strong { color: #fdf8e8; text-shadow: 0 0 14px rgba(240, 224, 178, .4); }
+.desktop-app.venus .brand:hover small,
+.desktop-app.venus .brand:focus-visible small { color: #f0e0b2; }
+
+/* 金星：太阳系图标（SolarSystemItem）蓝色元素 → 奶油淡黄 */
+.desktop-app.venus .solar-system-item {
+  --orbit-blue: rgba(240, 224, 178, .85);
+  --orbit-cyan: rgba(240, 224, 178, .5);
+  --orbit-gold: rgba(255, 189, 81, .42);
+}
+.desktop-app.venus .solar-system-item .planet-blue {
+  background: radial-gradient(circle at 32% 28%, #faf0cd, #f0e0b2 45%, #c9b888 100%);
+  box-shadow: 0 0 3px rgba(240, 224, 178, .55), 0 0 5px rgba(240, 224, 178, .28);
+}
+.desktop-app.venus .solar-system-item .planet-cyan {
+  background: radial-gradient(circle at 32% 28%, #faf0cd, #f0e0b2 48%, #c4b184 100%);
+  box-shadow: 0 0 4px rgba(240, 224, 178, .5), 0 0 8px rgba(240, 224, 178, .22);
+}
+.desktop-app.venus .solar-system-item .orbit-outer::after,
+.desktop-app.venus .solar-system-item .orbit-middle::after {
+  border-top-color: rgba(250, 240, 205, .8);
+  filter: drop-shadow(0 0 3px rgba(240, 224, 178, .2));
+}
+.desktop-app.venus .solar-system-item .orbit-outer,
+.desktop-app.venus .solar-system-item .orbit-middle { box-shadow: none; }
+.desktop-app.venus .solar-system-item::after {
+  background: linear-gradient(90deg, transparent, rgba(240, 224, 178, .11), transparent);
+}
+.desktop-app.venus .solar-system-item.solar-system-item:not(.is-active):hover .solar-title,
+.desktop-app.venus .solar-system-item.solar-system-item:not(.is-active):focus-visible .solar-title {
+  color: #fdf8e8;
+  text-shadow: 0 0 10px rgba(240, 224, 178, .2), 0 0 18px rgba(240, 224, 178, .1);
+}
+.desktop-app.venus .solar-system-item .star-dot {
+  background: #f0e0b2;
+  box-shadow: 0 0 5px rgba(240, 224, 178, .4);
+}
+
+/* 土星：页头状态文字、导航数字与导航链接香槟金主题 */
+.desktop-app.saturn .live-status,
+.desktop-app.saturn .solar-clock { color: #b39c6e; }
+.desktop-app.saturn .nav-num { color: #c4a86e; }
+.desktop-app.saturn .site-header nav a { color: #c4a86e; }
+.desktop-app.saturn .site-header nav a:hover,
+.desktop-app.saturn .site-header nav a:focus-visible { color: #f5ead0; }
+
+/* 土星：场景工具栏（香槟金） */
+.desktop-app.saturn .scene-toolbar {
+  border-color: rgba(231, 201, 135, .22);
+  background: rgba(23, 19, 9, .8);
+}
+.desktop-app.saturn .scene-toolbar > span { color: #b39c6e; }
+.desktop-app.saturn .scene-toolbar label { color: #d9c089; }
+.desktop-app.saturn .scene-toolbar i { background: #6e5c30; }
+.desktop-app.saturn .scene-toolbar input:checked + i {
+  background: #e7c987;
+  box-shadow: 0 0 6px rgba(231, 201, 135, .55);
+}
+.desktop-app.saturn .scene-toolbar i.terminator { border-color: #8a7848; background: #3a3220; }
+.desktop-app.saturn .scene-toolbar input:checked + i.terminator {
+  border-color: rgba(231, 201, 135, .85);
+  background: linear-gradient(90deg, #e7c987 0 50%, #241f10 50% 100%);
+}
+
+/* 土星：返回首页徽标（brand）+ 太阳系图标，香槟金、无蓝色元素 */
+.desktop-app.saturn .brand small { color: #b39c6e; }
+.desktop-app.saturn .brand:hover small,
+.desktop-app.saturn .brand:focus-visible small { color: #e7c987; }
+.desktop-app.saturn .brand-mark { border-color: rgba(231, 201, 135, .45); }
+.desktop-app.saturn .brand-mark i:first-child { background: #e7c987; }
+.desktop-app.saturn .brand-mark i:nth-child(2) { background: rgba(231, 201, 135, .4); }
+.desktop-app.saturn .brand-mark i:nth-child(3) { border-color: rgba(231, 201, 135, .28); }
+.desktop-app.saturn .brand:hover .brand-mark,
+.desktop-app.saturn .brand:focus-visible .brand-mark {
+  border-color: rgba(250, 232, 180, .9);
+  box-shadow: 0 0 0 1px rgba(231, 201, 135, .22), 0 0 20px rgba(231, 201, 135, .35), inset 0 0 12px rgba(231, 201, 135, .18);
+  transform: translateY(-1px) scale(1.05);
+}
+.desktop-app.saturn .brand:hover .brand-mark i:first-child,
+.desktop-app.saturn .brand:focus-visible .brand-mark i:first-child { background: #fae8b4; }
+.desktop-app.saturn .brand:hover .brand-mark i:nth-child(3),
+.desktop-app.saturn .brand:focus-visible .brand-mark i:nth-child(3) { background: #e7c987; }
+.desktop-app.saturn .brand:hover .brand-mark i:nth-child(2),
+.desktop-app.saturn .brand:focus-visible .brand-mark i:nth-child(2) { background: rgba(250, 232, 180, .95); }
+.desktop-app.saturn .brand:hover .brand-mark i:nth-child(3),
+.desktop-app.saturn .brand:focus-visible .brand-mark i:nth-child(3) { border-color: rgba(250, 232, 180, .72); }
+.desktop-app.saturn .brand:hover strong,
+.desktop-app.saturn .brand:focus-visible strong { color: #fdf5e0; text-shadow: 0 0 14px rgba(231, 201, 135, .4); }
+.desktop-app.saturn .brand:hover small,
+.desktop-app.saturn .brand:focus-visible small { color: #e7c987; }
+
+/* 土星：太阳系图标（SolarSystemItem）蓝色元素 → 香槟金 */
+.desktop-app.saturn .solar-system-item {
+  --orbit-blue: rgba(231, 201, 135, .85);
+  --orbit-cyan: rgba(231, 201, 135, .5);
+  --orbit-gold: rgba(255, 189, 81, .42);
+}
+.desktop-app.saturn .solar-system-item .planet-blue {
+  background: radial-gradient(circle at 32% 28%, #fae8b4, #e7c987 45%, #b39c6e 100%);
+  box-shadow: 0 0 3px rgba(231, 201, 135, .55), 0 0 5px rgba(231, 201, 135, .28);
+}
+.desktop-app.saturn .solar-system-item .planet-cyan {
+  background: radial-gradient(circle at 32% 28%, #fae8b4, #e7c987 48%, #b39c6e 100%);
+  box-shadow: 0 0 4px rgba(231, 201, 135, .5), 0 0 8px rgba(231, 201, 135, .22);
+}
+.desktop-app.saturn .solar-system-item .orbit-outer::after,
+.desktop-app.saturn .solar-system-item .orbit-middle::after {
+  border-top-color: rgba(250, 232, 180, .8);
+  filter: drop-shadow(0 0 3px rgba(231, 201, 135, .2));
+}
+.desktop-app.saturn .solar-system-item .orbit-outer,
+.desktop-app.saturn .solar-system-item .orbit-middle { box-shadow: none; }
+.desktop-app.saturn .solar-system-item::after {
+  background: linear-gradient(90deg, transparent, rgba(231, 201, 135, .11), transparent);
+}
+.desktop-app.saturn .solar-system-item.solar-system-item:not(.is-active):hover .solar-title,
+.desktop-app.saturn .solar-system-item.solar-system-item:not(.is-active):focus-visible .solar-title {
+  color: #fdf5e0;
+  text-shadow: 0 0 10px rgba(231, 201, 135, .2), 0 0 18px rgba(231, 201, 135, .1);
+}
+.desktop-app.saturn .solar-system-item .star-dot {
+  background: #e7c987;
+  box-shadow: 0 0 5px rgba(231, 201, 135, .4);
+}
+
+/* 木星：页头状态文字、导航数字与导航链接赭橙主题 */
+.desktop-app.jupiter .live-status,
+.desktop-app.jupiter .solar-clock { color: #a37c50; }
+.desktop-app.jupiter .nav-num { color: #b58555; }
+.desktop-app.jupiter .site-header nav a { color: #b58555; }
+.desktop-app.jupiter .site-header nav a:hover,
+.desktop-app.jupiter .site-header nav a:focus-visible { color: #f0ddc4; }
+
+/* 木星：场景工具栏（赭橙） */
+.desktop-app.jupiter .scene-toolbar {
+  border-color: rgba(207, 146, 87, .22);
+  background: rgba(24, 15, 8, .8);
+}
+.desktop-app.jupiter .scene-toolbar > span { color: #a37c50; }
+.desktop-app.jupiter .scene-toolbar label { color: #cda06a; }
+.desktop-app.jupiter .scene-toolbar i { background: #6e4a28; }
+.desktop-app.jupiter .scene-toolbar input:checked + i {
+  background: #cf9257;
+  box-shadow: 0 0 6px rgba(207, 146, 87, .55);
+}
+.desktop-app.jupiter .scene-toolbar i.terminator { border-color: #8a5c38; background: #3a2818; }
+.desktop-app.jupiter .scene-toolbar input:checked + i.terminator {
+  border-color: rgba(207, 146, 87, .85);
+  background: linear-gradient(90deg, #cf9257 0 50%, #241810 50% 100%);
+}
+
+/* 木星：返回首页徽标（brand）+ 太阳系图标，赭橙、无蓝色元素 */
+.desktop-app.jupiter .brand small { color: #a37c50; }
+.desktop-app.jupiter .brand:hover small,
+.desktop-app.jupiter .brand:focus-visible small { color: #cf9257; }
+.desktop-app.jupiter .brand-mark { border-color: rgba(207, 146, 87, .45); }
+.desktop-app.jupiter .brand-mark i:first-child { background: #cf9257; }
+.desktop-app.jupiter .brand-mark i:nth-child(2) { background: rgba(207, 146, 87, .4); }
+.desktop-app.jupiter .brand-mark i:nth-child(3) { border-color: rgba(207, 146, 87, .28); }
+.desktop-app.jupiter .brand:hover .brand-mark,
+.desktop-app.jupiter .brand:focus-visible .brand-mark {
+  border-color: rgba(235, 180, 130, .9);
+  box-shadow: 0 0 0 1px rgba(207, 146, 87, .22), 0 0 20px rgba(207, 146, 87, .35), inset 0 0 12px rgba(207, 146, 87, .18);
+  transform: translateY(-1px) scale(1.05);
+}
+.desktop-app.jupiter .brand:hover .brand-mark i:first-child,
+.desktop-app.jupiter .brand:focus-visible .brand-mark i:first-child { background: #ebb482; }
+.desktop-app.jupiter .brand:hover .brand-mark i:nth-child(3),
+.desktop-app.jupiter .brand:focus-visible .brand-mark i:nth-child(3) { background: #cf9257; }
+.desktop-app.jupiter .brand:hover .brand-mark i:nth-child(2),
+.desktop-app.jupiter .brand:focus-visible .brand-mark i:nth-child(2) { background: rgba(235, 180, 130, .95); }
+.desktop-app.jupiter .brand:hover .brand-mark i:nth-child(3),
+.desktop-app.jupiter .brand:focus-visible .brand-mark i:nth-child(3) { border-color: rgba(235, 180, 130, .72); }
+.desktop-app.jupiter .brand:hover strong,
+.desktop-app.jupiter .brand:focus-visible strong { color: #fbe9d4; text-shadow: 0 0 14px rgba(207, 146, 87, .4); }
+.desktop-app.jupiter .brand:hover small,
+.desktop-app.jupiter .brand:focus-visible small { color: #cf9257; }
+
+/* 木星：太阳系图标（SolarSystemItem）蓝色元素 → 赭橙 */
+.desktop-app.jupiter .solar-system-item {
+  --orbit-blue: rgba(207, 146, 87, .85);
+  --orbit-cyan: rgba(207, 146, 87, .5);
+  --orbit-gold: rgba(255, 189, 81, .42);
+}
+.desktop-app.jupiter .solar-system-item .planet-blue {
+  background: radial-gradient(circle at 32% 28%, #ebb482, #cf9257 45%, #a37c50 100%);
+  box-shadow: 0 0 3px rgba(207, 146, 87, .55), 0 0 5px rgba(207, 146, 87, .28);
+}
+.desktop-app.jupiter .solar-system-item .planet-cyan {
+  background: radial-gradient(circle at 32% 28%, #ebb482, #cf9257 48%, #a37c50 100%);
+  box-shadow: 0 0 4px rgba(207, 146, 87, .5), 0 0 8px rgba(207, 146, 87, .22);
+}
+.desktop-app.jupiter .solar-system-item .orbit-outer::after,
+.desktop-app.jupiter .solar-system-item .orbit-middle::after {
+  border-top-color: rgba(235, 180, 130, .8);
+  filter: drop-shadow(0 0 3px rgba(207, 146, 87, .2));
+}
+.desktop-app.jupiter .solar-system-item .orbit-outer,
+.desktop-app.jupiter .solar-system-item .orbit-middle { box-shadow: none; }
+.desktop-app.jupiter .solar-system-item::after {
+  background: linear-gradient(90deg, transparent, rgba(207, 146, 87, .11), transparent);
+}
+.desktop-app.jupiter .solar-system-item.solar-system-item:not(.is-active):hover .solar-title,
+.desktop-app.jupiter .solar-system-item.solar-system-item:not(.is-active):focus-visible .solar-title {
+  color: #fbe9d4;
+  text-shadow: 0 0 10px rgba(207, 146, 87, .2), 0 0 18px rgba(207, 146, 87, .1);
+}
+.desktop-app.jupiter .solar-system-item .star-dot {
+  background: #cf9257;
+  box-shadow: 0 0 5px rgba(207, 146, 87, .4);
+}
+
+/* ===== 水星/天王星/海王星页：主题色区分（灰棕 / 青绿 / 深蓝） ===== */
+
+/* 水星：灰棕主题 */
+.desktop-app.mercury .live-status,
+.desktop-app.mercury .solar-clock { color: #b3a48f; }
+.desktop-app.mercury .nav-num { color: #b8a992; }
+.desktop-app.mercury .site-header nav a { color: #b8a992; }
+.desktop-app.mercury .site-header nav a:hover,
+.desktop-app.mercury .site-header nav a:focus-visible { color: #efe6d8; }
+.desktop-app.mercury .scene-toolbar {
+  border-color: rgba(200, 184, 160, .22);
+  background: rgba(20, 17, 13, .8);
+}
+.desktop-app.mercury .scene-toolbar > span { color: #b3a48f; }
+.desktop-app.mercury .scene-toolbar label { color: #d4c6b2; }
+.desktop-app.mercury .scene-toolbar i { background: #6e6250; }
+.desktop-app.mercury .scene-toolbar input:checked + i {
+  background: #c8b8a0;
+  box-shadow: 0 0 6px rgba(200, 184, 160, .55);
+}
+.desktop-app.mercury .scene-toolbar i.terminator { border-color: #8a7c64; background: #3a3428; }
+.desktop-app.mercury .scene-toolbar input:checked + i.terminator {
+  border-color: rgba(200, 184, 160, .85);
+  background: linear-gradient(90deg, #c8b8a0 0 50%, #241f16 50% 100%);
+}
+.desktop-app.mercury .brand small { color: #b3a48f; }
+.desktop-app.mercury .brand:hover small,
+.desktop-app.mercury .brand:focus-visible small { color: #c8b8a0; }
+.desktop-app.mercury .brand-mark { border-color: rgba(200, 184, 160, .45); }
+.desktop-app.mercury .brand-mark i:first-child { background: #c8b8a0; }
+.desktop-app.mercury .brand-mark i:nth-child(2) { background: rgba(200, 184, 160, .4); }
+.desktop-app.mercury .brand-mark i:nth-child(3) { border-color: rgba(200, 184, 160, .28); }
+.desktop-app.mercury .brand:hover .brand-mark,
+.desktop-app.mercury .brand:focus-visible .brand-mark {
+  border-color: rgba(220, 205, 180, .9);
+  box-shadow: 0 0 0 1px rgba(200, 184, 160, .22), 0 0 20px rgba(200, 184, 160, .35), inset 0 0 12px rgba(200, 184, 160, .18);
+  transform: translateY(-1px) scale(1.05);
+}
+.desktop-app.mercury .brand:hover .brand-mark i:first-child,
+.desktop-app.mercury .brand:focus-visible .brand-mark i:first-child { background: #dccdb4; }
+.desktop-app.mercury .brand:hover .brand-mark i:nth-child(3),
+.desktop-app.mercury .brand:focus-visible .brand-mark i:nth-child(3) { background: #c8b8a0; }
+.desktop-app.mercury .brand:hover .brand-mark i:nth-child(2),
+.desktop-app.mercury .brand:focus-visible .brand-mark i:nth-child(2) { background: rgba(220, 205, 180, .95); }
+.desktop-app.mercury .brand:hover .brand-mark i:nth-child(3),
+.desktop-app.mercury .brand:focus-visible .brand-mark i:nth-child(3) { border-color: rgba(220, 205, 180, .72); }
+.desktop-app.mercury .brand:hover strong,
+.desktop-app.mercury .brand:focus-visible strong { color: #f7f0e4; text-shadow: 0 0 14px rgba(200, 184, 160, .4); }
+.desktop-app.mercury .brand:hover small,
+.desktop-app.mercury .brand:focus-visible small { color: #c8b8a0; }
+.desktop-app.mercury .solar-system-item {
+  --orbit-blue: rgba(200, 184, 160, .85);
+  --orbit-cyan: rgba(200, 184, 160, .5);
+  --orbit-gold: rgba(255, 189, 81, .42);
+}
+.desktop-app.mercury .solar-system-item .planet-blue {
+  background: radial-gradient(circle at 32% 28%, #dccdb4, #c8b8a0 45%, #a3927a 100%);
+  box-shadow: 0 0 3px rgba(200, 184, 160, .55), 0 0 5px rgba(200, 184, 160, .28);
+}
+.desktop-app.mercury .solar-system-item .planet-cyan {
+  background: radial-gradient(circle at 32% 28%, #dccdb4, #c8b8a0 48%, #a3927a 100%);
+  box-shadow: 0 0 4px rgba(200, 184, 160, .5), 0 0 8px rgba(200, 184, 160, .22);
+}
+.desktop-app.mercury .solar-system-item .orbit-outer::after,
+.desktop-app.mercury .solar-system-item .orbit-middle::after {
+  border-top-color: rgba(220, 205, 180, .8);
+  filter: drop-shadow(0 0 3px rgba(200, 184, 160, .2));
+}
+.desktop-app.mercury .solar-system-item .orbit-outer,
+.desktop-app.mercury .solar-system-item .orbit-middle { box-shadow: none; }
+.desktop-app.mercury .solar-system-item::after {
+  background: linear-gradient(90deg, transparent, rgba(200, 184, 160, .11), transparent);
+}
+.desktop-app.mercury .solar-system-item.solar-system-item:not(.is-active):hover .solar-title,
+.desktop-app.mercury .solar-system-item.solar-system-item:not(.is-active):focus-visible .solar-title {
+  color: #f7f0e4;
+  text-shadow: 0 0 10px rgba(200, 184, 160, .2), 0 0 18px rgba(200, 184, 160, .1);
+}
+.desktop-app.mercury .solar-system-item .star-dot {
+  background: #c8b8a0;
+  box-shadow: 0 0 5px rgba(200, 184, 160, .4);
+}
+
+/* 天王星：青绿主题 */
+.desktop-app.uranus .live-status,
+.desktop-app.uranus .solar-clock { color: #8fb8b4; }
+.desktop-app.uranus .nav-num { color: #94c2bd; }
+.desktop-app.uranus .site-header nav a { color: #94c2bd; }
+.desktop-app.uranus .site-header nav a:hover,
+.desktop-app.uranus .site-header nav a:focus-visible { color: #d8f2ee; }
+.desktop-app.uranus .scene-toolbar {
+  border-color: rgba(143, 216, 208, .22);
+  background: rgba(10, 24, 22, .8);
+}
+.desktop-app.uranus .scene-toolbar > span { color: #8fb8b4; }
+.desktop-app.uranus .scene-toolbar label { color: #a8d4cf; }
+.desktop-app.uranus .scene-toolbar i { background: #3e6e68; }
+.desktop-app.uranus .scene-toolbar input:checked + i {
+  background: #8fd8d0;
+  box-shadow: 0 0 6px rgba(143, 216, 208, .55);
+}
+.desktop-app.uranus .scene-toolbar i.terminator { border-color: #4e8a84; background: #1c3a36; }
+.desktop-app.uranus .scene-toolbar input:checked + i.terminator {
+  border-color: rgba(143, 216, 208, .85);
+  background: linear-gradient(90deg, #8fd8d0 0 50%, #122622 50% 100%);
+}
+.desktop-app.uranus .brand small { color: #8fb8b4; }
+.desktop-app.uranus .brand:hover small,
+.desktop-app.uranus .brand:focus-visible small { color: #8fd8d0; }
+.desktop-app.uranus .brand-mark { border-color: rgba(143, 216, 208, .45); }
+.desktop-app.uranus .brand-mark i:first-child { background: #8fd8d0; }
+.desktop-app.uranus .brand-mark i:nth-child(2) { background: rgba(143, 216, 208, .4); }
+.desktop-app.uranus .brand-mark i:nth-child(3) { border-color: rgba(143, 216, 208, .28); }
+.desktop-app.uranus .brand:hover .brand-mark,
+.desktop-app.uranus .brand:focus-visible .brand-mark {
+  border-color: rgba(170, 235, 228, .9);
+  box-shadow: 0 0 0 1px rgba(143, 216, 208, .22), 0 0 20px rgba(143, 216, 208, .35), inset 0 0 12px rgba(143, 216, 208, .18);
+  transform: translateY(-1px) scale(1.05);
+}
+.desktop-app.uranus .brand:hover .brand-mark i:first-child,
+.desktop-app.uranus .brand:focus-visible .brand-mark i:first-child { background: #aaebe4; }
+.desktop-app.uranus .brand:hover .brand-mark i:nth-child(3),
+.desktop-app.uranus .brand:focus-visible .brand-mark i:nth-child(3) { background: #8fd8d0; }
+.desktop-app.uranus .brand:hover .brand-mark i:nth-child(2),
+.desktop-app.uranus .brand:focus-visible .brand-mark i:nth-child(2) { background: rgba(170, 235, 228, .95); }
+.desktop-app.uranus .brand:hover .brand-mark i:nth-child(3),
+.desktop-app.uranus .brand:focus-visible .brand-mark i:nth-child(3) { border-color: rgba(170, 235, 228, .72); }
+.desktop-app.uranus .brand:hover strong,
+.desktop-app.uranus .brand:focus-visible strong { color: #e8faf6; text-shadow: 0 0 14px rgba(143, 216, 208, .4); }
+.desktop-app.uranus .brand:hover small,
+.desktop-app.uranus .brand:focus-visible small { color: #8fd8d0; }
+.desktop-app.uranus .solar-system-item {
+  --orbit-blue: rgba(143, 216, 208, .85);
+  --orbit-cyan: rgba(143, 216, 208, .5);
+  --orbit-gold: rgba(255, 189, 81, .42);
+}
+.desktop-app.uranus .solar-system-item .planet-blue {
+  background: radial-gradient(circle at 32% 28%, #aaebe4, #8fd8d0 45%, #5e9e97 100%);
+  box-shadow: 0 0 3px rgba(143, 216, 208, .55), 0 0 5px rgba(143, 216, 208, .28);
+}
+.desktop-app.uranus .solar-system-item .planet-cyan {
+  background: radial-gradient(circle at 32% 28%, #aaebe4, #8fd8d0 48%, #5e9e97 100%);
+  box-shadow: 0 0 4px rgba(143, 216, 208, .5), 0 0 8px rgba(143, 216, 208, .22);
+}
+.desktop-app.uranus .solar-system-item .orbit-outer::after,
+.desktop-app.uranus .solar-system-item .orbit-middle::after {
+  border-top-color: rgba(170, 235, 228, .8);
+  filter: drop-shadow(0 0 3px rgba(143, 216, 208, .2));
+}
+.desktop-app.uranus .solar-system-item .orbit-outer,
+.desktop-app.uranus .solar-system-item .orbit-middle { box-shadow: none; }
+.desktop-app.uranus .solar-system-item::after {
+  background: linear-gradient(90deg, transparent, rgba(143, 216, 208, .11), transparent);
+}
+.desktop-app.uranus .solar-system-item.solar-system-item:not(.is-active):hover .solar-title,
+.desktop-app.uranus .solar-system-item.solar-system-item:not(.is-active):focus-visible .solar-title {
+  color: #e8faf6;
+  text-shadow: 0 0 10px rgba(143, 216, 208, .2), 0 0 18px rgba(143, 216, 208, .1);
+}
+.desktop-app.uranus .solar-system-item .star-dot {
+  background: #8fd8d0;
+  box-shadow: 0 0 5px rgba(143, 216, 208, .4);
+}
+
+/* 海王星：深蓝主题 */
+.desktop-app.neptune .live-status,
+.desktop-app.neptune .solar-clock { color: #8fb0d4; }
+.desktop-app.neptune .nav-num { color: #94b8e0; }
+.desktop-app.neptune .site-header nav a { color: #94b8e0; }
+.desktop-app.neptune .site-header nav a:hover,
+.desktop-app.neptune .site-header nav a:focus-visible { color: #d8e8f8; }
+.desktop-app.neptune .scene-toolbar {
+  border-color: rgba(106, 168, 224, .22);
+  background: rgba(8, 16, 28, .8);
+}
+.desktop-app.neptune .scene-toolbar > span { color: #8fb0d4; }
+.desktop-app.neptune .scene-toolbar label { color: #a8c4e8; }
+.desktop-app.neptune .scene-toolbar i { background: #3e5e84; }
+.desktop-app.neptune .scene-toolbar input:checked + i {
+  background: #6aa8e0;
+  box-shadow: 0 0 6px rgba(106, 168, 224, .55);
+}
+.desktop-app.neptune .scene-toolbar i.terminator { border-color: #4e76a4; background: #1c2c44; }
+.desktop-app.neptune .scene-toolbar input:checked + i.terminator {
+  border-color: rgba(106, 168, 224, .85);
+  background: linear-gradient(90deg, #6aa8e0 0 50%, #121c2c 50% 100%);
+}
+.desktop-app.neptune .brand small { color: #8fb0d4; }
+.desktop-app.neptune .brand:hover small,
+.desktop-app.neptune .brand:focus-visible small { color: #6aa8e0; }
+.desktop-app.neptune .brand-mark { border-color: rgba(106, 168, 224, .45); }
+.desktop-app.neptune .brand-mark i:first-child { background: #6aa8e0; }
+.desktop-app.neptune .brand-mark i:nth-child(2) { background: rgba(106, 168, 224, .4); }
+.desktop-app.neptune .brand-mark i:nth-child(3) { border-color: rgba(106, 168, 224, .28); }
+.desktop-app.neptune .brand:hover .brand-mark,
+.desktop-app.neptune .brand:focus-visible .brand-mark {
+  border-color: rgba(150, 195, 240, .9);
+  box-shadow: 0 0 0 1px rgba(106, 168, 224, .22), 0 0 20px rgba(106, 168, 224, .35), inset 0 0 12px rgba(106, 168, 224, .18);
+  transform: translateY(-1px) scale(1.05);
+}
+.desktop-app.neptune .brand:hover .brand-mark i:first-child,
+.desktop-app.neptune .brand:focus-visible .brand-mark i:first-child { background: #96c3f0; }
+.desktop-app.neptune .brand:hover .brand-mark i:nth-child(3),
+.desktop-app.neptune .brand:focus-visible .brand-mark i:nth-child(3) { background: #6aa8e0; }
+.desktop-app.neptune .brand:hover .brand-mark i:nth-child(2),
+.desktop-app.neptune .brand:focus-visible .brand-mark i:nth-child(2) { background: rgba(150, 195, 240, .95); }
+.desktop-app.neptune .brand:hover .brand-mark i:nth-child(3),
+.desktop-app.neptune .brand:focus-visible .brand-mark i:nth-child(3) { border-color: rgba(150, 195, 240, .72); }
+.desktop-app.neptune .brand:hover strong,
+.desktop-app.neptune .brand:focus-visible strong { color: #e8f2fc; text-shadow: 0 0 14px rgba(106, 168, 224, .4); }
+.desktop-app.neptune .brand:hover small,
+.desktop-app.neptune .brand:focus-visible small { color: #6aa8e0; }
+.desktop-app.neptune .solar-system-item {
+  --orbit-blue: rgba(106, 168, 224, .85);
+  --orbit-cyan: rgba(106, 168, 224, .5);
+  --orbit-gold: rgba(255, 189, 81, .42);
+}
+.desktop-app.neptune .solar-system-item .planet-blue {
+  background: radial-gradient(circle at 32% 28%, #96c3f0, #6aa8e0 45%, #4a74a8 100%);
+  box-shadow: 0 0 3px rgba(106, 168, 224, .55), 0 0 5px rgba(106, 168, 224, .28);
+}
+.desktop-app.neptune .solar-system-item .planet-cyan {
+  background: radial-gradient(circle at 32% 28%, #96c3f0, #6aa8e0 48%, #4a74a8 100%);
+  box-shadow: 0 0 4px rgba(106, 168, 224, .5), 0 0 8px rgba(106, 168, 224, .22);
+}
+.desktop-app.neptune .solar-system-item .orbit-outer::after,
+.desktop-app.neptune .solar-system-item .orbit-middle::after {
+  border-top-color: rgba(150, 195, 240, .8);
+  filter: drop-shadow(0 0 3px rgba(106, 168, 224, .2));
+}
+.desktop-app.neptune .solar-system-item .orbit-outer,
+.desktop-app.neptune .solar-system-item .orbit-middle { box-shadow: none; }
+.desktop-app.neptune .solar-system-item::after {
+  background: linear-gradient(90deg, transparent, rgba(106, 168, 224, .11), transparent);
+}
+.desktop-app.neptune .solar-system-item.solar-system-item:not(.is-active):hover .solar-title,
+.desktop-app.neptune .solar-system-item.solar-system-item:not(.is-active):focus-visible .solar-title {
+  color: #e8f2fc;
+  text-shadow: 0 0 10px rgba(106, 168, 224, .2), 0 0 18px rgba(106, 168, 224, .1);
+}
+.desktop-app.neptune .solar-system-item .star-dot {
+  background: #6aa8e0;
+  box-shadow: 0 0 5px rgba(106, 168, 224, .4);
+}
+
+/* ===== 太阳页：橙金主题 ===== */
+.desktop-app.sun .live-status,
+.desktop-app.sun .solar-clock { color: #e0957d; }
+.desktop-app.sun .nav-num { color: #f08a6a; }
+.desktop-app.sun .site-header nav a { color: #f08a6a; }
+.desktop-app.sun .site-header nav a:hover,
+.desktop-app.sun .site-header nav a:focus-visible { color: #ffe3d6; }
+.desktop-app.sun .scene-toolbar {
+  border-color: rgba(255, 107, 74, .22);
+  background: rgba(45, 16, 6, .8);
+}
+.desktop-app.sun .scene-toolbar > span { color: #e0957d; }
+.desktop-app.sun .scene-toolbar label { color: #ffb59e; }
+.desktop-app.sun .scene-toolbar i { background: #7a3522; }
+.desktop-app.sun .scene-toolbar input:checked + i {
+  background: #ff6b4a;
+  box-shadow: 0 0 6px rgba(255, 107, 74, .55);
+}
+.desktop-app.sun .scene-toolbar i.terminator { border-color: #8a3c26; background: #3d1808; }
+.desktop-app.sun .scene-toolbar input:checked + i.terminator {
+  border-color: rgba(255, 107, 74, .85);
+  background: linear-gradient(90deg, #ff6b4a 0 50%, #3d1508 50% 100%);
+}
+.desktop-app.sun .brand small { color: #e0957d; }
+.desktop-app.sun .brand:hover small,
+.desktop-app.sun .brand:focus-visible small { color: #ff6b4a; }
+.desktop-app.sun .brand-mark { border-color: rgba(255, 107, 74, .45); }
+.desktop-app.sun .brand-mark i:first-child { background: #ff6b4a; }
+.desktop-app.sun .brand-mark i:nth-child(2) { background: rgba(255, 107, 74, .4); }
+.desktop-app.sun .brand-mark i:nth-child(3) { border-color: rgba(255, 107, 74, .28); }
+.desktop-app.sun .brand:hover .brand-mark,
+.desktop-app.sun .brand:focus-visible .brand-mark {
+  border-color: rgba(255, 205, 130, .9);
+  box-shadow: 0 0 0 1px rgba(255, 107, 74, .22), 0 0 20px rgba(255, 107, 74, .35), inset 0 0 12px rgba(255, 107, 74, .18);
+  transform: translateY(-1px) scale(1.05);
+}
+.desktop-app.sun .brand:hover .brand-mark i:first-child,
+.desktop-app.sun .brand:focus-visible .brand-mark i:first-child { background: #ff8f6e; }
+.desktop-app.sun .brand:hover .brand-mark i:nth-child(3),
+.desktop-app.sun .brand:focus-visible .brand-mark i:nth-child(3) { background: #ff6b4a; }
+.desktop-app.sun .brand:hover .brand-mark i:nth-child(2),
+.desktop-app.sun .brand:focus-visible .brand-mark i:nth-child(2) { background: rgba(255, 205, 130, .95); }
+.desktop-app.sun .brand:hover .brand-mark i:nth-child(3),
+.desktop-app.sun .brand:focus-visible .brand-mark i:nth-child(3) { border-color: rgba(255, 205, 130, .72); }
+.desktop-app.sun .brand:hover strong,
+.desktop-app.sun .brand:focus-visible strong { color: #ffe9de; text-shadow: 0 0 14px rgba(255, 107, 74, .4); }
+.desktop-app.sun .brand:hover small,
+.desktop-app.sun .brand:focus-visible small { color: #ff6b4a; }
+.desktop-app.sun .solar-system-item {
+  --orbit-blue: rgba(255, 107, 74, .85);
+  --orbit-cyan: rgba(255, 107, 74, .5);
+  --orbit-gold: rgba(255, 120, 80, .42);
+}
+.desktop-app.sun .solar-system-item .planet-blue {
+  background: radial-gradient(circle at 32% 28%, #ff8f6e, #ff6b4a 45%, #c25a38 100%);
+  box-shadow: 0 0 3px rgba(255, 107, 74, .55), 0 0 5px rgba(255, 107, 74, .28);
+}
+.desktop-app.sun .solar-system-item .planet-cyan {
+  background: radial-gradient(circle at 32% 28%, #ff8f6e, #ff6b4a 48%, #c25a38 100%);
+  box-shadow: 0 0 4px rgba(255, 107, 74, .5), 0 0 8px rgba(255, 107, 74, .22);
+}
+.desktop-app.sun .solar-system-item .orbit-outer::after,
+.desktop-app.sun .solar-system-item .orbit-middle::after {
+  border-top-color: rgba(255, 205, 130, .8);
+  filter: drop-shadow(0 0 3px rgba(255, 107, 74, .2));
+}
+.desktop-app.sun .solar-system-item .orbit-outer,
+.desktop-app.sun .solar-system-item .orbit-middle { box-shadow: none; }
+.desktop-app.sun .solar-system-item::after {
+  background: linear-gradient(90deg, transparent, rgba(255, 107, 74, .11), transparent);
+}
+.desktop-app.sun .solar-system-item.solar-system-item:not(.is-active):hover .solar-title,
+.desktop-app.sun .solar-system-item.solar-system-item:not(.is-active):focus-visible .solar-title {
+  color: #ffe9de;
+  text-shadow: 0 0 10px rgba(255, 107, 74, .2), 0 0 18px rgba(255, 107, 74, .1);
+}
+.desktop-app.sun .solar-system-item .star-dot {
+  background: #ff6b4a;
+  box-shadow: 0 0 5px rgba(255, 107, 74, .4);
+}

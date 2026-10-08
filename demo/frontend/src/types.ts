@@ -1,0 +1,235 @@
+export interface Spacecraft {
+  id: string
+  nameZh: string
+  nameEn: string
+  noradCatalogId: number
+  category: string
+  operatorName: string
+  description: string
+  sourceName: string
+  sourceUrl: string
+  orbitEpoch: string
+  orbitSyncedAt: string
+  /** 发射信息（API 可选返回） */
+  launchDate?: string
+  launchSite?: string
+  launchVehicle?: string
+  omm: Record<string, string | number>
+}
+
+export interface LaunchSite {
+  id: string
+  nameZh: string
+  nameEn: string
+  countryCode: string
+  countryNameZh: string
+  latitude: number
+  longitude: number
+  description: string
+  sourceUrl: string
+  tier: number
+}
+
+export interface LaunchEvent {
+  externalId: string
+  name: string
+  nameZh: string
+  statusName: string
+  statusNameZh: string
+  statusAbbrev: string
+  net: string
+  windowStart?: string
+  windowEnd?: string
+  padName: string
+  padNameZh: string
+  locationName: string
+  locationNameZh: string
+  latitude?: number
+  longitude?: number
+  missionName: string
+  missionNameZh: string
+  missionType: string
+  missionTypeZh: string
+  missionDescription: string
+  missionDescriptionZh: string
+  providerName: string
+  sourceUrl: string
+  syncedAt: string
+  hasOriginal: boolean
+}
+
+export interface Freshness {
+  sourceCode: string
+  sourceName: string
+  lastFinishedAt: string
+  success: boolean
+}
+
+export interface OrbitOverview {
+  generatedAt: string
+  spacecraft: Spacecraft[]
+  launchSites: LaunchSite[]
+  events: LaunchEvent[]
+  freshness: Freshness[]
+}
+
+/** 航天器目录的服务端分页响应；与首屏 3D 场景数据刻意分离。 */
+export interface SpacecraftCatalogPage {
+  items: Spacecraft[]
+  page: number
+  pageSize: number
+  total: number
+}
+
+/** 月球飞行器（来自 /api/v1/moon/spacecraft，镜像地球 Spacecraft 类型） */
+export interface MoonLandingSite {
+  id: string
+  nameZh: string
+  nameEn: string
+  program: string
+  operatorName: string
+  landingDate: string
+  latitude: number
+  longitude: number
+  region: string
+  description: string
+  sortOrder: number
+  siteName: string
+  officialName: string
+  missionName: string
+  hardware: string[]
+  side: 'NEAR_SIDE' | 'FAR_SIDE'
+  category: string
+  icon: 'astronaut' | 'lander' | 'rover' | 'sample'
+  track: number[][]
+}
+
+export interface MoonSpacecraft {
+  id: string
+  nameZh: string
+  nameEn: string
+  type: string
+  operatorName: string
+  description: string
+  launchDate: string
+  launchSite: string
+  launchVehicle: string
+  sourceName: string
+  displayInclination: string
+  displayEccentricity: string
+  displayPeriod: string
+  kind: 'orbital' | 'stationary' | 'historical_orbit' | 'flyby'
+  orbitA: number
+  orbitE: number
+  inclinationDeg: number
+  raanDeg: number
+  argPeriapsisDeg: number
+  periodSeconds: number
+  stationaryOffset: [number, number, number]
+  sortOrder: number
+  /** JPL Horizons 日同步快照（无同步时为 null，回退静态参数） */
+  snapshot?: {
+    epoch: string
+    aKm: number
+    eccentricity: number
+    inclinationDeg: number
+    raanDeg: number
+    argPeriapsisDeg: number
+    meanAnomalyDeg: number
+    periodSeconds: number
+  } | null
+}
+
+/** 火星着陆点（来自 /api/v1/mars/landing-sites，镜像 MoonLandingSite） */
+export interface MarsLandingSite {
+  id: string
+  nameZh: string
+  nameEn: string
+  program: string
+  operatorName: string
+  landingDate: string
+  latitude: number
+  longitude: number
+  region: string
+  description: string
+  sortOrder: number
+  siteName: string
+  officialName: string
+  missionName: string
+  hardware: string[]
+  side: 'NEAR_SIDE' | 'FAR_SIDE'
+  category: string
+  icon: 'astronaut' | 'lander' | 'rover' | 'sample'
+  track: number[][]
+}
+
+/** 火星绕行器（来自 /api/v1/mars/spacecraft，镜像 MoonSpacecraft） */
+export interface MarsSpacecraft {
+  id: string
+  nameZh: string
+  nameEn: string
+  type: string
+  operatorName: string
+  description: string
+  launchDate: string
+  launchSite: string
+  launchVehicle: string
+  sourceName: string
+  displayInclination: string
+  displayEccentricity: string
+  displayPeriod: string
+  kind: 'orbital' | 'stationary' | 'surface' | 'catalog' | 'approach'
+  catalogGroup: 'surface' | 'orbit'
+  orbitA: number
+  orbitE: number
+  inclinationDeg: number
+  raanDeg: number
+  argPeriapsisDeg: number
+  periodSeconds: number
+  stationaryOffset: [number, number, number]
+  sortOrder: number
+  snapshot?: {
+    epoch: string
+    aKm: number
+    eccentricity: number
+    inclinationDeg: number
+    raanDeg: number
+    argPeriapsisDeg: number
+    meanAnomalyDeg: number
+    periodSeconds: number
+  } | null
+}
+
+export type Selection =
+  | { kind: 'spacecraft'; id: string }
+  | { kind: 'site'; id: string }
+  | { kind: 'event'; id: string }
+
+export interface SceneLayers {
+  spacecraft: boolean
+  orbits: boolean
+  sites: boolean
+}
+
+/** 深空探测器（来自 /api/v1/voyage/probes，VOYAGE 太阳系标注） */
+export interface DeepSpaceProbe {
+  id: string
+  nameZh: string
+  nameEn: string
+  operatorName: string
+  launchDate: string
+  launchSite: string
+  launchVehicle: string
+  missionType: string
+  target: string
+  description: string
+  precisionGrade: string
+  color: string
+  sortOrder: number
+  /** 最近一次 JPL Horizons 同步时间（无采样时为空） */
+  syncedAt?: string
+  /** 轨道绘制方式：ellipse = 拟合椭圆轨道（太阳在焦点）；track = 不绘制轨迹（仅标记） */
+  orbitKind: string
+  /** 日心黄道位置采样（km，按时间升序，±90 天窗口） */
+  positions: Array<{ epoch: string; x: number; y: number; z: number }>
+}

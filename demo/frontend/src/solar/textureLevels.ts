@@ -1,0 +1,21 @@
+import high0 from '../assets/solar/4k_mercury.jpg'
+import low0 from '../assets/lod/preview-4k_mercury.jpg'
+import high1 from '../assets/solar/4k_venus_atmosphere.jpg'
+import low1 from '../assets/lod/preview-4k_venus_atmosphere.jpg'
+import high2 from '../assets/solar/4k_mars.jpg'
+import low2 from '../assets/lod/preview-4k_mars.jpg'
+import high3 from '../assets/solar/8k_jupiter.jpg'
+import low3 from '../assets/lod/preview-8k_jupiter.jpg'
+import high4 from '../assets/solar/8k_saturn.jpg'
+import low4 from '../assets/lod/preview-8k_saturn.jpg'
+import high5 from '../assets/solar/8k_sun.jpg'
+import low5 from '../assets/lod/preview-8k_sun.jpg'
+import high6 from '../assets/solar/8k_mars.jpg'
+import low6 from '../assets/lod/preview-8k_mars.jpg'
+import high7 from '../assets/earth/blue-marble-8k.jpg'
+import low7 from '../assets/lod/preview-blue-marble-8k.jpg'
+import moonHigh from '../assets/solar/8k_moon.jpg'
+import moonLow from '../assets/solar/2k_moon.jpg'
+
+const previews = new Map<string, string>([[high0, low0],[high1, low1],[high2, low2],[high3, low3],[high4, low4],[high5, low5],[high6, low6],[high7, low7],[moonHigh, moonLow]])
+export function previewTextureUrl(url: string) { return previews.get(url) ?? url }
