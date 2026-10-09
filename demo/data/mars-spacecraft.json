@@ -29,14 +29,14 @@
       ],
       "sortOrder": 1,
       "snapshot": {
-        "epoch": "2026-10-07T12:33:14Z",
-        "aKm": 3666.3317715000735,
-        "eccentricity": 0.00902941812190639,
-        "inclinationDeg": 73.34650547873879,
-        "raanDeg": 308.36055445614693,
-        "argPeriapsisDeg": 247.5216219998838,
-        "meanAnomalyDeg": 283.1406871723826,
-        "periodSeconds": 6740.028591963398
+        "epoch": "2026-10-09T02:21:30Z",
+        "aKm": 3648.704114271336,
+        "eccentricity": 0.005297313168652952,
+        "inclinationDeg": 73.60772495563647,
+        "raanDeg": 309.2041324273272,
+        "argPeriapsisDeg": 253.58880227531435,
+        "meanAnomalyDeg": 354.7031536256297,
+        "periodSeconds": 6691.478162147828
       }
     },
     {
@@ -272,5 +272,5 @@
       "sortOrder": 9
     }
   ],
-  "syncedAt": "2026-10-07T20:43:16.613061+08:00"
+  "syncedAt": "2026-10-09T10:31:32.633376+08:00"
 }

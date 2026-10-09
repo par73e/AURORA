@@ -1,8 +1,9 @@
 {
-  "events": 651,
-  "exportedAt": "2026-10-08T02:01:30Z",
-  "mode": "offline-demo",
+  "events": 659,
+  "exportedAt": "2026-10-09T02:33:23Z",
+  "locationMode": "live",
+  "mode": "hybrid-demo",
   "probes": 13,
   "spacecraft": 26,
-  "weatherLocation": "上海市 · 31.2304, 121.4737"
+  "weatherMode": "live"
 }

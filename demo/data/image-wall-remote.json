@@ -1,6 +1,23 @@
 {
   "recent": [
     {
+      "id": "apod-2026-10-08",
+      "sourceId": "apod",
+      "sourceName": "NASA Astronomy Picture of the Day",
+      "title": "The Saturn System Smörgåsbord",
+      "publishedAt": "2026-10-08",
+      "imageUrl": "https://assets.science.nasa.gov/dynamicimage/assets/science/cds/apod/apod/2026/october/2026-09-21-2349_3-TW-RGB-Sat2_1.5x_Labelled.png?w=2296\u0026h=1500\u0026fit=clip\u0026crop=faces%2Cfocalpoint",
+      "thumbnailUrl": "https://assets.science.nasa.gov/dynamicimage/assets/science/cds/apod/apod/2026/october/2026-09-21-2349_3-TW-RGB-Sat2_1.5x_Labelled.png?w=2296\u0026h=1500\u0026fit=clip\u0026crop=faces%2Cfocalpoint",
+      "mediaType": "image",
+      "credit": "Tom Williams",
+      "licenseNote": "版权信息见原始链接",
+      "sourceUrl": "https://science.nasa.gov/image-article/apod-2026-october-8-the-saturn-system-smorgasbord/",
+      "hdUrl": "https://assets.science.nasa.gov/dynamicimage/assets/science/cds/apod/apod/2026/october/2026-09-21-2349_3-TW-RGB-Sat2_1.5x_Labelled.png?w=2296\u0026h=1500\u0026fit=clip\u0026crop=faces%2Cfocalpoint",
+      "selectionMode": "daily",
+      "summary": "How was the Saturn system imaged so clearly? Astrophotographer Tom Williams captured such exquisite details due to one night of exceptional atmospheric conditions above the United Kingdom. This means more than a cloudless sky. Pockets of air at different temperatures and densities move around and bend light as it travels through Earth’s atmosphere, distorting astronomy images. This is called “ seeing .” Less atmospheric turbulence means clearer images. The astrophotographer reduced the impact of seeing with the lucky imaging technique: thousands of short-exposure images are taken very quickly with a high-speed camera and the clearest images are added up. Which object in this smörgåsbord interests you? Perhaps Titan or the icy stripes of Enceladus ? Maybe the gaps and spokes in Saturn’s rings? Saturn's opposition , when Earth passes in between the planet and the Sun, occurred on October 4th. Due to the planet's proximity and full illumination from the Sun, now is a great time of year to observe it! Tomorrow's picture: bumpy",
+      "status": "ready"
+    },
+    {
       "id": "apod-2026-10-07",
       "sourceId": "apod",
       "sourceName": "NASA Astronomy Picture of the Day",
@@ -67,26 +84,43 @@
       "selectionMode": "daily",
       "summary": "Yes, but can your rainbow do this? After the remnants of Hurricane Florence passed over the Jersey Shore, New Jersey , USA in 2018, the Sun came out in one direction but something quite unusual appeared in the opposite direction: a hall of rainbows . Over the course of the next half hour, to the delight of the photographer and his daughter, vibrant supernumerary rainbows faded in and out, with at least five captured in this featured single shot. Supernumerary rainbows only form when falling water droplets are all nearly the same size and typically less than a millimeter across. Then, sunlight will not only reflect from inside the raindrops, but interfere , a wave phenomenon similar to ripples on a pond when a stone is thrown in. In fact, supernumerary rainbows can only be explained with waves, and their noted existence in the early 1800s was considered early evidence of light's wave nature . Your Sky Surprise: What picture did APOD feature on your birthday? (post 1995) Tomorrow's picture: open space",
       "status": "ready"
-    },
-    {
-      "id": "apod-2026-10-03",
-      "sourceId": "apod",
-      "sourceName": "NASA Astronomy Picture of the Day",
-      "title": "Selfie at Vera Rubin Ridge",
-      "publishedAt": "2026-10-03",
-      "imageUrl": "https://assets.science.nasa.gov/dynamicimage/assets/science/cds/apod/apod/2026/october/Sol1943CuriosityBodrov.jpg?w=1600\u0026h=800\u0026fit=clip\u0026crop=faces%2Cfocalpoint",
-      "thumbnailUrl": "https://assets.science.nasa.gov/dynamicimage/assets/science/cds/apod/apod/2026/october/Sol1943CuriosityBodrov.jpg?w=1600\u0026h=800\u0026fit=clip\u0026crop=faces%2Cfocalpoint",
-      "mediaType": "image",
-      "credit": "Image Credit: NASA , JPL-Caltech , MSSS - Panorama: Andrew Bodrov",
-      "licenseNote": "版权信息见原始链接",
-      "sourceUrl": "https://science.nasa.gov/image-article/apod-2026-october-3-selfie-at-vera-rubin-ridge/",
-      "hdUrl": "https://assets.science.nasa.gov/dynamicimage/assets/science/cds/apod/apod/2026/october/Sol1943CuriosityBodrov.jpg?w=1600\u0026h=800\u0026fit=clip\u0026crop=faces%2Cfocalpoint",
-      "selectionMode": "daily",
-      "summary": "On sol 1943 of its journey of exploration across the surface of Mars, the Curiosity Rover recorded this selfie at the south rim of Vera Rubin Ridge. Of course a sol is a Martian solar day , about 40 minutes longer than an Earth day. Curiosity's sol 1943 corresponds to Earth date January 23, 2018. Also composed as an interactive 360 degree VR , the mosaicked panorama combines 61 exposures taken by the small car-sized rover's Mars Hand Lens Imager (MAHLI). Frames containing the imager's arm have been edited out while the extended background used was taken by the rover's Mastcam on sol 1903. At the top of the rover's mast, sitting above the Mastcam, the laser-firing ChemCam housing blocks out the distant, 5 kilometer high peak of Mount Sharp. On Earth date August 26, 2026, Curiosity marked an total elevation gain of 1 kilometer in its trek from the floor of Gale Crater up the slope of Mount Sharp. APOD's email for image submissions has changed. Please see: APOD Submissions . Tomorrow's picture: Sunday's Childe",
-      "status": "ready"
     }
   ],
   "collection": [
+    {
+      "id": "nasa-library-2001-07-16",
+      "sourceId": "nasa-library",
+      "sourceName": "NASA Image and Video Library",
+      "title": "Jupiter Polar Winds Movie",
+      "publishedAt": "2001-07-16",
+      "imageUrl": "https://images-assets.nasa.gov/image/PIA03452/PIA03452~thumb.jpg",
+      "thumbnailUrl": "https://images-assets.nasa.gov/image/PIA03452/PIA03452~thumb.jpg",
+      "mediaType": "image",
+      "credit": "NASA / JPL",
+      "licenseNote": "版权与使用条件见原始链接",
+      "sourceUrl": "https://images.nasa.gov/details/PIA03452",
+      "hdUrl": "https://images-assets.nasa.gov/image/PIA03452/PIA03452~orig.jpg",
+      "selectionMode": "rotating",
+      "summary": "Jupiter Polar Winds Movie",
+      "status": "ready"
+    },
+    {
+      "id": "nasa-library-2013-10-31",
+      "sourceId": "nasa-library",
+      "sourceName": "NASA Image and Video Library",
+      "title": "Galaxies Grow from Inside Out",
+      "publishedAt": "2013-10-31",
+      "imageUrl": "https://images-assets.nasa.gov/image/PIA17554/PIA17554~small.jpg",
+      "thumbnailUrl": "https://images-assets.nasa.gov/image/PIA17554/PIA17554~small.jpg",
+      "mediaType": "image",
+      "credit": "NASA / JPL",
+      "licenseNote": "版权与使用条件见原始链接",
+      "sourceUrl": "https://images.nasa.gov/details/PIA17554",
+      "hdUrl": "https://images-assets.nasa.gov/image/PIA17554/PIA17554~orig.jpg",
+      "selectionMode": "rotating",
+      "summary": "Evidence from NASA Wide-field Infrared Survey Explorer and Galaxy Evolution Explorer missions provide support for the inside-out theory of galaxy evolution, which holds that star formation starts at the core of the galaxy and spreads outward.",
+      "status": "ready"
+    },
     {
       "id": "nasa-library-2012-03-08",
       "sourceId": "nasa-library",
@@ -136,40 +170,6 @@
       "hdUrl": "https://images-assets.nasa.gov/image/ctb1cgpsvla/ctb1cgpsvla~orig.jpg",
       "selectionMode": "rotating",
       "summary": "The CTB 1 supernova remnant resembles a ghostly bubble in this image, which combines new 1.5 gigahertz observations from the Very Large Array (VLA) radio telescope (orange, near center) with older observations from the Dominion Radio Astrophysical Observatory’s Canadian Galactic Plane Survey (1.42 gigahertz, magenta and yellow; 408 megahertz, green) and infrared data (blue). The VLA data clearly reveal the straight, glowing trail from pulsar J0002+6216 and the curved rim of the remnant’s shell. CTB 1 is about half a degree across, the apparent size of a full Moon. Credits: Composite by Jayanne English, University of Manitoba, using data from NRAO/F. Schinzel et al., DRAO/Canadian Galactic Plane Survey and NASA/IRAS  More info: https://go.nasa.gov/2TKpyWF",
-      "status": "ready"
-    },
-    {
-      "id": "nasa-library-1999-09-10",
-      "sourceId": "nasa-library",
-      "sourceName": "NASA Image and Video Library",
-      "title": "Triptych of the Moon",
-      "publishedAt": "1999-09-10",
-      "imageUrl": "https://images-assets.nasa.gov/image/PIA02322/PIA02322~small.jpg",
-      "thumbnailUrl": "https://images-assets.nasa.gov/image/PIA02322/PIA02322~small.jpg",
-      "mediaType": "image",
-      "credit": "NASA / JPL",
-      "licenseNote": "版权与使用条件见原始链接",
-      "sourceUrl": "https://images.nasa.gov/details/PIA02322",
-      "hdUrl": "https://images-assets.nasa.gov/image/PIA02322/PIA02322~orig.jpg",
-      "selectionMode": "rotating",
-      "summary": "This composite image was made from NASA Cassini which captured a significant portion of the Moon during a Moon flyby imaging sequence.All three images have been scaled so that the brightness of Crisium basin, the dark circular region in the upper right,",
-      "status": "ready"
-    },
-    {
-      "id": "nasa-library-2019-06-01",
-      "sourceId": "nasa-library",
-      "sourceName": "NASA Image and Video Library",
-      "title": "Mars Celebration",
-      "publishedAt": "2019-06-01",
-      "imageUrl": "https://images-assets.nasa.gov/image/NHQ201906010019/NHQ201906010019~medium.jpg",
-      "thumbnailUrl": "https://images-assets.nasa.gov/image/NHQ201906010019/NHQ201906010019~medium.jpg",
-      "mediaType": "image",
-      "credit": "NASA / HQ",
-      "licenseNote": "版权与使用条件见原始链接",
-      "sourceUrl": "https://images.nasa.gov/details/NHQ201906010019",
-      "hdUrl": "https://images-assets.nasa.gov/image/NHQ201906010019/NHQ201906010019~orig.tif",
-      "selectionMode": "rotating",
-      "summary": "A participant of the Mars celebration launches a rocket, Saturday, June 1, 2019, in Mars, Pennsylvania. NASA is in the small town to celebrate Mars exploration and share the agency’s excitement about landing astronauts on the Moon in five years. The celebration includes a weekend of Science, Technology, Engineering, Arts and Mathematics (STEAM) activities. Photo Credit: (NASA/Bill Ingalls)",
       "status": "ready"
     },
     {
@@ -309,5 +309,5 @@
       "status": "ready"
     }
   ],
-  "generatedAt": "2026-10-07T12:42:55Z"
+  "generatedAt": "2026-10-09T02:31:15Z"
 }

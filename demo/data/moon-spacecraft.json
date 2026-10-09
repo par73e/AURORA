@@ -28,14 +28,14 @@
       ],
       "sortOrder": 1,
       "snapshot": {
-        "epoch": "2026-10-07T12:33:13Z",
-        "aKm": 1826.79713616373,
-        "eccentricity": 0.012913706700440498,
-        "inclinationDeg": 82.44327710970887,
-        "raanDeg": 22.21991897957178,
-        "argPeriapsisDeg": 27.631528629521654,
-        "meanAnomalyDeg": 226.18534370512424,
-        "periodSeconds": 7006.373053720936
+        "epoch": "2026-10-09T02:21:29Z",
+        "aKm": 1827.7125470068538,
+        "eccentricity": 0.013719011786115393,
+        "inclinationDeg": 82.90364009903395,
+        "raanDeg": 21.746771726276858,
+        "argPeriapsisDeg": 20.214938015958545,
+        "meanAnomalyDeg": 13.103600278767459,
+        "periodSeconds": 7011.6400698144835
       }
     },
     {
@@ -153,14 +153,14 @@
       ],
       "sortOrder": 5,
       "snapshot": {
-        "epoch": "2026-10-07T12:33:14Z",
-        "aKm": 1838.6650189874808,
-        "eccentricity": 0.008518798121158166,
-        "inclinationDeg": 90.70829395483287,
-        "raanDeg": 286.26505606327953,
-        "argPeriapsisDeg": 11.94178054301966,
-        "meanAnomalyDeg": 134.88736095348344,
-        "periodSeconds": 7074.759725100035
+        "epoch": "2026-10-09T02:21:30Z",
+        "aKm": 1838.4665256386659,
+        "eccentricity": 0.010092981514086777,
+        "inclinationDeg": 90.14874913653993,
+        "raanDeg": 286.174901775595,
+        "argPeriapsisDeg": 355.01766393181856,
+        "meanAnomalyDeg": 236.48875764809094,
+        "periodSeconds": 7073.614120951463
       }
     },
     {
@@ -425,5 +425,5 @@
       "snapshot": null
     }
   ],
-  "syncedAt": "2026-10-07T20:43:14.918392+08:00"
+  "syncedAt": "2026-10-09T10:31:30.863244+08:00"
 }
