@@ -371,6 +371,8 @@ const selectedCraftDetail = computed<MissionDetail | null>(() => {
       orbitStage: craft.trajectory?.kind === 'orbit' ? craft.trajectory.stage : '',
     }),
     source: `${craft.verifiedAt ? `${craft.verifiedAt} · ` : ''}${craft.source ?? '公开任务档案'}`,
+    dataType: !craft.trajectory ? '任务档案' : craft.trajectory.kind === 'orbit' && craft.trajectory.stage?.includes('历史') ? '历史轨道演示' : '任务轨道示意',
+    validTime: craft.trajectory?.kind === 'orbit' ? craft.trajectory.stage || craft.verifiedAt : craft.verifiedAt,
   }
 })
 

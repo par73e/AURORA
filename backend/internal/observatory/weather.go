@@ -201,8 +201,15 @@ func (client *Client) weather(ctx context.Context, latitude, longitude float64) 
 			WeatherCode    []int     `json:"weather_code"`
 		} `json:"hourly"`
 	}
-	if err := client.getJSON(ctx, endpoint.String(), &payload); err != nil {
+	var raw json.RawMessage
+	if err := client.getJSON(ctx, endpoint.String(), &raw); err != nil {
 		return Conditions{}, err
+	}
+	if err := validateWeatherPayload(raw); err != nil {
+		return Conditions{}, err
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return Conditions{}, fmt.Errorf("decode observing forecast: %w", err)
 	}
 	result := Conditions{Timezone: payload.Timezone, Elevation: payload.Elevation, Current: Current{
 		Time: payload.Current.Time, Temperature: payload.Current.Temperature, DewPoint: payload.Current.DewPoint, CloudCover: payload.Current.CloudCover,
@@ -222,6 +229,61 @@ func (client *Client) weather(ctx context.Context, latitude, longitude float64) 
 		})
 	}
 	return result, nil
+}
+
+// A missing or null weather factor must never become Go's numeric zero and
+// produce an apparently excellent observing score.
+func validateWeatherPayload(raw json.RawMessage) error {
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &root); err != nil {
+		return err
+	}
+	var current, hourly map[string]json.RawMessage
+	if err := json.Unmarshal(root["current"], &current); err != nil {
+		return fmt.Errorf("observing forecast current data is missing: %w", err)
+	}
+	if err := json.Unmarshal(root["hourly"], &hourly); err != nil {
+		return fmt.Errorf("observing forecast hourly data is missing: %w", err)
+	}
+	var currentTime string
+	if err := json.Unmarshal(current["time"], &currentTime); err != nil || currentTime == "" {
+		return errors.New("observing forecast current time is missing")
+	}
+	if _, err := time.Parse("2006-01-02T15:04", currentTime); err != nil {
+		return errors.New("observing forecast current time is invalid")
+	}
+	var times []string
+	if err := json.Unmarshal(hourly["time"], &times); err != nil || len(times) == 0 {
+		return errors.New("observing forecast hourly times are missing")
+	}
+	for _, at := range times {
+		if _, err := time.Parse("2006-01-02T15:04", at); err != nil {
+			return errors.New("observing forecast hourly time is invalid")
+		}
+	}
+	fields := []string{"temperature_2m", "dew_point_2m", "cloud_cover", "cloud_cover_low", "cloud_cover_mid", "cloud_cover_high", "visibility", "relative_humidity_2m", "precipitation", "wind_speed_10m", "wind_gusts_10m", "weather_code"}
+	for _, name := range fields {
+		if len(current[name]) == 0 || string(current[name]) == "null" {
+			return fmt.Errorf("observing forecast current %s is missing", name)
+		}
+		var number float64
+		if err := json.Unmarshal(current[name], &number); err != nil || math.IsNaN(number) || math.IsInf(number, 0) {
+			return fmt.Errorf("observing forecast current %s is invalid", name)
+		}
+		var values []json.RawMessage
+		if err := json.Unmarshal(hourly[name], &values); err != nil || len(values) != len(times) {
+			return fmt.Errorf("observing forecast hourly %s is incomplete", name)
+		}
+		for _, value := range values {
+			if len(value) == 0 || string(value) == "null" {
+				return fmt.Errorf("observing forecast hourly %s contains missing values", name)
+			}
+			if err := json.Unmarshal(value, &number); err != nil || math.IsNaN(number) || math.IsInf(number, 0) {
+				return fmt.Errorf("observing forecast hourly %s contains invalid values", name)
+			}
+		}
+	}
+	return nil
 }
 
 func (client *Client) airQuality(ctx context.Context, latitude, longitude float64) ([]AirQuality, error) {

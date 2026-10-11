@@ -27,6 +27,11 @@ var marsNAIFByID = map[string]string{
 	"tianwen1": "-9901491",
 }
 
+func SupportsHorizons(spacecraftID string) bool {
+	_, ok := marsNAIFByID[spacecraftID]
+	return ok
+}
+
 // HorizonsResult 一次同步的结果
 type HorizonsResult struct {
 	Epoch    time.Time

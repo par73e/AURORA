@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -75,9 +76,10 @@ func TestMoonServiceInvariantsAndFixture(t *testing.T) {
 		if day.ComputedAt != c.At {
 			t.Errorf("%s: ComputedAt %d != at %d", c.Name, day.ComputedAt, c.At)
 		}
+		dayEnd := dayStart.AddDate(0, 0, 1)
 		for name, value := range map[string]*int64{"moonrise": day.Moonrise, "moonset": day.Moonset, "transit": day.Transit} {
-			if value != nil && (*value < dayStart.Unix() || *value > dayStart.Unix()+86400) {
-				t.Errorf("%s: %s %d 超出本地日窗口 [%d, %d]", c.Name, name, *value, dayStart.Unix(), dayStart.Unix()+86400)
+			if value != nil && (*value < dayStart.Unix() || *value >= dayEnd.Unix()) {
+				t.Errorf("%s: %s %d 超出本地日窗口 [%d, %d)", c.Name, name, *value, dayStart.Unix(), dayEnd.Unix())
 			}
 		}
 
@@ -109,6 +111,37 @@ func TestMoonServiceInvariantsAndFixture(t *testing.T) {
 	path := filepath.Join("testdata", "moon_reference.json")
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatalf("write fixture: %v", err)
+	}
+}
+
+func TestMoonDayDSTUsesLocalCalendarDate(t *testing.T) {
+	location, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		date  string
+		hours time.Duration
+	}{{"2026-03-08", 23}, {"2026-11-01", 25}, {"2026-03-09", 24}} {
+		start, err := time.ParseInLocation("2006-01-02", tc.date, location)
+		if err != nil {
+			t.Fatal(err)
+		}
+		end := start.AddDate(0, 0, 1)
+		if got := end.Sub(start); got != tc.hours*time.Hour {
+			t.Fatalf("%s: day length = %v", tc.date, got)
+		}
+		day := computeMoonDay(40.7128, -74.006, 0, start.Add(time.Hour), location)
+		wantRise, wantSet := moonRiseSet(40.7128, -74.006, 0, start, end)
+		wantTransit := moonTransit(40.7128, -74.006, 0, start, end)
+		if !reflect.DeepEqual(day.Moonrise, wantRise) || !reflect.DeepEqual(day.Moonset, wantSet) || !reflect.DeepEqual(day.Transit, wantTransit) {
+			t.Errorf("%s: rise/set/transit differ from the local calendar-day window", tc.date)
+		}
+		for name, at := range map[string]*int64{"rise": day.Moonrise, "set": day.Moonset, "transit": day.Transit} {
+			if at != nil && (*at < start.Unix() || *at >= end.Unix()) {
+				t.Errorf("%s %s occurs outside local date: %d", tc.date, name, *at)
+			}
+		}
 	}
 }
 

@@ -28,6 +28,11 @@ var moonNAIFByID = map[string]string{
 	"chandrayaan-2": "-152", // 月船2号轨道器（在役，2026 数据实测可用）
 }
 
+func SupportsHorizons(spacecraftID string) bool {
+	_, ok := moonNAIFByID[spacecraftID]
+	return ok
+}
+
 // HorizonsResult 一次同步的结果
 type HorizonsResult struct {
 	Epoch    time.Time

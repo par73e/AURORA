@@ -390,6 +390,8 @@ const selectedCraftDetail = computed<MissionDetail | null>(() => {
       orbitStage: hasOrbit ? (craft.snapshot ? '轨道快照所对应阶段' : '公开标称任务轨道') : '',
     }),
     source: `${epoch}${craft.sourceName}`,
+    dataType: craft.snapshot ? '轨道快照与匀速相位展示' : hasOrbit ? '公开任务轨道示意' : '任务档案',
+    validTime: craft.snapshot?.epoch ? formatEpochUTC(craft.snapshot.epoch) : hasOrbit ? '公开标称任务轨道' : undefined,
   }
 })
 const orbitDataCaption = computed(() => {
@@ -548,7 +550,7 @@ interface CraftRuntime {
   line: THREE.Line | null
   nu: number
   initialNu: number
-  startedAtSeconds: number
+  phaseEpochSeconds: number
 }
 
 const craftRuntimes: CraftRuntime[] = []
@@ -682,7 +684,7 @@ onMounted(() => {
       // 快照存在时用真实公转周期（JPL 日同步，如 MRO 约 112 分钟）；
       // 无快照时回退静态轨道周期（迁移 034 起已改为真实周期）
       const periodSec = orbitPeriodSeconds(runtime.spec)
-      runtime.nu = orbitProgress(orbitNowSeconds - runtime.startedAtSeconds, periodSec, runtime.initialNu / (Math.PI * 2)) * Math.PI * 2
+      runtime.nu = orbitProgress(orbitNowSeconds - runtime.phaseEpochSeconds, periodSec, runtime.initialNu / (Math.PI * 2)) * Math.PI * 2
       const a = exaggeratedA(sn ? sn.aKm * MARS_SCENE_SCALE : runtime.spec.orbitA)
       const e = sn ? sn.eccentricity : runtime.spec.orbitE
       const argp = sn ? sn.argPeriapsisDeg : runtime.spec.argPeriapsisDeg
@@ -847,12 +849,9 @@ function buildCraft(spec: MarsSpacecraft) {
     )
     line.rotation.z = argp * DEG
     plane.add(line)
-    // 真实初始相位：M = M0 + n·Δt（历元传播到当前时刻）→ 真近点角
+    // 历元平近点角换算为真近点角，随后以固定历元作匀速展示基线。
     if (sn) {
-      const elapsedSec = (Date.now() - Date.parse(sn.epoch)) / 1000
-      const n = (Math.PI * 2) / sn.periodSeconds
-      const M = (sn.meanAnomalyDeg * DEG + n * elapsedSec) % (Math.PI * 2)
-      initialNu = keplerToTrueAnomaly(M, e)
+      initialNu = keplerToTrueAnomaly(sn.meanAnomalyDeg * DEG, e)
     }
     // 初始相位（首帧即被 animate 覆盖）：近点方向 + argp
     dot.position.set(a * (1 - e) * Math.cos(argp * DEG), a * (1 - e) * Math.sin(argp * DEG), 0)
@@ -877,7 +876,7 @@ function buildCraft(spec: MarsSpacecraft) {
   }
 
   scene.add(plane)
-  craftRuntimes.push({ spec, plane, dot, line, nu: initialNu, initialNu, startedAtSeconds: Date.now() / 1000 })
+  craftRuntimes.push({ spec, plane, dot, line, nu: initialNu, initialNu, phaseEpochSeconds: sn ? Date.parse(sn.epoch) / 1000 : Date.UTC(2026, 0, 1) / 1000 })
 }
 
 /** 经纬度 → 球面坐标（与地球页 latLonToVector 同公式） */

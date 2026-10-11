@@ -171,13 +171,12 @@ func (r *Repository) listLaunchEvents(ctx context.Context) ([]LaunchEvent, error
 		FROM launch_events e
 		LEFT JOIN launch_sites ls ON ls.id = e.launch_site_id
 		WHERE e.net >= now() AND e.net <= now() + interval '30 days'
-		ORDER BY e.net
-		LIMIT 20`)
+		ORDER BY e.net, e.external_id`)
 	if err != nil {
 		return nil, fmt.Errorf("list launch events: %w", err)
 	}
 	defer rows.Close()
-	items := make([]LaunchEvent, 0, 20)
+	items := make([]LaunchEvent, 0)
 	for rows.Next() {
 		var item LaunchEvent
 		if err := rows.Scan(

@@ -131,7 +131,7 @@ func (s *MoonService) Azimuth(latitude, longitude, elevation float64, at time.Ti
 func computeMoonDay(latitude, longitude, elevation float64, at time.Time, location *time.Location) MoonDay {
 	local := at.In(location)
 	start := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, location)
-	end := start.Add(24 * time.Hour)
+	end := start.AddDate(0, 0, 1)
 	phase := moonPhaseAt(at)
 	moonrise, moonset := moonRiseSet(latitude, longitude, elevation, start, end)
 	transit := moonTransit(latitude, longitude, elevation, start, end)

@@ -550,6 +550,7 @@ const catalogLoading = ref(false)
 const catalogRequestError = ref('')
 let catalogRequest: AbortController | undefined
 let catalogQueryTimer: number | undefined
+let catalogRequestRevision = 0
 
 const catalogResult = computed(() => {
   const { raw, matcher, error: queryError } = parsedCatalogQuery.value
@@ -578,20 +579,23 @@ const pagedCatalogItems = computed(() => {
 })
 async function loadCatalogPage() {
   if (catalogQueryTimer !== undefined) window.clearTimeout(catalogQueryTimer)
+  catalogRequest?.abort()
+  const revision = ++catalogRequestRevision
   const { query, mode, error: queryError } = parsedCatalogQuery.value
   if (queryError) {
     catalogRemote.value = null
+    catalogLoading.value = false
     catalogRequestError.value = ''
     return
   }
   catalogQueryTimer = window.setTimeout(async () => {
-    catalogRequest?.abort()
+    if (revision !== catalogRequestRevision) return
     const controller = new AbortController()
     catalogRequest = controller
     catalogLoading.value = true
     catalogRequestError.value = ''
     try {
-      catalogRemote.value = await fetchSpacecraftCatalog({
+      const result = await fetchSpacecraftCatalog({
         page: catalogPage.value,
         pageSize: CATALOG_PAGE_SIZE,
         query,
@@ -599,14 +603,15 @@ async function loadCatalogPage() {
         sort: objectSort.value,
         mode,
       }, controller.signal)
+      if (revision === catalogRequestRevision && !controller.signal.aborted) catalogRemote.value = result
     } catch (reason) {
-      if (controller.signal.aborted) return
+      if (controller.signal.aborted || revision !== catalogRequestRevision) return
       // 过渡部署期间前端可能先于后端更新。此时不让目录空掉，降级为场景内小目录。
       catalogRemote.value = null
       const message = reason instanceof Error ? reason.message : ''
       if (!message.includes('404')) catalogRequestError.value = '飞行器目录暂不可用，正在显示已加载的飞行器。'
     } finally {
-      if (!controller.signal.aborted) catalogLoading.value = false
+      if (!controller.signal.aborted && revision === catalogRequestRevision) catalogLoading.value = false
     }
   }, 180)
 }
@@ -1931,7 +1936,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div ref="surfaceVeilRef" class="surface-veil" :class="{ active: veilActive, 'for-sky': veilTarget === 'sky', 'for-deep': veilTarget === 'solar-system' || solarHomeLeaving }" :style="{ '--veil-duration': veilDuration }" aria-hidden="true" />
-  <main class="aurora-shell" :style="shellStyle">
+  <main class="aurora-shell" :class="{ 'sky-surface': surface === 'sky' }" :style="shellStyle">
     <div class="desktop-only">
       <span>AURORA / ORBIT</span>
       <h1>请使用电脑浏览器查看</h1>

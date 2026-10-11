@@ -286,8 +286,8 @@ export function upcomingMoonPhases(at: Date) {
 
 export function observingStatus(track: BodyTrack) {
   if (track.altitude <= 0) return '地平线下'
-  if (track.altitude < 8) return track.azimuth < 180 ? '正在升起' : '正在下落'
-  return '可观测'
+  if (track.altitude < 8) return '地平线上 · 低空'
+  return '地平线上'
 }
 
 export function bearing(azimuth: number) {

@@ -16,6 +16,8 @@ export interface MissionDetail {
   fields: MissionDetailField[]
   hardware?: string[]
   source?: string
+  dataType?: string
+  validTime?: string
   iconHtml?: string
 }
 

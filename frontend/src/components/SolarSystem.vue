@@ -107,6 +107,8 @@ const selectedProbeDetail = computed<MissionDetail | null>(() => {
       period: probeOrbit.value ? `${probeOrbit.value.periodDays.toFixed(0)} 天` : '',
     }),
     source: `JPL Horizons · 同步于 ${formatSyncTime(probe.syncedAt)}`,
+    dataType: '同步星历快照',
+    validTime: formatSyncTime(probe.syncedAt),
   }
 })
 

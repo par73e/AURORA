@@ -188,6 +188,8 @@ const selectedSpacecraftDetail = computed<MissionDetail | null>(() => {
       period: orbitPeriodText(craft.omm.MEAN_MOTION),
     }),
     source: `轨道历元 ${formatEpochUTC(craft.orbitEpoch)} · ${craft.sourceName}`,
+    dataType: '轨道快照推算位置',
+    validTime: formatEpochUTC(craft.orbitEpoch),
   }
 })
 function formatCoordinate(value: number, positive: string, negative: string) {

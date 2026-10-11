@@ -1,4 +1,10 @@
-import { zonedDateKey, zonedDateKeyAfterDays, zonedMinuteOfDay } from './astronomy.ts'
+import { dateFromZonedLocalTime, zonedDateKey, zonedDateKeyAfterDays, zonedMinuteOfDay } from './astronomy.ts'
+
+export function forecastIsStale(retrievedAt: string, currentTime: string, timezone: string, now: Date) {
+  const fetchedAt = Date.parse(retrievedAt)
+  const observedAt = dateFromZonedLocalTime(currentTime, timezone).getTime()
+  return !Number.isFinite(fetchedAt) || !Number.isFinite(observedAt) || now.getTime() - Math.min(fetchedAt, observedAt) > 90 * 60_000
+}
 
 /** 取用户所在地当前整点起，直到明日 24:00 前的逐小时预报。 */
 export function forecastHoursThroughTomorrow<T extends { time: string }>(hours: T[], at: Date, timezone: string) {

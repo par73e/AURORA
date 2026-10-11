@@ -113,6 +113,7 @@ func (s *Syncer) SyncCelesTrak(ctx context.Context) error {
 
 type launchLibraryResponse struct {
 	Results []json.RawMessage `json:"results"`
+	Next    string            `json:"next"`
 }
 
 type launchLibraryEvent struct {
@@ -152,28 +153,28 @@ func (s *Syncer) SyncLaunches(ctx context.Context) error {
 	var syncErr error
 	defer func() { _ = s.repository.FinishSync(context.Background(), runID, records, syncErr) }()
 
-	query := url.Values{}
-	query.Set("limit", "20")
-	query.Set("mode", "normal")
-	body, err := s.get(ctx, "https://ll.thespacedevs.com/2.3.0/launches/upcoming/?"+query.Encode())
+	now := time.Now().UTC()
+	cutoff := now.Add(30 * 24 * time.Hour)
+	results, err := s.fetchUpcomingLaunches(ctx, "https://ll.thespacedevs.com/2.3.0/launches/upcoming/", now, cutoff)
 	if err != nil {
 		syncErr = err
 		return err
 	}
-	var response launchLibraryResponse
-	if err := json.Unmarshal(body, &response); err != nil {
-		syncErr = err
-		return err
-	}
-	cutoff := time.Now().UTC().Add(30 * 24 * time.Hour)
-	for _, raw := range response.Results {
+	seen := make(map[string]bool)
+	for _, raw := range results {
 		var source launchLibraryEvent
 		if err := json.Unmarshal(raw, &source); err != nil {
+			syncErr = fmt.Errorf("decode launch event: %w", err)
+			return syncErr
+		}
+		if source.ID == "" || source.Net.IsZero() {
+			syncErr = errors.New("launch event is missing ID or NET")
+			return syncErr
+		}
+		if seen[source.ID] || source.Net.Before(now) || source.Net.After(cutoff) {
 			continue
 		}
-		if source.Net.After(cutoff) {
-			continue
-		}
+		seen[source.ID] = true
 		event := orbit.LaunchEvent{ExternalID: source.ID, Name: source.Name, StatusName: source.Status.Name, StatusAbbrev: source.Status.Abbrev, Net: source.Net, WindowStart: source.WindowStart, WindowEnd: source.WindowEnd, SourceURL: "https://ll.thespacedevs.com/2.3.0/launches/" + source.ID + "/"}
 		if source.Pad != nil {
 			event.PadName = source.Pad.Name
@@ -208,6 +209,51 @@ func (s *Syncer) SyncLaunches(ctx context.Context) error {
 	return nil
 }
 
+func (s *Syncer) fetchUpcomingLaunches(ctx context.Context, endpoint string, start, cutoff time.Time) ([]json.RawMessage, error) {
+	base, err := url.Parse(endpoint)
+	if err != nil {
+		return nil, err
+	}
+	query := base.Query()
+	query.Set("limit", "100")
+	query.Set("mode", "normal")
+	query.Set("ordering", "net")
+	query.Set("net__gte", start.Format(time.RFC3339))
+	query.Set("net__lte", cutoff.Format(time.RFC3339))
+	base.RawQuery = query.Encode()
+	next := base.String()
+	seenPages := make(map[string]bool)
+	var results []json.RawMessage
+	for next != "" {
+		if seenPages[next] {
+			return nil, errors.New("launch pagination returned a repeated page")
+		}
+		seenPages[next] = true
+		body, err := s.get(ctx, next)
+		if err != nil {
+			return nil, err
+		}
+		var page launchLibraryResponse
+		if err := json.Unmarshal(body, &page); err != nil {
+			return nil, fmt.Errorf("decode launch page: %w", err)
+		}
+		results = append(results, page.Results...)
+		if page.Next == "" {
+			break
+		}
+		parsed, err := url.Parse(page.Next)
+		if err != nil {
+			return nil, err
+		}
+		resolved := base.ResolveReference(parsed)
+		if resolved.Scheme != base.Scheme || resolved.Host != base.Host || resolved.Path != base.Path {
+			return nil, errors.New("launch pagination redirected outside its endpoint")
+		}
+		next = resolved.String()
+	}
+	return results, nil
+}
+
 // probeSampleWindowDays 返回探测器的采样窗口天数（±N 天）。
 // 默认 ±90（日同步，前端轨迹插值用）；斯皮策（-79）真实轨道周期约 377 天，
 // ±90 仅覆盖约 48% 轨道、椭圆拟合（u=1/r 最小二乘）需要完整一圈——用 ±200 覆盖 400 天（>377，留余量）。
@@ -238,20 +284,35 @@ func (s *Syncer) SyncDeepSpaceProbes(ctx context.Context) error {
 		return err
 	}
 	now := time.Now().UTC()
+	failed := 0
+	if len(catalog) == 0 {
+		syncErr = errors.New("deep space probe sync has no targets")
+		return syncErr
+	}
 	for _, item := range catalog {
+		if err := ctx.Err(); err != nil {
+			syncErr = err
+			return err
+		}
 		samples, err := voyage.FetchProbeSamples(ctx, s.client, item.NaifID, now, probeSampleWindowDays(item.ID))
 		if err != nil {
+			failed++
 			// 单个目标失败不 abort 整轮：记日志继续，其余目标照常刷新
 			slog.Warn("deep space probe sync skipped", "probe", item.ID, "error", err)
 			continue
 		}
 		if err := s.voyageRepo.ReplaceProbeSamples(ctx, item.ID, samples); err != nil {
+			failed++
 			slog.Warn("deep space probe samples save failed", "probe", item.ID, "error", err)
 			continue
 		}
 		records += len(samples)
 		slog.Info("deep space probe synced", "probe", item.ID, "samples", len(samples),
 			"window", now.AddDate(0, 0, -90).Format("2006-01-02")+" → "+now.AddDate(0, 0, 90).Format("2006-01-02"))
+	}
+	if failed > 0 {
+		syncErr = fmt.Errorf("deep space probe sync incomplete: %d/%d targets failed", failed, len(catalog))
+		return syncErr
 	}
 	return nil
 }
@@ -317,12 +378,22 @@ func (s *Syncer) SyncMoonSpacecraft(ctx context.Context) error {
 		syncErr = err
 		return err
 	}
+	failed, eligible := 0, 0
 	for _, craft := range catalog {
 		if craft.Kind != "orbital" {
 			continue // 定点飞行器（鹊桥二号等）无绕月轨道
 		}
+		if !moon.SupportsHorizons(craft.ID) {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			syncErr = err
+			return err
+		}
+		eligible++
 		result, err := moon.FetchMoonSpacecraftElements(ctx, s.client, craft.ID)
 		if err != nil {
+			failed++
 			// 单个飞行器失败（未支持/星历结束/临时错误）不 abort 整轮：
 			// 记录日志继续，其余飞行器照常同步，前端回退静态参数
 			slog.Warn("moon orbit sync skipped", "craft", craft.ID, "error", err)
@@ -335,6 +406,14 @@ func (s *Syncer) SyncMoonSpacecraft(ctx context.Context) error {
 		records++
 		slog.Info("moon orbit synced", "craft", craft.ID, "epoch", result.Epoch.UTC().Format(time.RFC3339),
 			"a_km", fmt.Sprintf("%.1f", result.Elements.A), "period", fmt.Sprintf("%.0fs", result.Elements.PeriodSeconds))
+	}
+	if eligible == 0 {
+		syncErr = errors.New("moon orbit sync has no supported orbital targets")
+		return syncErr
+	}
+	if failed > 0 {
+		syncErr = fmt.Errorf("moon orbit sync incomplete: %d/%d supported targets failed", failed, eligible)
+		return syncErr
 	}
 	return nil
 }
@@ -357,12 +436,22 @@ func (s *Syncer) SyncMarsSpacecraft(ctx context.Context) error {
 		syncErr = err
 		return err
 	}
+	failed, eligible := 0, 0
 	for _, craft := range catalog {
 		if craft.Kind != "orbital" {
 			continue // 仅实时绕火轨道拉取 JPL 快照；地表探测器/历史名录无轨道
 		}
+		if !mars.SupportsHorizons(craft.ID) {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			syncErr = err
+			return err
+		}
+		eligible++
 		result, err := mars.FetchMarsSpacecraftElements(ctx, s.client, craft.ID)
 		if err != nil {
+			failed++
 			// 单个飞行器失败（未支持/星历结束/临时错误）不 abort 整轮：
 			// 记录日志继续，其余飞行器照常同步，前端回退静态参数
 			slog.Warn("mars orbit sync skipped", "craft", craft.ID, "error", err)
@@ -375,6 +464,14 @@ func (s *Syncer) SyncMarsSpacecraft(ctx context.Context) error {
 		records++
 		slog.Info("mars orbit synced", "craft", craft.ID, "epoch", result.Epoch.UTC().Format(time.RFC3339),
 			"a_km", fmt.Sprintf("%.1f", result.Elements.A), "period", fmt.Sprintf("%.0fs", result.Elements.PeriodSeconds))
+	}
+	if eligible == 0 {
+		syncErr = errors.New("mars orbit sync has no supported orbital targets")
+		return syncErr
+	}
+	if failed > 0 {
+		syncErr = fmt.Errorf("mars orbit sync incomplete: %d/%d supported targets failed", failed, eligible)
+		return syncErr
 	}
 	return nil
 }

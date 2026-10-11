@@ -36,8 +36,10 @@ defineEmits<{ close: [] }>()
       <ul><li v-for="item in detail.hardware" :key="item">{{ item }}</li></ul>
     </section>
 
-    <footer v-if="detail.source" class="mission-detail-footer">
-      <small>数据来源：{{ detail.source }}</small>
+    <footer v-if="detail.source || detail.dataType || detail.validTime" class="mission-detail-footer">
+      <small v-if="detail.dataType">资料类型：{{ detail.dataType }}</small>
+      <small v-if="detail.validTime">对应时间：{{ detail.validTime }}</small>
+      <small v-if="detail.source">数据来源：{{ detail.source }}</small>
     </footer>
   </aside>
 </template>
@@ -105,7 +107,7 @@ defineEmits<{ close: [] }>()
 .mission-detail-hardware ul { display: grid; gap: 6px; margin: 0; padding-inline-start: 17px; }
 .mission-detail-hardware li { color: var(--mission-body, #a2b4bd); font-size: 11px; line-height: 1.55; }
 .mission-detail-footer { display: grid; gap: 6px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--mission-line, rgba(139, 180, 202, .18)); }
-.mission-detail-footer small { color: var(--mission-quiet, #7f98a7); font: 400 9px/1.6 var(--font-mono); overflow-wrap: anywhere; }
+.mission-detail-footer small { color: var(--mission-body, #a2b4bd); font: 400 12px/1.6 var(--font-sans); overflow-wrap: anywhere; }
 @keyframes mission-panel-enter {
   from { opacity: .2; filter: blur(5px); transform: translateY(10px); }
   to { opacity: 1; filter: blur(0); transform: translateY(var(--header-overlay-offset, 0px)); }
