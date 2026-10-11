@@ -15,3 +15,7 @@ backend/data/light-pollution/*.zip
 # AtomCode local-scope configs (machine-specific)
 .atomcode/local/
 .atomcode/
+
+# WorkBuddy local memory and skills
+.workbuddy-ai/
+.workbuddyai/
