@@ -3,12 +3,12 @@ package voyage
 import (
 	"context"
 	"math"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"aurora/backend/internal/config"
 	"aurora/backend/internal/database"
 )
 
@@ -27,7 +27,11 @@ var expectedIDs = []string{
 func openTestDB(t *testing.T) (context.Context, *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.Background()
-	pool, err := database.Open(ctx, config.Load().DatabaseURL)
+	dsn := os.Getenv("AURORA_LIVE_DATA_TEST_DSN")
+	if dsn == "" {
+		t.Skip("set AURORA_LIVE_DATA_TEST_DSN explicitly to validate an existing synced dataset")
+	}
+	pool, err := database.Open(ctx, dsn)
 	if err != nil {
 		t.Skipf("数据库不可用，跳过集成测试: %v", err)
 	}

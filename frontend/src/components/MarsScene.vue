@@ -204,7 +204,7 @@ import { usePlanetSceneData } from '../composables/usePlanetSceneData'
 import MissionDetailPanel from './MissionDetailPanel.vue'
 import MissionSceneLabel from './MissionSceneLabel.vue'
 import type { MissionDetail } from '../missionPresentation'
-import { spacecraftFields, spacecraftFocusDistance, surfaceMissionFields, spacecraftTypeLabel, landingCategoryLabel } from '../missionPresentation'
+import { formatDataTime, snapshotNotice, spacecraftFields, spacecraftFocusDistance, surfaceMissionFields, spacecraftTypeLabel, landingCategoryLabel } from '../missionPresentation'
 import type { SceneAnnotationLayout, SurfaceAnnotationLayout } from '../surfaceAnnotations'
 import { layoutSceneAnnotations, sceneAnnotationStyle, projectedSphereRadiusPx, orbitMarkerRadiusPx, sceneMarkerWorldRadius, surfaceMarkerRadiusPx, surfaceMarkerWorldRadius } from '../surfaceAnnotations'
 import { isOccludedBySphere } from '../sphereOcclusion'
@@ -392,6 +392,9 @@ const selectedCraftDetail = computed<MissionDetail | null>(() => {
     source: `${epoch}${craft.sourceName}`,
     dataType: craft.snapshot ? '轨道快照与匀速相位展示' : hasOrbit ? '公开任务轨道示意' : '任务档案',
     validTime: craft.snapshot?.epoch ? formatEpochUTC(craft.snapshot.epoch) : hasOrbit ? '公开标称任务轨道' : undefined,
+    timeLabel: craft.snapshot ? "轨道历元" : "任务阶段",
+    retrievedAt: formatDataTime(craft.syncStatus?.lastSuccessAt ?? craft.snapshot?.syncedAt),
+    dataNote: snapshotNotice(craft.syncStatus?.lastSuccessAt ?? craft.snapshot?.syncedAt, craft.syncStatus?.status),
   }
 })
 const orbitDataCaption = computed(() => {

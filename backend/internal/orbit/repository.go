@@ -1,6 +1,7 @@
 package orbit
 
 import (
+	"aurora/backend/internal/syncstate"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,10 @@ import (
 type Repository struct{ pool *pgxpool.Pool }
 
 func NewRepository(pool *pgxpool.Pool) *Repository { return &Repository{pool: pool} }
+
+func (r *Repository) RecordTargetSync(ctx context.Context, source, target string, attemptedAt time.Time, status string, syncErr error) error {
+	return syncstate.Record(ctx, r.pool, source, target, attemptedAt, status, syncErr)
+}
 
 func (r *Repository) Overview(ctx context.Context) (Overview, error) {
 	spacecraft, err := r.listSpacecraft(ctx)
@@ -42,7 +47,7 @@ func (r *Repository) listSpacecraft(ctx context.Context) ([]Spacecraft, error) {
 		       s.operator_name, s.description,
 		       COALESCE(s.launch_date,''), COALESCE(s.launch_site,''), COALESCE(s.launch_vehicle,''),
 		       ds.name, ds.base_url,
-		       o.epoch, o.synced_at, o.raw_omm
+		       o.epoch, o.synced_at, o.raw_omm, `+syncstate.JSONColumn+`
 		FROM spacecraft s
 		JOIN data_sources ds ON ds.code = s.source_code
 		LEFT JOIN LATERAL (
@@ -52,6 +57,7 @@ func (r *Repository) listSpacecraft(ctx context.Context) ([]Spacecraft, error) {
 			ORDER BY epoch DESC
 			LIMIT 1
 		) o ON true
+ LEFT JOIN spacecraft_sync_status st ON st.source_code = s.source_code AND st.target_id = s.id
 		ORDER BY s.id`)
 	if err != nil {
 		return nil, fmt.Errorf("list spacecraft: %w", err)
@@ -65,7 +71,7 @@ const spacecraftColumns = `
 	       s.operator_name, s.description,
 	       COALESCE(s.launch_date,''), COALESCE(s.launch_site,''), COALESCE(s.launch_vehicle,''),
 	       ds.name, ds.base_url,
-	       o.epoch, o.synced_at, o.raw_omm
+	       o.epoch, o.synced_at, o.raw_omm, ` + syncstate.JSONColumn + `
 	FROM spacecraft s
 	JOIN data_sources ds ON ds.code = s.source_code
 	LEFT JOIN LATERAL (
@@ -74,7 +80,8 @@ const spacecraftColumns = `
 		WHERE spacecraft_id = s.id
 		ORDER BY epoch DESC
 		LIMIT 1
-	) o ON true`
+	) o ON true
+ LEFT JOIN spacecraft_sync_status st ON st.source_code = s.source_code AND st.target_id = s.id`
 
 // SearchSpacecraft 为目录提供服务端筛选与分页。白名单排序字段避免 SQL 标识符拼接，
 // 正则由 PostgreSQL 执行，前端只传去掉 /.../ 包装后的表达式。
@@ -126,9 +133,14 @@ func scanSpacecraftRows(rows pgx.Rows) ([]Spacecraft, error) {
 	for rows.Next() {
 		var item Spacecraft
 		var epoch, syncedAt *time.Time
-		var raw []byte
-		if err := rows.Scan(&item.ID, &item.NameZH, &item.NameEN, &item.NORADCatalogID, &item.Category, &item.OperatorName, &item.Description, &item.LaunchDate, &item.LaunchSite, &item.LaunchVehicle, &item.SourceName, &item.SourceURL, &epoch, &syncedAt, &raw); err != nil {
+		var raw, statusRaw []byte
+		if err := rows.Scan(&item.ID, &item.NameZH, &item.NameEN, &item.NORADCatalogID, &item.Category, &item.OperatorName, &item.Description, &item.LaunchDate, &item.LaunchSite, &item.LaunchVehicle, &item.SourceName, &item.SourceURL, &epoch, &syncedAt, &raw, &statusRaw); err != nil {
 			return nil, fmt.Errorf("scan spacecraft: %w", err)
+		}
+		var err error
+		item.SyncStatus, err = syncstate.Decode(statusRaw)
+		if err != nil {
+			return nil, fmt.Errorf("decode target status: %w", err)
 		}
 		item.OrbitEpoch = epoch
 		item.OrbitSyncedAt = syncedAt
@@ -247,8 +259,11 @@ func (r *Repository) SpacecraftCatalog(ctx context.Context) (map[string]int64, e
 }
 
 func (r *Repository) SaveOrbitSnapshot(ctx context.Context, spacecraftID string, epoch time.Time, raw json.RawMessage) error {
-	_, err := r.pool.Exec(ctx, `INSERT INTO orbit_snapshots(spacecraft_id, epoch, raw_omm) VALUES($1,$2,$3) ON CONFLICT(spacecraft_id, epoch) DO UPDATE SET raw_omm=EXCLUDED.raw_omm, synced_at=now()`, spacecraftID, epoch, raw)
-	return err
+	return syncstate.Save(ctx, r.pool, "celestrak", spacecraftID, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `INSERT INTO orbit_snapshots(spacecraft_id, epoch, raw_omm) VALUES($1,$2,$3) ON CONFLICT(spacecraft_id, epoch) DO UPDATE SET raw_omm=EXCLUDED.raw_omm, synced_at=now()`, spacecraftID, epoch, raw)
+		return err
+
+	})
 }
 
 func (r *Repository) SaveLaunchEvent(ctx context.Context, event LaunchEvent, raw json.RawMessage) error {

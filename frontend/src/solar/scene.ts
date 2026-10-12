@@ -1114,7 +1114,7 @@ export class SolarSystemScene {
       runtime.current.copy(points[lo])
       if (hi !== lo) runtime.current.lerp(points[hi], t)
       runtime.currentAU = aus[lo] + (hi === lo ? 0 : (aus[hi] - aus[lo]) * t)
-      runtime.currentEpochMs = epochsMs[lo]
+      runtime.currentEpochMs = hi === lo ? epochsMs[lo] : now
       // JWST（日地 L2）：真实位置距地球仅 ~0.01 AU，映射后在地球球体内被遮挡——
       // 保持真实黄经/纬度方向，仅把径向显示半径抬到地球球体外缘（面板距离仍显示真实 AU）
       if (runtime.data.id === 'jwst') {

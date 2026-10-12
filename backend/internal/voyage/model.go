@@ -1,22 +1,25 @@
 package voyage
 
+import "aurora/backend/internal/syncstate"
+
 /** 深空探测器（VOYAGE 太阳系标注）：静态目录 + JPL Horizons 位置采样 */
 
 // Probe 深空探测器目录与位置采样（位置 = 日心黄道坐标 km，JPL Horizons 黄道 J2000）
 type Probe struct {
-	ID             string          `json:"id"`
-	NameZH         string          `json:"nameZh"`
-	NameEN         string          `json:"nameEn"`
-	OperatorName   string          `json:"operatorName"`
-	LaunchDate     string          `json:"launchDate"`
-	LaunchSite     string          `json:"launchSite"`
-	LaunchVehicle  string          `json:"launchVehicle"`
-	MissionType    string          `json:"missionType"`
-	Target         string          `json:"target"`
-	Description    string          `json:"description"`
-	PrecisionGrade string          `json:"precisionGrade"`
-	Color          string          `json:"color"`
-	SortOrder      int             `json:"sortOrder"`
+	SyncStatus     *syncstate.Status `json:"syncStatus,omitempty"`
+	ID             string            `json:"id"`
+	NameZH         string            `json:"nameZh"`
+	NameEN         string            `json:"nameEn"`
+	OperatorName   string            `json:"operatorName"`
+	LaunchDate     string            `json:"launchDate"`
+	LaunchSite     string            `json:"launchSite"`
+	LaunchVehicle  string            `json:"launchVehicle"`
+	MissionType    string            `json:"missionType"`
+	Target         string            `json:"target"`
+	Description    string            `json:"description"`
+	PrecisionGrade string            `json:"precisionGrade"`
+	Color          string            `json:"color"`
+	SortOrder      int               `json:"sortOrder"`
 	// 轨道绘制方式：ellipse = 拟合椭圆轨道（太阳在焦点）；track = 不绘制轨迹（仅标记）
 	OrbitKind string `json:"orbitKind"`
 	// 最近一次同步时间（所有采样中最新 synced_at）；无采样时为空

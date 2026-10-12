@@ -1,4 +1,11 @@
+export interface TargetSyncStatus {
+  status: 'success' | 'failed' | 'unsupported' | 'canceled'
+  lastAttemptAt?: string | null
+  lastSuccessAt?: string | null
+}
+
 export interface Spacecraft {
+  syncStatus?: TargetSyncStatus
   id: string
   nameZh: string
   nameEn: string
@@ -105,6 +112,7 @@ export interface MoonLandingSite {
 }
 
 export interface MoonSpacecraft {
+  syncStatus?: TargetSyncStatus
   id: string
   nameZh: string
   nameEn: string
@@ -130,6 +138,7 @@ export interface MoonSpacecraft {
   /** JPL Horizons 日同步快照（无同步时为 null，回退静态参数） */
   snapshot?: {
     epoch: string
+    syncedAt?: string
     aKm: number
     eccentricity: number
     inclinationDeg: number
@@ -165,6 +174,7 @@ export interface MarsLandingSite {
 
 /** 火星绕行器（来自 /api/v1/mars/spacecraft，镜像 MoonSpacecraft） */
 export interface MarsSpacecraft {
+  syncStatus?: TargetSyncStatus
   id: string
   nameZh: string
   nameEn: string
@@ -190,6 +200,7 @@ export interface MarsSpacecraft {
   sortOrder: number
   snapshot?: {
     epoch: string
+    syncedAt?: string
     aKm: number
     eccentricity: number
     inclinationDeg: number
@@ -213,6 +224,7 @@ export interface SceneLayers {
 
 /** 深空探测器（来自 /api/v1/voyage/probes，VOYAGE 太阳系标注） */
 export interface DeepSpaceProbe {
+  syncStatus?: TargetSyncStatus
   id: string
   nameZh: string
   nameEn: string

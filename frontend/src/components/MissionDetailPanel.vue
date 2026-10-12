@@ -36,10 +36,13 @@ defineEmits<{ close: [] }>()
       <ul><li v-for="item in detail.hardware" :key="item">{{ item }}</li></ul>
     </section>
 
-    <footer v-if="detail.source || detail.dataType || detail.validTime" class="mission-detail-footer">
+    <footer v-if="detail.source || detail.dataType || detail.validTime || detail.dataNote" class="mission-detail-footer">
       <small v-if="detail.dataType">资料类型：{{ detail.dataType }}</small>
-      <small v-if="detail.validTime">对应时间：{{ detail.validTime }}</small>
+      <small v-if="detail.validTime">{{ detail.timeLabel ?? '对应时间' }}：{{ detail.validTime }}</small>
+      <small v-if="detail.computedAt">计算时刻：{{ detail.computedAt }}</small>
+      <small v-if="detail.retrievedAt">获取时间：{{ detail.retrievedAt }}</small>
       <small v-if="detail.source">数据来源：{{ detail.source }}</small>
+      <p v-if="detail.dataNote" class="mission-data-note" role="status">{{ detail.dataNote }}</p>
     </footer>
   </aside>
 </template>
@@ -47,7 +50,7 @@ defineEmits<{ close: [] }>()
 <style scoped>
 .mission-detail-panel {
   position: absolute;
-  z-index: 8;
+  z-index: 16;
   top: 18px;
   right: 32px;
   width: clamp(368px, 25vw, 460px);
@@ -71,7 +74,7 @@ defineEmits<{ close: [] }>()
   border-radius: 4px;
   background: transparent;
   color: var(--mission-quiet, #7f98a7);
-  font: 500 10px var(--font-sans);
+  font: 500 13px var(--font-sans);
   cursor: pointer;
 }
 .mission-detail-close:hover,
@@ -107,7 +110,8 @@ defineEmits<{ close: [] }>()
 .mission-detail-hardware ul { display: grid; gap: 6px; margin: 0; padding-inline-start: 17px; }
 .mission-detail-hardware li { color: var(--mission-body, #a2b4bd); font-size: 11px; line-height: 1.55; }
 .mission-detail-footer { display: grid; gap: 6px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--mission-line, rgba(139, 180, 202, .18)); }
-.mission-detail-footer small { color: var(--mission-body, #a2b4bd); font: 400 12px/1.6 var(--font-sans); overflow-wrap: anywhere; }
+.mission-detail-footer small { color: var(--mission-body, #a2b4bd); font: 400 13px/1.6 var(--font-sans); overflow-wrap: anywhere; }
+.mission-data-note { margin: 4px 0 0; color: #efc983; font: 400 13px/1.6 var(--font-sans); }
 @keyframes mission-panel-enter {
   from { opacity: .2; filter: blur(5px); transform: translateY(10px); }
   to { opacity: 1; filter: blur(0); transform: translateY(var(--header-overlay-offset, 0px)); }

@@ -1,6 +1,7 @@
 package voyage
 
 import (
+	"aurora/backend/internal/syncstate"
 	"context"
 	"fmt"
 	"time"
@@ -23,9 +24,10 @@ func (r *Repository) ListProbes(ctx context.Context) ([]Probe, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT d.id, d.name_zh, d.name_en, d.operator_name, d.launch_date, d.launch_site, d.launch_vehicle,
 		       d.mission_type, d.target, d.description, d.precision_grade, d.color, d.orbit_kind, d.sort_order,
-		       s.epoch, s.x_km, s.y_km, s.z_km, s.synced_at
+		       s.epoch, s.x_km, s.y_km, s.z_km, s.synced_at, `+syncstate.JSONColumn+`
 		FROM deep_space_probes d
 		LEFT JOIN probe_position_samples s ON s.probe_id = d.id
+ LEFT JOIN spacecraft_sync_status st ON st.source_code = 'jpl_horizons_voyage' AND st.target_id = d.id
 		ORDER BY d.sort_order, d.id, s.epoch ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("query deep space probes: %w", err)
@@ -40,13 +42,18 @@ func (r *Repository) ListProbes(ctx context.Context) ([]Probe, error) {
 		var epoch *time.Time
 		var x, y, z *float64
 		var syncedAt *time.Time
+		var statusRaw []byte
 		if err := rows.Scan(
 			&item.ID, &item.NameZH, &item.NameEN, &item.OperatorName, &item.LaunchDate,
 			&item.LaunchSite, &item.LaunchVehicle, &item.MissionType, &item.Target,
 			&item.Description, &item.PrecisionGrade, &item.Color, &item.OrbitKind, &item.SortOrder,
-			&epoch, &x, &y, &z, &syncedAt,
+			&epoch, &x, &y, &z, &syncedAt, &statusRaw,
 		); err != nil {
 			return nil, fmt.Errorf("scan deep space probe sample: %w", err)
+		}
+		item.SyncStatus, err = syncstate.Decode(statusRaw)
+		if err != nil {
+			return nil, fmt.Errorf("decode target status: %w", err)
 		}
 		if item.ID != lastID {
 			item.Positions = []PositionPoint{}
@@ -116,6 +123,9 @@ func (r *Repository) ReplaceProbeSamples(ctx context.Context, probeID string, sa
 			probeID, s.Epoch, s.X, s.Y, s.Z); err != nil {
 			return fmt.Errorf("insert probe sample: %w", err)
 		}
+	}
+	if err := syncstate.Record(ctx, tx, "jpl_horizons_voyage", probeID, time.Now().UTC(), "success", nil); err != nil {
+		return fmt.Errorf("save probe acquisition time: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit replace probe samples: %w", err)

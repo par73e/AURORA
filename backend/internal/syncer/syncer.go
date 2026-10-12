@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"time"
@@ -42,73 +41,47 @@ func NewWithMoonVoyageMars(repository *orbit.Repository, moonRepo *moon.Reposito
 }
 
 func (s *Syncer) SyncCelesTrak(ctx context.Context) error {
-	runID, err := s.repository.StartSync(ctx, "celestrak")
-	if err != nil {
-		return err
-	}
-	records := 0
-	var syncErr error
-	defer func() { _ = s.repository.FinishSync(context.Background(), runID, records, syncErr) }()
-
-	catalog, err := s.repository.SpacecraftCatalog(ctx)
-	if err != nil {
-		syncErr = err
-		return err
-	}
-	failed := 0
-	for spacecraftID, catalogID := range catalog {
-		if err := ctx.Err(); err != nil {
-			syncErr = err
-			return err
-		}
-		endpoint := fmt.Sprintf("https://celestrak.org/NORAD/elements/gp.php?CATNR=%d&FORMAT=JSON", catalogID)
-		body, err := s.getWithRetry(ctx, endpoint)
+	return s.syncTargets(ctx, "celestrak", func() ([]targetTask, error) {
+		catalog, err := s.repository.SpacecraftCatalog(ctx)
 		if err != nil {
-			failed++
-			slog.Warn("CelesTrak orbit sync skipped", "spacecraft", spacecraftID, "catalog", catalogID, "error", err)
-			continue
+			return nil, err
 		}
-		var payload []struct {
-			Epoch string `json:"EPOCH"`
+		tasks := make([]targetTask, 0, len(catalog))
+		for spacecraftID, catalogID := range catalog {
+			tasks = append(tasks, targetTask{id: spacecraftID, supported: true, run: func(ctx context.Context) (int, error) {
+				endpoint := fmt.Sprintf("https://celestrak.org/NORAD/elements/gp.php?CATNR=%d&FORMAT=JSON", catalogID)
+				body, err := s.getWithRetry(ctx, endpoint)
+				if err != nil {
+					return 0, err
+				}
+				var payload []struct {
+					Epoch string `json:"EPOCH"`
+				}
+				if err := json.Unmarshal(body, &payload); err != nil {
+					return 0, err
+				}
+				if len(payload) == 0 {
+					return 0, errors.New("empty CelesTrak payload")
+				}
+				epoch, err := time.Parse("2006-01-02T15:04:05.999999", payload[0].Epoch)
+				if err != nil {
+					epoch, err = time.Parse(time.RFC3339Nano, payload[0].Epoch+"Z")
+				}
+				if err != nil {
+					return 0, err
+				}
+				var raw []json.RawMessage
+				if err := json.Unmarshal(body, &raw); err != nil {
+					return 0, err
+				}
+				if err := s.repository.SaveOrbitSnapshot(ctx, spacecraftID, epoch.UTC(), raw[0]); err != nil {
+					return 0, err
+				}
+				return 1, nil
+			}})
 		}
-		if err := json.Unmarshal(body, &payload); err != nil || len(payload) == 0 {
-			if err == nil {
-				err = errors.New("empty CelesTrak payload")
-			}
-			failed++
-			slog.Warn("CelesTrak payload skipped", "spacecraft", spacecraftID, "catalog", catalogID, "error", err)
-			continue
-		}
-		epoch, err := time.Parse("2006-01-02T15:04:05.999999", payload[0].Epoch)
-		if err != nil {
-			epoch, err = time.Parse(time.RFC3339Nano, payload[0].Epoch+"Z")
-		}
-		if err != nil {
-			failed++
-			slog.Warn("CelesTrak epoch skipped", "spacecraft", spacecraftID, "catalog", catalogID, "error", err)
-			continue
-		}
-		var rawItems []json.RawMessage
-		if err := json.Unmarshal(body, &rawItems); err != nil || len(rawItems) == 0 {
-			if err == nil {
-				err = errors.New("empty CelesTrak raw payload")
-			}
-			failed++
-			slog.Warn("CelesTrak payload decode skipped", "spacecraft", spacecraftID, "catalog", catalogID, "error", err)
-			continue
-		}
-		if err := s.repository.SaveOrbitSnapshot(ctx, spacecraftID, epoch.UTC(), rawItems[0]); err != nil {
-			failed++
-			slog.Warn("CelesTrak snapshot save skipped", "spacecraft", spacecraftID, "catalog", catalogID, "error", err)
-			continue
-		}
-		records++
-	}
-	if failed > 0 {
-		syncErr = fmt.Errorf("CelesTrak partial sync: %d/%d records failed", failed, len(catalog))
-		return syncErr
-	}
-	return nil
+		return tasks, nil
+	})
 }
 
 type launchLibraryResponse struct {
@@ -268,53 +241,32 @@ func probeSampleWindowDays(id string) int {
 // 整窗替换每个目标的位置采样表（同步失败保留旧数据，前端仍可展示）。
 func (s *Syncer) SyncDeepSpaceProbes(ctx context.Context) error {
 	if s.voyageRepo == nil {
-		return errors.New("voyage repository 未配置")
+		return errors.New("voyage repository is not configured")
 	}
-	runID, err := s.repository.StartSync(ctx, "jpl_horizons_voyage")
-	if err != nil {
-		return err
-	}
-	records := 0
-	var syncErr error
-	defer func() { _ = s.repository.FinishSync(context.Background(), runID, records, syncErr) }()
-
-	catalog, err := s.voyageRepo.ListCatalog(ctx)
-	if err != nil {
-		syncErr = err
-		return err
-	}
-	now := time.Now().UTC()
-	failed := 0
-	if len(catalog) == 0 {
-		syncErr = errors.New("deep space probe sync has no targets")
-		return syncErr
-	}
-	for _, item := range catalog {
-		if err := ctx.Err(); err != nil {
-			syncErr = err
-			return err
-		}
-		samples, err := voyage.FetchProbeSamples(ctx, s.client, item.NaifID, now, probeSampleWindowDays(item.ID))
+	return s.syncTargets(ctx, "jpl_horizons_voyage", func() ([]targetTask, error) {
+		catalog, err := s.voyageRepo.ListCatalog(ctx)
 		if err != nil {
-			failed++
-			// 单个目标失败不 abort 整轮：记日志继续，其余目标照常刷新
-			slog.Warn("deep space probe sync skipped", "probe", item.ID, "error", err)
-			continue
+			return nil, err
 		}
-		if err := s.voyageRepo.ReplaceProbeSamples(ctx, item.ID, samples); err != nil {
-			failed++
-			slog.Warn("deep space probe samples save failed", "probe", item.ID, "error", err)
-			continue
+		now := time.Now().UTC()
+		tasks := make([]targetTask, 0, len(catalog))
+		for _, item := range catalog {
+			tasks = append(tasks, targetTask{id: item.ID, supported: item.NaifID != "", run: func(ctx context.Context) (int, error) {
+				samples, err := voyage.FetchProbeSamples(ctx, s.client, item.NaifID, now, probeSampleWindowDays(item.ID))
+				if err != nil {
+					return 0, err
+				}
+				if len(samples) == 0 {
+					return 0, errors.New("empty probe position samples")
+				}
+				if err := s.voyageRepo.ReplaceProbeSamples(ctx, item.ID, samples); err != nil {
+					return 0, err
+				}
+				return len(samples), nil
+			}})
 		}
-		records += len(samples)
-		slog.Info("deep space probe synced", "probe", item.ID, "samples", len(samples),
-			"window", now.AddDate(0, 0, -90).Format("2006-01-02")+" → "+now.AddDate(0, 0, 90).Format("2006-01-02"))
-	}
-	if failed > 0 {
-		syncErr = fmt.Errorf("deep space probe sync incomplete: %d/%d targets failed", failed, len(catalog))
-		return syncErr
-	}
-	return nil
+		return tasks, nil
+	})
 }
 
 func (s *Syncer) get(ctx context.Context, endpoint string) ([]byte, error) {
@@ -363,115 +315,53 @@ func (s *Syncer) getWithRetry(ctx context.Context, endpoint string) ([]byte, err
 // 未支持的飞行器跳过（前端回退静态参数）。
 func (s *Syncer) SyncMoonSpacecraft(ctx context.Context) error {
 	if s.moonRepo == nil {
-		return errors.New("moon repository 未配置")
+		return errors.New("moon repository is not configured")
 	}
-	runID, err := s.repository.StartSync(ctx, "jpl_horizons_moon")
-	if err != nil {
-		return err
-	}
-	records := 0
-	var syncErr error
-	defer func() { _ = s.repository.FinishSync(context.Background(), runID, records, syncErr) }()
-
-	catalog, err := s.moonRepo.ListSpacecraft(ctx)
-	if err != nil {
-		syncErr = err
-		return err
-	}
-	failed, eligible := 0, 0
-	for _, craft := range catalog {
-		if craft.Kind != "orbital" {
-			continue // 定点飞行器（鹊桥二号等）无绕月轨道
-		}
-		if !moon.SupportsHorizons(craft.ID) {
-			continue
-		}
-		if err := ctx.Err(); err != nil {
-			syncErr = err
-			return err
-		}
-		eligible++
-		result, err := moon.FetchMoonSpacecraftElements(ctx, s.client, craft.ID)
+	return s.syncTargets(ctx, "jpl_horizons_moon", func() ([]targetTask, error) {
+		catalog, err := s.moonRepo.ListSpacecraft(ctx)
 		if err != nil {
-			failed++
-			// 单个飞行器失败（未支持/星历结束/临时错误）不 abort 整轮：
-			// 记录日志继续，其余飞行器照常同步，前端回退静态参数
-			slog.Warn("moon orbit sync skipped", "craft", craft.ID, "error", err)
-			continue
+			return nil, err
 		}
-		if err := s.moonRepo.SaveMoonSnapshot(ctx, craft.ID, result.Epoch.UTC().Format(time.RFC3339), result.Elements, result.Raw); err != nil {
-			syncErr = err
-			return err
+		tasks := make([]targetTask, 0, len(catalog))
+		for _, craft := range catalog {
+			tasks = append(tasks, targetTask{id: craft.ID, supported: craft.Kind == "orbital" && moon.SupportsHorizons(craft.ID), run: func(ctx context.Context) (int, error) {
+				result, err := moon.FetchMoonSpacecraftElements(ctx, s.client, craft.ID)
+				if err != nil {
+					return 0, err
+				}
+				if err := s.moonRepo.SaveMoonSnapshot(ctx, craft.ID, result.Epoch.UTC().Format(time.RFC3339), result.Elements, result.Raw); err != nil {
+					return 0, err
+				}
+				return 1, nil
+			}})
 		}
-		records++
-		slog.Info("moon orbit synced", "craft", craft.ID, "epoch", result.Epoch.UTC().Format(time.RFC3339),
-			"a_km", fmt.Sprintf("%.1f", result.Elements.A), "period", fmt.Sprintf("%.0fs", result.Elements.PeriodSeconds))
-	}
-	if eligible == 0 {
-		syncErr = errors.New("moon orbit sync has no supported orbital targets")
-		return syncErr
-	}
-	if failed > 0 {
-		syncErr = fmt.Errorf("moon orbit sync incomplete: %d/%d supported targets failed", failed, eligible)
-		return syncErr
-	}
-	return nil
+		return tasks, nil
+	})
 }
 
 // SyncMarsSpacecraft 火星绕行器实时轨道根数同步（镜像 SyncMoonSpacecraft；CENTER=500@499 火心）
 func (s *Syncer) SyncMarsSpacecraft(ctx context.Context) error {
 	if s.marsRepo == nil {
-		return errors.New("mars repository 未配置")
+		return errors.New("mars repository is not configured")
 	}
-	runID, err := s.repository.StartSync(ctx, "jpl_horizons_mars")
-	if err != nil {
-		return err
-	}
-	records := 0
-	var syncErr error
-	defer func() { _ = s.repository.FinishSync(context.Background(), runID, records, syncErr) }()
-
-	catalog, err := s.marsRepo.ListSpacecraft(ctx)
-	if err != nil {
-		syncErr = err
-		return err
-	}
-	failed, eligible := 0, 0
-	for _, craft := range catalog {
-		if craft.Kind != "orbital" {
-			continue // 仅实时绕火轨道拉取 JPL 快照；地表探测器/历史名录无轨道
-		}
-		if !mars.SupportsHorizons(craft.ID) {
-			continue
-		}
-		if err := ctx.Err(); err != nil {
-			syncErr = err
-			return err
-		}
-		eligible++
-		result, err := mars.FetchMarsSpacecraftElements(ctx, s.client, craft.ID)
+	return s.syncTargets(ctx, "jpl_horizons_mars", func() ([]targetTask, error) {
+		catalog, err := s.marsRepo.ListSpacecraft(ctx)
 		if err != nil {
-			failed++
-			// 单个飞行器失败（未支持/星历结束/临时错误）不 abort 整轮：
-			// 记录日志继续，其余飞行器照常同步，前端回退静态参数
-			slog.Warn("mars orbit sync skipped", "craft", craft.ID, "error", err)
-			continue
+			return nil, err
 		}
-		if err := s.marsRepo.SaveMarsSnapshot(ctx, craft.ID, result.Epoch.UTC().Format(time.RFC3339), result.Elements, result.Raw); err != nil {
-			syncErr = err
-			return err
+		tasks := make([]targetTask, 0, len(catalog))
+		for _, craft := range catalog {
+			tasks = append(tasks, targetTask{id: craft.ID, supported: craft.Kind == "orbital" && mars.SupportsHorizons(craft.ID), run: func(ctx context.Context) (int, error) {
+				result, err := mars.FetchMarsSpacecraftElements(ctx, s.client, craft.ID)
+				if err != nil {
+					return 0, err
+				}
+				if err := s.marsRepo.SaveMarsSnapshot(ctx, craft.ID, result.Epoch.UTC().Format(time.RFC3339), result.Elements, result.Raw); err != nil {
+					return 0, err
+				}
+				return 1, nil
+			}})
 		}
-		records++
-		slog.Info("mars orbit synced", "craft", craft.ID, "epoch", result.Epoch.UTC().Format(time.RFC3339),
-			"a_km", fmt.Sprintf("%.1f", result.Elements.A), "period", fmt.Sprintf("%.0fs", result.Elements.PeriodSeconds))
-	}
-	if eligible == 0 {
-		syncErr = errors.New("mars orbit sync has no supported orbital targets")
-		return syncErr
-	}
-	if failed > 0 {
-		syncErr = fmt.Errorf("mars orbit sync incomplete: %d/%d supported targets failed", failed, eligible)
-		return syncErr
-	}
-	return nil
+		return tasks, nil
+	})
 }

@@ -93,6 +93,24 @@ PORT=8081 DATABASE_URL='postgres://user:password@localhost:5432/aurora?sslmode=d
 
 建表不需要手工执行。服务启动时会自动运行尚未执行过的 `migrations/*.sql`，并通过 `schema_migrations` 记录版本。
 
+## 同步状态与验证
+
+迁移 `053_spacecraft_sync_status.sql` 为地球、月球、火星和深空目标分别记录最近尝试和最近成功获取时间。新资料与成功获取时间在同一事务中提交；失败、超时或不支持的目标不会前移成功时间，旧数据仍可读取。各目标 API 的 `syncStatus` 与整轮 `sync_runs` 分开。月球、火星重复获取同一历元会更新现有快照。
+
+普通测试：
+
+```bash
+go test ./...
+```
+
+数据库链路测试必须显式指定本机专用的 `aurora_test` 数据库。每个用例创建自己的临时 schema、执行全套迁移，并在结束后清理；不会默认连接应用数据库。
+
+```bash
+AURORA_TEST_DATABASE_URL='postgres://aurora_test@127.0.0.1:55439/aurora_test?sslmode=disable' go test ./internal/syncer -count=1
+```
+
+上述测试使用模拟 HTTP 上游，覆盖超过 20 条发射事件的翻页、去重、时间窗口、入库和 API，以及四类航天器的成功、全失败、部分失败、无支持目标、超时、写入失败和成功时间保留。真实 Launch Library 另由 `AURORA_TEST_LIVE_LAUNCHES=1` 显式启用。已有真实深空数据的目录/距离校验需单独设置 `AURORA_LIVE_DATA_TEST_DSN`，普通测试不再自动读取应用数据库。
+
 ## 当前接口
 
 - `GET /api/health`：检查服务和数据库是否可用。

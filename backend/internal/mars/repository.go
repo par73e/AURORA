@@ -1,6 +1,7 @@
 package mars
 
 import (
+	"aurora/backend/internal/syncstate"
 	"context"
 	"encoding/json"
 	"errors"
@@ -45,13 +46,14 @@ func (r *Repository) ListSpacecraft(ctx context.Context) ([]Spacecraft, error) {
 		       ms.stationary_offset_x, ms.stationary_offset_y, ms.stationary_offset_z,
 		       ms.sort_order,
 		       sn.epoch, sn.a_km, sn.eccentricity, sn.inclination_deg, sn.raan_deg,
-		       sn.arg_periapsis_deg, sn.mean_anomaly_deg, sn.period_seconds
+		       sn.arg_periapsis_deg, sn.mean_anomaly_deg, sn.period_seconds, sn.synced_at, `+syncstate.JSONColumn+`
 		FROM mars_spacecraft ms
 		LEFT JOIN LATERAL (
 			SELECT * FROM mars_orbit_snapshots sn
 			WHERE sn.spacecraft_id = ms.id
 			ORDER BY sn.epoch DESC LIMIT 1
 		) sn ON true
+ LEFT JOIN spacecraft_sync_status st ON st.source_code = 'jpl_horizons_mars' AND st.target_id = ms.id
 		ORDER BY ms.sort_order, ms.id`)
 	if err != nil {
 		return nil, fmt.Errorf("query mars spacecraft: %w", err)
@@ -62,7 +64,8 @@ func (r *Repository) ListSpacecraft(ctx context.Context) ([]Spacecraft, error) {
 	for rows.Next() {
 		var item Spacecraft
 		var ox, oy, oz float64
-		var snapshotEpoch *time.Time
+		var snapshotEpoch, snapshotSyncedAt *time.Time
+		var statusRaw []byte
 		var aKm, ecc, inc, raan, argp, ma, period *float64
 		if err := rows.Scan(
 			&item.ID, &item.NameZH, &item.NameEN, &item.Type, &item.OperatorName, &item.Description,
@@ -71,14 +74,19 @@ func (r *Repository) ListSpacecraft(ctx context.Context) ([]Spacecraft, error) {
 			&item.Kind, &item.CatalogGroup, &item.OrbitA, &item.OrbitE, &item.InclinationDeg, &item.RaanDeg, &item.ArgPeriapsisDeg, &item.PeriodSeconds,
 			&ox, &oy, &oz,
 			&item.SortOrder,
-			&snapshotEpoch, &aKm, &ecc, &inc, &raan, &argp, &ma, &period,
+			&snapshotEpoch, &aKm, &ecc, &inc, &raan, &argp, &ma, &period, &snapshotSyncedAt, &statusRaw,
 		); err != nil {
 			return nil, fmt.Errorf("scan mars spacecraft: %w", err)
+		}
+		item.SyncStatus, err = syncstate.Decode(statusRaw)
+		if err != nil {
+			return nil, fmt.Errorf("decode target status: %w", err)
 		}
 		item.StationaryOffset = [3]float64{ox, oy, oz}
 		if snapshotEpoch != nil && aKm != nil {
 			item.Snapshot = &OrbitSnapshot{
 				Epoch:           snapshotEpoch.UTC().Format(time.RFC3339),
+				SyncedAt:        snapshotSyncedAt.UTC().Format(time.RFC3339),
 				AKm:             *aKm,
 				Eccentricity:    *ecc,
 				InclinationDeg:  *inc,
@@ -138,15 +146,23 @@ func (r *Repository) ListLandingSites(ctx context.Context) ([]LandingSite, error
 
 /** 保存火星绕行器轨道快照 */
 func (r *Repository) SaveMarsSnapshot(ctx context.Context, spacecraftID string, epoch string, el Elements, raw string) error {
-	_, err := r.pool.Exec(ctx, `
+	return syncstate.Save(ctx, r.pool, "jpl_horizons_mars", spacecraftID, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
 		INSERT INTO mars_orbit_snapshots
 			(spacecraft_id, epoch, a_km, eccentricity, inclination_deg, raan_deg,
 			 arg_periapsis_deg, mean_anomaly_deg, period_seconds, raw)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-		spacecraftID, epoch, el.A, el.E, el.InclinationDeg, el.RaanDeg,
-		el.ArgPeriapsisDeg, el.MeanAnomalyDeg, el.PeriodSeconds, raw)
-	if err != nil {
-		return fmt.Errorf("save mars orbit snapshot: %w", err)
-	}
-	return nil
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		ON CONFLICT (spacecraft_id, epoch) DO UPDATE SET
+		 a_km=EXCLUDED.a_km, eccentricity=EXCLUDED.eccentricity,
+		 inclination_deg=EXCLUDED.inclination_deg, raan_deg=EXCLUDED.raan_deg,
+		 arg_periapsis_deg=EXCLUDED.arg_periapsis_deg, mean_anomaly_deg=EXCLUDED.mean_anomaly_deg,
+		 period_seconds=EXCLUDED.period_seconds, raw=EXCLUDED.raw, synced_at=now()`,
+			spacecraftID, epoch, el.A, el.E, el.InclinationDeg, el.RaanDeg,
+			el.ArgPeriapsisDeg, el.MeanAnomalyDeg, el.PeriodSeconds, raw)
+		if err != nil {
+			return fmt.Errorf("save mars orbit snapshot: %w", err)
+		}
+		return nil
+
+	})
 }

@@ -11,7 +11,7 @@ import { bilingualName } from '../bilingual'
 import MissionDetailPanel from './MissionDetailPanel.vue'
 import MissionSceneLabel from './MissionSceneLabel.vue'
 import type { MissionDetail } from '../missionPresentation'
-import { spacecraftFields } from '../missionPresentation'
+import { formatDataTime, snapshotNotice, spacecraftFields } from '../missionPresentation'
 import { ENTRY_SPIN_DURATION_MS, entrySpinAngle, entrySpinFinished } from '../entrySpin'
 import type { SceneAnnotationLayout, SurfaceAnnotationLayout } from '../surfaceAnnotations'
 import { layoutSceneAnnotations, sceneAnnotationStyle, projectedSphereRadiusPx, orbitMarkerRadiusPx, sceneMarkerWorldRadius, surfaceMarkerRadiusPx, surfaceMarkerWorldRadius } from '../surfaceAnnotations'
@@ -190,6 +190,10 @@ const selectedSpacecraftDetail = computed<MissionDetail | null>(() => {
     source: `轨道历元 ${formatEpochUTC(craft.orbitEpoch)} · ${craft.sourceName}`,
     dataType: '轨道快照推算位置',
     validTime: formatEpochUTC(craft.orbitEpoch),
+    timeLabel: "轨道历元",
+    retrievedAt: formatDataTime(craft.syncStatus?.lastSuccessAt ?? craft.orbitSyncedAt),
+    computedAt: formatDataTime(new Date().toISOString()),
+    dataNote: snapshotNotice(craft.syncStatus?.lastSuccessAt ?? craft.orbitSyncedAt, craft.syncStatus?.status),
   }
 })
 function formatCoordinate(value: number, positive: string, negative: string) {

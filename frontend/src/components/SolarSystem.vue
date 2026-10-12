@@ -12,7 +12,7 @@ import type { ProbeData } from '../solar/scene'
 import MissionDetailPanel from './MissionDetailPanel.vue'
 import MissionSceneLabel from './MissionSceneLabel.vue'
 import type { MissionDetail } from '../missionPresentation'
-import { spacecraftFields } from '../missionPresentation'
+import { formatDataTime, sampleCoverage, snapshotNotice, spacecraftFields } from '../missionPresentation'
 
 const props = defineProps<{ spacecraftVisible?: boolean; enterFromOrbit?: boolean; enterFromMoon?: boolean; enterFromMars?: boolean; enterFromVenus?: boolean; enterFromSaturn?: boolean; enterFromJupiter?: boolean; enterFromMercury?: boolean; enterFromUranus?: boolean; enterFromNeptune?: boolean; enterFromSun?: boolean; flyDelay?: number; playEntryFly?: boolean }>()
 
@@ -78,6 +78,8 @@ const spacecraftEnabled = computed({
 const selectedProbe = ref<DeepSpaceProbe | null>(null)
 /** 选中探测器当前距日（AU，打开面板时读取一次） */
 const probeDistAU = ref<number | null>(null)
+const probeReadAt = ref(Date.now())
+const probeComputedAt = ref<number | null>(null)
 /** 选中探测器轨道参数（倾角/偏心率/周期；无拟合轨道为 null → 显示 —） */
 const probeOrbit = ref<{ inclinationDeg: number; eccentricity: number; periodDays: number } | null>(null)
 /** 发射信息（日期 · 地点 · 火箭，与地球/月球面板同构） */
@@ -90,6 +92,8 @@ const selectedProbeDetail = computed<MissionDetail | null>(() => {
   const probe = selectedProbe.value
   if (!probe) return null
   const name = bilingualName(probe.nameZh, probe.nameEn)
+  const coverage = sampleCoverage(probe.positions, probeReadAt.value)
+  const syncNote = snapshotNotice(probe.syncStatus?.lastSuccessAt ?? probe.syncedAt, probe.syncStatus?.status, probeReadAt.value)
   return {
     kind: 'spacecraft',
     typeZh: '飞行器',
@@ -101,14 +105,18 @@ const selectedProbeDetail = computed<MissionDetail | null>(() => {
     fields: spacecraftFields({
       operator: probe.operatorName,
       launch: probeLaunchText.value,
-      target: [probe.target, probeDistAU.value == null ? '' : `当前距日 ${probeDistAU.value.toFixed(2)} AU`].filter(Boolean).join(' · '),
+      target: [probe.target, probeDistAU.value == null ? '' : `${coverage?.covered ? '所示时刻' : '示意位置'}距日 ${probeDistAU.value.toFixed(2)} AU`].filter(Boolean).join(' · '),
       inclination: probeOrbit.value ? `${probeOrbit.value.inclinationDeg.toFixed(2)}°` : '',
       eccentricity: probeOrbit.value?.eccentricity.toFixed(4),
       period: probeOrbit.value ? `${probeOrbit.value.periodDays.toFixed(0)} 天` : '',
     }),
-    source: `JPL Horizons · 同步于 ${formatSyncTime(probe.syncedAt)}`,
-    dataType: '同步星历快照',
-    validTime: formatSyncTime(probe.syncedAt),
+    source: 'JPL Horizons',
+    dataType: probe.orbitKind === 'ellipse' ? '采样拟合轨道推算' : '位置采样插值',
+    timeLabel: '采样覆盖',
+    validTime: coverage?.label ?? '暂无位置采样',
+    retrievedAt: formatDataTime(probe.syncStatus?.lastSuccessAt ?? probe.syncedAt),
+    computedAt: probeComputedAt.value == null ? undefined : formatDataTime(new Date(probeComputedAt.value).toISOString()),
+    dataNote: [!coverage?.covered ? '当前时刻超出采样覆盖，所示位置为边界或轨道示意，不能作为当前位置依据' : '', syncNote].filter(Boolean).join('；') || undefined,
   }
 })
 
@@ -227,11 +235,13 @@ function onProbeClick(id: string) {
 function selectProbe(id: string) {
   const probe = probes.value.find((p) => p.id === id) ?? null
   selectedProbe.value = probe
+  probeReadAt.value = Date.now()
+  probeComputedAt.value = null
   probeDistAU.value = null
   probeOrbit.value = null
   if (probe && scene) {
     const info = scene.getProbeInfo(id)
-    if (info) probeDistAU.value = info.distAU
+    if (info) { probeDistAU.value = info.distAU; probeComputedAt.value = info.epochMs }
     probeOrbit.value = scene.getProbeOrbit(id)
   }
 }
@@ -242,14 +252,6 @@ function closeProbePanel() {
   probeDistAU.value = null
   probeOrbit.value = null
   scene?.clearProbeSelection()
-}
-
-/** 同步时间展示（UTC） */
-function formatSyncTime(iso?: string) {
-  if (!iso) return '暂无同步'
-  const d = new Date(iso)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC`
 }
 
 // 排列线（屏幕方向：右上 → 左下）的单位法向（右下），标签沿该方向放在球体轮廓之外，避免压到相邻行星；

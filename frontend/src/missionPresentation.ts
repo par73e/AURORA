@@ -18,7 +18,37 @@ export interface MissionDetail {
   source?: string
   dataType?: string
   validTime?: string
+  timeLabel?: string
+  retrievedAt?: string
+  computedAt?: string
+  dataNote?: string
   iconHtml?: string
+}
+
+export function formatDataTime(iso?: string | null): string | undefined {
+  if (!iso) return undefined
+  const at = new Date(iso)
+  if (!Number.isFinite(at.getTime())) return undefined
+  return `${at.toISOString().slice(0, 16).replace('T', ' ')} UTC`
+}
+
+/** 48 小时是更新提醒，不能当成物理精度或星历有效期保证。 */
+export function snapshotNotice(lastSuccessAt?: string | null, status?: string, now = Date.now()): string | undefined {
+  const notices: string[] = []
+  if (status === 'failed' || status === 'canceled') notices.push('本目标最近更新未成功，保留上次资料')
+  if (status === 'unsupported') notices.push('本目标暂无实时星历支持，显示公开任务示意')
+  if (lastSuccessAt) {
+    const age = now - Date.parse(lastSuccessAt)
+    if (Number.isFinite(age) && age > 48 * 60 * 60_000) notices.push('超过 48 小时未更新，资料较旧，位置仅供参考')
+  }
+  return notices.length ? notices.join('；') : undefined
+}
+
+export function sampleCoverage(positions: Array<{ epoch: string }>, at = Date.now()): { label: string; covered: boolean } | null {
+  const times = positions.map((point) => Date.parse(point.epoch)).filter(Number.isFinite)
+  if (!times.length) return null
+  const start = Math.min(...times), end = Math.max(...times)
+  return { label: `${formatDataTime(new Date(start).toISOString())} — ${formatDataTime(new Date(end).toISOString())}`, covered: at >= start && at <= end }
 }
 
 const SPACECRAFT_TYPE_LABELS: Record<string, string> = {

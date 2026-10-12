@@ -1,26 +1,28 @@
 package orbit
 
 import (
+	"aurora/backend/internal/syncstate"
 	"encoding/json"
 	"time"
 )
 
 type Spacecraft struct {
-	ID             string          `json:"id"`
-	NameZH         string          `json:"nameZh"`
-	NameEN         string          `json:"nameEn"`
-	NORADCatalogID int64           `json:"noradCatalogId"`
-	Category       string          `json:"category"`
-	OperatorName   string          `json:"operatorName"`
-	Description    string          `json:"description"`
-	LaunchDate     string          `json:"launchDate,omitempty"`
-	LaunchSite     string          `json:"launchSite,omitempty"`
-	LaunchVehicle  string          `json:"launchVehicle,omitempty"`
-	SourceName     string          `json:"sourceName"`
-	SourceURL      string          `json:"sourceUrl"`
-	OrbitEpoch     *time.Time      `json:"orbitEpoch,omitempty"`
-	OrbitSyncedAt  *time.Time      `json:"orbitSyncedAt,omitempty"`
-	OMM            json.RawMessage `json:"omm,omitempty"`
+	SyncStatus     *syncstate.Status `json:"syncStatus,omitempty"`
+	ID             string            `json:"id"`
+	NameZH         string            `json:"nameZh"`
+	NameEN         string            `json:"nameEn"`
+	NORADCatalogID int64             `json:"noradCatalogId"`
+	Category       string            `json:"category"`
+	OperatorName   string            `json:"operatorName"`
+	Description    string            `json:"description"`
+	LaunchDate     string            `json:"launchDate,omitempty"`
+	LaunchSite     string            `json:"launchSite,omitempty"`
+	LaunchVehicle  string            `json:"launchVehicle,omitempty"`
+	SourceName     string            `json:"sourceName"`
+	SourceURL      string            `json:"sourceUrl"`
+	OrbitEpoch     *time.Time        `json:"orbitEpoch,omitempty"`
+	OrbitSyncedAt  *time.Time        `json:"orbitSyncedAt,omitempty"`
+	OMM            json.RawMessage   `json:"omm,omitempty"`
 }
 
 type LaunchSite struct {
