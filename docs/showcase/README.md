@@ -1,0 +1,35 @@
+# GitHub 产品展示素材
+
+这里的素材仅用于仓库 README，不进入前端发布流程。
+
+## 品牌图形
+
+- `aurora-banner.svg`：原创星空、轨道与星球品牌横幅；属于装饰插画，不是产品截图。
+- `launch.svg`、`preview.svg`、`develop.svg`：README 中的三个入口按钮，链接由 README 提供。
+- `product-strip.svg`：三条产品主线的图形摘要。
+
+SVG 均为自包含矢量代码，不加载外部字体或图像，也不包含脚本。横幅动效遵循 `prefers-reduced-motion`；禁用动画时仍有完整静态图形。
+
+## 真实截图
+
+2026-11-05 通过 ego lite 实际打开 `https://aurora.par73e.cn/aurora/`，点击并采集：
+
+| 文件 | 页面 |
+| --- | --- |
+| `cover.png` | 正式产品封面 |
+| `solar-system.png` | 太阳系总览 |
+| `moon.png` | 月球、轨道飞行器与着陆点 |
+| `conditions.png` | 北京公开坐标的观星条件 |
+| `sky-map.png` | 同一公开观测点的星图 |
+
+观测截图先手动设置为北京公开坐标 `39.9475, 116.3293`，不使用用户设备定位。图片是浏览器原始截图，没有重绘界面、改写评分或合成任务数据；页面时间和资料会继续变化。截图不构成当前天气或当前任务状态的承诺。
+
+太阳系与月球画面保留 `Solar System Scope · CC BY 4.0` 的既有贴图署名；第三方资料、贴图与图片遵循各自来源和使用条件，不因被截图而改变许可。
+
+更新截图时使用公开地点，等待页面转场和数据加载完成，避免包含个人信息、浏览器账号、密钥、加载遮罩或开发面板。保持相近的桌面视口，并检查 GitHub 中的小图与点击后的大图。
+
+## 排版参考与验证
+
+参考 [AFFiNE](https://github.com/toeverything/AFFiNE) 的品牌横幅、产品画面和入口导航，以及 [Dify](https://github.com/langgenius/dify) 的封面与徽章组织方式。没有复制它们的图片、文案或品牌素材。
+
+README 经 GitHub Markdown 接口渲染检查；发布前在 ego lite 中检查所有图片、入口跳转和窄屏溢出，发布后再检查 GitHub 仓库实际效果。外部徽章来自 Shields.io；正文、仓库内图片和文字导航不依赖该徽章服务。

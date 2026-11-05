@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="174" height="42" viewBox="0 0 174 42" role="img" aria-label="立即体验 AURORA">
+  <rect x=".5" y=".5" width="173" height="41" rx="7" fill="#8DD8EF" stroke="#BAECFA"/>
+  <circle cx="19" cy="21" r="3" fill="#103448"/>
+  <text x="37" y="26" font-family="system-ui,-apple-system,'Segoe UI',sans-serif" font-size="14" font-weight="600" fill="#0A2232">立即体验</text>
+  <path d="M139 16H148V25M148 16L138 26" fill="none" stroke="#103448" stroke-width="1.5"/>
+</svg>

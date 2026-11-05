@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="480" viewBox="0 0 1280 480" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">AURORA — 从太阳系到你头顶的夜空</title>
+  <desc id="desc">深色星空中的 AURORA 品牌字样、发光星球和交错轨道。装饰性品牌插画。</desc>
+  <defs>
+    <linearGradient id="background" x2="1280" y2="480" gradientUnits="userSpaceOnUse"><stop stop-color="#070D18"/><stop offset=".55" stop-color="#0A1726"/><stop offset="1" stop-color="#050A12"/></linearGradient>
+    <radialGradient id="halo"><stop stop-color="#47C8EE" stop-opacity=".22"/><stop offset="1" stop-color="#47C8EE" stop-opacity="0"/></radialGradient>
+    <radialGradient id="planet" cx=".24" cy=".18" r=".9"><stop stop-color="#559EBB"/><stop offset=".28" stop-color="#225779"/><stop offset=".63" stop-color="#0C243E"/><stop offset="1" stop-color="#030811"/></radialGradient>
+    <linearGradient id="rim" x1="850" y1="120" x2="1090" y2="365" gradientUnits="userSpaceOnUse"><stop stop-color="#B3E9FC"/><stop offset=".4" stop-color="#52B3D7"/><stop offset="1" stop-color="#18334B" stop-opacity=".2"/></linearGradient>
+    <linearGradient id="trail"><stop stop-color="#F3BD78" stop-opacity="0"/><stop offset=".65" stop-color="#F3BD78"/><stop offset="1" stop-color="#FFF1D1"/></linearGradient>
+    <linearGradient id="rule"><stop stop-color="#7FD2EA"/><stop offset="1" stop-color="#7FD2EA" stop-opacity="0"/></linearGradient>
+    <clipPath id="frame"><rect width="1280" height="480" rx="18"/></clipPath>
+    <clipPath id="globe"><circle cx="958" cy="240" r="130"/></clipPath>
+    <filter id="glow" x="-150%" y="-150%" width="400%" height="400%"><feGaussianBlur stdDeviation="5"/></filter>
+    <style>
+      .text{font-family:Arial,Helvetica,sans-serif}
+      .twinkle{animation:twinkle 6s ease-in-out infinite alternate}
+      .signal{animation:signal 28s linear infinite}
+      @keyframes twinkle{from{opacity:.35}to{opacity:1}}
+      @keyframes signal{to{stroke-dashoffset:-840}}
+      @media(prefers-reduced-motion:reduce){.twinkle,.signal{animation:none}}
+    </style>
+  </defs>
+  <g clip-path="url(#frame)">
+    <rect width="1280" height="480" fill="url(#background)"/>
+    <ellipse cx="957" cy="237" rx="330" ry="270" fill="url(#halo)"/>
+    <g fill="#B6D4E6" opacity=".45">
+      <circle cx="70" cy="62" r="1"/><circle cx="188" cy="122" r="1.2"/><circle cx="316" cy="58" r=".7"/><circle cx="465" cy="102" r="1"/><circle cx="615" cy="47" r="1.1"/><circle cx="712" cy="146" r=".7"/>
+      <circle cx="808" cy="48" r="1"/><circle cx="1127" cy="58" r="1.2"/><circle cx="1214" cy="179" r=".8"/><circle cx="1180" cy="359" r="1"/><circle cx="1032" cy="424" r=".9"/>
+      <circle cx="734" cy="398" r="1.1"/><circle cx="592" cy="344" r=".7"/><circle cx="475" cy="423" r="1"/><circle cx="280" cy="387" r=".7"/><circle cx="127" cy="438" r="1.1"/><circle cx="49" cy="313" r=".7"/>
+    </g>
+    <g stroke="#39708B" opacity=".26"><path d="M666 0V480M1250 0V480"/><path d="M0 398H1280"/></g>
+    <g stroke="#70B8D4" stroke-width=".8">
+      <ellipse cx="958" cy="240" rx="285" ry="91" transform="rotate(-27 958 240)" opacity=".4"/>
+      <ellipse cx="958" cy="240" rx="240" ry="149" transform="rotate(26 958 240)" opacity=".24"/>
+      <ellipse cx="958" cy="240" rx="182" ry="196" transform="rotate(-29 958 240)" opacity=".25"/>
+    </g>
+    <circle cx="958" cy="240" r="130" fill="url(#planet)" stroke="url(#rim)" stroke-width="1.8"/>
+    <g clip-path="url(#globe)" stroke="#88C9E4" stroke-width=".7" opacity=".18">
+      <ellipse cx="958" cy="240" rx="74" ry="130" transform="rotate(-25 958 240)"/><ellipse cx="958" cy="240" rx="32" ry="130" transform="rotate(-25 958 240)"/>
+      <ellipse cx="958" cy="240" rx="130" ry="38" transform="rotate(-25 958 240)"/><ellipse cx="944" cy="208" rx="118" ry="33" transform="rotate(-25 944 208)"/><ellipse cx="980" cy="280" rx="119" ry="34" transform="rotate(-25 980 280)"/>
+    </g>
+    <path d="M719 347C815 376 1044 268 1188 135" stroke="url(#trail)" stroke-width="1.4"/>
+    <ellipse class="signal" cx="958" cy="240" rx="285" ry="91" transform="rotate(-27 958 240)" stroke="#B9F0FF" stroke-width="2" stroke-dasharray="8 832"/>
+    <circle cx="1145" cy="154" r="10" fill="#EFC086" opacity=".55" filter="url(#glow)"/><circle cx="1145" cy="154" r="4.5" fill="#F2C181"/>
+    <circle cx="768" cy="296" r="3" fill="#8FD8EE"/><circle cx="1087" cy="352" r="2.5" fill="#86A4D6"/>
+    <g class="twinkle" stroke="#C2EBF7" stroke-width="1"><path d="M1169 85V99M1162 92H1176"/><path d="M772 72V80M768 76H776"/></g>
+    <g class="text">
+      <g fill="#7DB9CF" font-size="12" letter-spacing="3"><text x="70" y="77">AN ORBITAL OBSERVATORY</text><text x="70" y="435">SPACE EXPLORATION</text><text x="290" y="435">/</text><text x="323" y="435">YOUR NIGHT SKY</text></g>
+      <path d="M70 102H122" stroke="#EFC086" stroke-width="2"/>
+      <text x="64" y="236" fill="#EFF8FC" font-size="108" font-weight="300" letter-spacing="14">AURORA</text>
+      <text x="72" y="294" fill="#C1DAE5" font-family="system-ui,-apple-system,'Segoe UI',sans-serif" font-size="28" letter-spacing="5">从太阳系到你头顶的夜空</text>
+      <text x="72" y="336" fill="#83A0B3" font-size="14" letter-spacing="1.2">A Universe of Rockets, Orbits, Research and Astronomy</text>
+      <text x="1141" y="435" fill="#7DB9CF" font-size="11" letter-spacing="2">WEB / 3D</text>
+    </g>
+    <path d="M70 369H564" stroke="url(#rule)" opacity=".5"/>
+    <rect x=".5" y=".5" width="1279" height="479" rx="17.5" stroke="#385466" stroke-opacity=".45"/>
+  </g>
+</svg>

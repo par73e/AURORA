@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="174" height="42" viewBox="0 0 174 42" role="img" aria-label="本地运行与开发">
+  <rect x=".5" y=".5" width="173" height="41" rx="7" fill="#101D2B" stroke="#355066"/>
+  <path d="M19 17L15 21L19 25M24 17L28 21L24 25" fill="none" stroke="#87CFE4" stroke-width="1.4"/>
+  <text x="39" y="26" font-family="system-ui,-apple-system,'Segoe UI',sans-serif" font-size="14" fill="#DAEAF2">本地运行</text>
+  <path d="M139 21H148M145 18L148 21L145 24" fill="none" stroke="#A1BDCF" stroke-width="1.5"/>
+</svg>
