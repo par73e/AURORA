@@ -228,13 +228,13 @@ const SUN_SPACECRAFT: PlanetSpacecraft = {
     },
     {
       id: 'sdo-solar', name: '太阳动力学观测站', nameEn: 'SDO', operator: 'NASA',
-      status: '运行中', type: '地球同步轨道太阳观测站', date: '2010-02-11', endpoint: '地球倾斜同步轨道 · ORBIT 可查看实时位置',
+      status: '运行中', type: '地球同步轨道太阳观测站', date: '2010-02-11', endpoint: '地球倾斜同步轨道 · ORBIT 可查看推算位置',
       description: '持续拍摄太阳全日面与磁场变化。它环绕地球运行，轨道和飞行器实体在地球 ORBIT 页面展示。',
       orbitCatalogId: 'sdo', verifiedAt: '2026-09-29', source: 'NASA SDO · CelesTrak 36395',
     },
     {
       id: 'hinode-solar', name: '日出号', nameEn: 'Hinode', operator: 'JAXA / NASA / ESA',
-      status: '运行中', type: '地球太阳同步轨道太阳观测站', date: '2006-09-23', endpoint: '地球太阳同步轨道 · ORBIT 可查看实时位置',
+      status: '运行中', type: '地球太阳同步轨道太阳观测站', date: '2006-09-23', endpoint: '地球太阳同步轨道 · ORBIT 可查看推算位置',
       description: '研究太阳磁场、色球层和日冕。它环绕地球运行，轨道和飞行器实体在地球 ORBIT 页面展示。',
       orbitCatalogId: 'hinode', verifiedAt: '2026-09-29', source: 'NASA Hinode · CelesTrak 29479',
     },

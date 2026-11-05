@@ -1,0 +1,8 @@
+# Place at http scope, e.g. before the server blocks in the existing site.
+upstream aurora_cached_api {
+    server 127.0.0.1:18084 max_fails=1 fail_timeout=10s;
+    server 127.0.0.1:18083 backup;
+}
+# In the existing /api/ location, preserve other headers and timeouts:
+# proxy_pass http://aurora_cached_api;
+# proxy_next_upstream error timeout http_502 http_503 http_504;

@@ -19,3 +19,7 @@ backend/data/light-pollution/*.zip
 # WorkBuddy local memory and skills
 .workbuddy-ai/
 .workbuddyai/
+
+# Temporary demo is maintained on codex/temporary-demo-deployment.
+# Keep its local build/data leftovers out of main without deleting them.
+/demo/

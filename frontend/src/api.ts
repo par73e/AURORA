@@ -1,11 +1,10 @@
 import type { DeepSpaceProbe, MarsLandingSite, MarsSpacecraft, MoonLandingSite, MoonSpacecraft, OrbitOverview, SpacecraftCatalogPage } from './types'
+import { MemoryJSONClient } from './dataCache.ts'
+
+const pageData = new MemoryJSONClient()
 
 async function requestJSON<T>(endpoint: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(endpoint, { signal })
-  if (!response.ok) {
-    throw new Error(`接口返回 ${response.status}`)
-  }
-  return response.json() as Promise<T>
+  return pageData.request<T>(endpoint, signal)
 }
 
 export async function fetchOrbitOverview(): Promise<OrbitOverview> {

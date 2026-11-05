@@ -601,8 +601,8 @@ function formatSourceDate(value?: string) {
 
 function sourceStatusMessage(source: AstronomyEventSourceStatus) {
   if (source.success !== false) return `最近更新 ${formatSourceDate(source.lastSuccessAt)}`
-  if (source.code === 'imo_meteor_calendar') return '流星雨日历暂未更新，显示上次获取的资料'
-  return '资料暂未更新，显示上次获取的内容'
+  if (source.code === 'imo_meteor_calendar') return '流星雨日历更新失败；已获取的资料仍可查看'
+  return '资料更新失败；已获取的资料仍可查看'
 }
 
 const horizonsApiURL = 'https://ssd.jpl.nasa.gov/api/horizons.api'

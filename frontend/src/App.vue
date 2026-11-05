@@ -2043,7 +2043,7 @@ onBeforeUnmount(() => {
                最近一次同步成败的 3 合 1 聚合；地球/月球页保持身份标签 -->
           <div v-if="surface === 'solar-system'" class="live-status">
             <span class="status-dot" :class="{ healthy: !!overview && dataHealthy, syncing: loading }" />
-            <span>{{ loading ? '资料更新中' : dataHealthy && !!overview ? '资料已更新' : '资料暂不可用' }}</span>
+            <span>{{ loading ? '正在读取资料' : dataHealthy && !!overview ? '地球资料已更新' : '地球资料更新异常' }}</span>
             <strong>{{ timeOnly(now) }} UTC+8</strong>
           </div>
           <div v-else class="live-status solar-clock">

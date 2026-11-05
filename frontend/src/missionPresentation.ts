@@ -35,7 +35,7 @@ export function formatDataTime(iso?: string | null): string | undefined {
 /** 48 小时是更新提醒，不能当成物理精度或星历有效期保证。 */
 export function snapshotNotice(lastSuccessAt?: string | null, status?: string, now = Date.now()): string | undefined {
   const notices: string[] = []
-  if (status === 'failed' || status === 'canceled') notices.push('本目标最近更新未成功，保留上次资料')
+  if (status === 'failed' || status === 'canceled') notices.push(lastSuccessAt ? '本目标最近更新未成功，保留上次资料' : '本目标最近更新未成功，显示公开任务示意')
   if (status === 'unsupported') notices.push('本目标暂无实时星历支持，显示公开任务示意')
   if (lastSuccessAt) {
     const age = now - Date.parse(lastSuccessAt)

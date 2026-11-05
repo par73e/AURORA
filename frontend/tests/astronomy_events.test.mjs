@@ -6,14 +6,17 @@ import assert from 'node:assert/strict'
 // 不在页面打开时请求 JPL/USNO/NASA/IMO。
 
 const ORIGINAL_FETCH = globalThis.fetch
+let tabId = 0
+// Each scenario models a new tab with its own module-scoped data cache.
+const freshAPI = () => import(`../src/api.ts?test-tab=${++tabId}`)
 
 function mockFetch(responses) {
   const calls = []
   globalThis.fetch = (endpoint, options) => {
     calls.push({ endpoint, signal: options?.signal })
     const match = responses.find(r => r.endpoint === endpoint || r.match?.(endpoint))
-    if (!match) return Promise.resolve({ ok: false, status: 404, json: () => Promise.reject(new Error('not found')) })
-    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(match.body) })
+    if (!match) return Promise.resolve(new Response('not found', { status: 404 }))
+    return Promise.resolve(new Response(JSON.stringify(match.body), { headers: { 'Content-Type': 'application/json' } }))
   }
   return calls
 }
@@ -24,7 +27,7 @@ function restoreFetch() {
 
 // 动态 import 前端 api.ts，确认 fetchAstronomyEvents 存在并构造正确的 URL
 test('fetchAstronomyEvents 构造正确的 AURORA API URL，不请求 JPL/USNO/NASA/IMO', async () => {
-  const api = await import('../src/api.ts')
+  const api = await freshAPI()
   const calls = mockFetch([
     {
       match: e => e.startsWith('/api/v1/astronomy/events'),
@@ -48,7 +51,7 @@ test('fetchAstronomyEvents 构造正确的 AURORA API URL，不请求 JPL/USNO/N
 })
 
 test('fetchImageWall 只请求 AURORA 聚合接口，浏览器不直连 NASA', async () => {
-  const api = await import('../src/api.ts')
+  const api = await freshAPI()
   const calls = mockFetch([
     { match: e => e === '/api/v1/astronomy/image-wall', body: { recent: [{ id: 'apod', sourceId: 'apod', sourceName: 'NASA Astronomy Picture of the Day', title: 'Perseids', mediaType: 'image', credit: 'NASA', sourceUrl: 'https://apod.nasa.gov/apod/astropix.html', selectionMode: 'daily', status: 'ready' }], collection: [], generatedAt: '2026-08-12T00:00:00Z' } },
   ])
@@ -64,7 +67,7 @@ test('fetchImageWall 只请求 AURORA 聚合接口，浏览器不直连 NASA', a
 })
 
 test('地点搜索只请求 AURORA，并返回可直接计算的 WGS84 坐标', async () => {
-  const api = await import('../src/api.ts')
+  const api = await freshAPI()
   const calls = mockFetch([{ match: e => e.startsWith('/api/v1/location/search'), body: { places: [{ label: '上海市崇明区陈家镇', latitude: 31.5, longitude: 121.81 }] } }])
   try {
     const response = await api.searchObserverPlaces('上海市崇明区陈家镇')
@@ -78,7 +81,7 @@ test('地点搜索只请求 AURORA，并返回可直接计算的 WGS84 坐标', 
 
 // 场景 1: 上海（31.2304, 121.4737）——返回带 local 字段的事件，locationVisibility=partial
 test('场景上海：返回带 local 字段的事件，locationVisibility=partial', async () => {
-  const api = await import('../src/api.ts')
+  const api = await freshAPI()
   mockFetch([
     {
       match: e => e.startsWith('/api/v1/astronomy/events'),
@@ -104,7 +107,7 @@ test('场景上海：返回带 local 字段的事件，locationVisibility=partia
 
 // 场景 2: 北半球高纬（64.1466, -21.9426）——验证 latitude/longitude 正确传入
 test('场景北半球高纬：latitude/longitude 正确传入 URL', async () => {
-  const api = await import('../src/api.ts')
+  const api = await freshAPI()
   const calls = mockFetch([
     {
       match: e => e.startsWith('/api/v1/astronomy/events'),
@@ -124,7 +127,7 @@ test('场景北半球高纬：latitude/longitude 正确传入 URL', async () => 
 
 // 场景 3: 南半球（-33.8688, 151.2093）——验证负纬度正确传入
 test('场景南半球：负纬度正确传入 URL', async () => {
-  const api = await import('../src/api.ts')
+  const api = await freshAPI()
   const calls = mockFetch([
     {
       match: e => e.startsWith('/api/v1/astronomy/events'),
@@ -142,7 +145,7 @@ test('场景南半球：负纬度正确传入 URL', async () => {
 
 // 场景 4: 无可见窗口（接近北极点 89.5, 0）——事件 local.status 可为 not_visible
 test('场景无可见窗口：事件 local.status 可为 not_visible', async () => {
-  const api = await import('../src/api.ts')
+  const api = await freshAPI()
   mockFetch([
     {
       match: e => e.startsWith('/api/v1/astronomy/events'),
@@ -166,7 +169,7 @@ test('场景无可见窗口：事件 local.status 可为 not_visible', async () 
 
 // 场景 5: 无定位授权——不传坐标，返回全球日历，locationVisibility=location_required，事件无 local
 test('场景无定位授权：返回全球日历，事件无 local 字段', async () => {
-  const api = await import('../src/api.ts')
+  const api = await freshAPI()
   const calls = mockFetch([
     {
       match: e => e.startsWith('/api/v1/astronomy/events'),

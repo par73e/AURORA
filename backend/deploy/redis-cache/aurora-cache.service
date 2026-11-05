@@ -1,0 +1,27 @@
+[Unit]
+Description=AURORA lightweight optional response cache gateway
+After=network.target aurora-full.service aurora-cache-redis.service
+Wants=aurora-cache-redis.service
+
+[Service]
+Type=simple
+User=aurora-cache
+Group=aurora-cache
+EnvironmentFile=/etc/aurora-cache/cache.env
+Environment=GOMEMLIMIT=48MiB
+Environment=GOGC=100
+ExecStart=/opt/aurora-cache/releases/20261105/aurora-cache
+Restart=on-failure
+RestartSec=3
+MemoryHigh=64M
+MemoryMax=96M
+CPUQuota=30%
+Nice=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_INET AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

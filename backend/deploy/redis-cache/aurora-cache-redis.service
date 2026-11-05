@@ -1,0 +1,26 @@
+[Unit]
+Description=AURORA isolated disposable Redis cache
+After=network.target
+
+[Service]
+Type=simple
+User=redis
+Group=redis
+RuntimeDirectory=aurora-cache-redis
+RuntimeDirectoryMode=0700
+ExecStart=/usr/bin/redis-server /etc/aurora-cache/redis.conf
+Restart=on-failure
+RestartSec=5
+MemoryHigh=96M
+MemoryMax=128M
+CPUQuota=25%
+Nice=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/run/aurora-cache-redis
+RestrictAddressFamilies=AF_INET AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

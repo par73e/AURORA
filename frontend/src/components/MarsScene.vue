@@ -389,7 +389,7 @@ const selectedCraftDetail = computed<MissionDetail | null>(() => {
       period: hasOrbit ? orbitPeriodText(orbitPeriodSeconds(craft)) : '',
       orbitStage: hasOrbit ? (craft.snapshot ? '轨道快照所对应阶段' : '公开标称任务轨道') : '',
     }),
-    source: `${epoch}${craft.sourceName}`,
+    source: craft.snapshot ? `JPL Horizons ${epoch.trim()}；倾角与偏心率为公开标称值 · ${craft.sourceName}` : craft.sourceName,
     dataType: craft.snapshot ? '轨道快照与匀速相位展示' : hasOrbit ? '公开任务轨道示意' : '任务档案',
     validTime: craft.snapshot?.epoch ? formatEpochUTC(craft.snapshot.epoch) : hasOrbit ? '公开标称任务轨道' : undefined,
     timeLabel: craft.snapshot ? "轨道历元" : "任务阶段",
@@ -399,7 +399,7 @@ const selectedCraftDetail = computed<MissionDetail | null>(() => {
 })
 const orbitDataCaption = computed(() => {
   if (!crafts.value.length) return '火星轨道数据'
-  return 'JPL Horizons'
+  return 'JPL Horizons 与公开任务资料'
 })
 
 /** 轨道历元统一 UTC 显示（与探测器面板同步时间格式一致，避免本地/UTC 混用） */

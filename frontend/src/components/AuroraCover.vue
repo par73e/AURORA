@@ -13,7 +13,7 @@ let coverEntrancePlayed = false
 
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from 'vue'
-import coverEarth from '../assets/aurora-cover-earth.png'
+const coverEarth = `${import.meta.env.BASE_URL}aurora-cover-earth-optimized.webp`
 
 const emit = defineEmits<{
   explore: []
@@ -95,7 +95,7 @@ onBeforeUnmount(() => {
     @pointermove="updateParallax"
     @pointerleave="resetParallax"
   >
-    <img class="cover-earth" :src="coverEarth" alt="" aria-hidden="true">
+    <img class="cover-earth" :src="coverEarth" alt="" aria-hidden="true" fetchpriority="high">
     <div class="cover-vignette" aria-hidden="true" />
 
     <div class="cover-content">
