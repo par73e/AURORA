@@ -3,112 +3,62 @@
 </p>
 
 <p align="center">
-  <strong>一边探索远方的宇宙，一边准备今晚的仰望。</strong><br>
-  三维太阳系 · 航天任务 · 本地星图 · 今夜观测计划
+  <strong>一份关于宇宙、航天与仰望的交互作品。</strong><br>
+  从遥远的行星与探测器，回到你所在的这一片夜空。
 </p>
 
 <p align="center">
-  <a href="https://aurora.par73e.cn/aurora/"><img src="docs/showcase/launch.svg" width="174" height="42" alt="立即体验 AURORA"></a>
-  <a href="#界面预览"><img src="docs/showcase/preview.svg" width="174" height="42" alt="浏览产品界面"></a>
-  <a href="#本地运行"><img src="docs/showcase/develop.svg" width="174" height="42" alt="本地运行与开发"></a>
+  <a href="https://aurora.par73e.cn/aurora/"><img src="docs/showcase/launch.svg" width="174" height="42" alt="进入 AURORA，开始探索"></a>
+  <a href="#关于作品"><img src="docs/showcase/preview.svg" width="174" height="42" alt="了解这份作品"></a>
 </p>
 
 <p align="center">
-  <a href="https://aurora.par73e.cn/aurora/"><img src="https://img.shields.io/badge/Web-无需注册-8dd8ef?style=flat-square&amp;labelColor=101d2b" alt="Web · 无需注册"></a>
-  <a href="#开始你的旅程"><img src="https://img.shields.io/badge/3D-WebGL-eec287?style=flat-square&amp;labelColor=101d2b" alt="3D · WebGL"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-b6c4f4?style=flat-square&amp;labelColor=101d2b" alt="代码许可 · MIT"></a>
-</p>
-
-<p align="center">
-  <a href="#两种探索方式">产品功能</a> ·
-  <a href="#界面预览">真实界面</a> ·
-  <a href="#数据与来源">数据来源</a> ·
-  <a href="https://github.com/par73e/AURORA/issues">反馈与建议</a>
+  <a href="#两种观看宇宙的方式">探索路径</a> ·
+  <a href="#开始探索">体验说明</a> ·
+  <a href="#数据与来源">资料来源</a> ·
+  <a href="#本地运行">本地运行</a>
 </p>
 
 <br>
 
-AURORA 是一座可以在浏览器里进入的宇宙观测站。从太阳系出发，走近地球、月球与火星，追寻航天器的探索旅程；回到自己的观测地点，查看天气、月光与天体位置，把好奇心变成一晚的观测计划。
+## 关于作品
+
+宇宙既在遥远的地方，也在每一次抬头的时候。
+
+AURORA 将航天探索与本地天文观测放进同一座数字观测站。你可以在三维空间中认识天体与探索任务，也可以回到自己的地点和时间，寻找今晚值得停留的天空。
+
+作品以连续的空间转场、克制的光线和清晰的资料呈现，连接宏大的尺度与具体的观察。浏览从好奇心开始，路线由你决定。
 
 <p align="center">
-  <img src="docs/showcase/product-strip.svg" width="100%" alt="三维探索、航天任务、本地观测">
+  <img src="docs/showcase/journey.svg" width="100%" alt="原创宇宙插画：从行星轨道延伸到地平线上方的星座">
 </p>
 
-## 界面预览
-
-<a href="https://aurora.par73e.cn/aurora/#solar-system">
-  <img src="docs/showcase/solar-system.png" width="100%" alt="AURORA 真实界面：三维太阳系、行星轨道与深空探测器">
-</a>
-
-<p align="center"><sub>从太阳系总览开始，沿着行星与航天任务继续探索。点击图片进入体验。</sub></p>
+## 两种观看宇宙的方式
 
 <table>
   <tr>
     <td width="50%" valign="top">
-      <a href="https://aurora.par73e.cn/aurora/#moon"><img src="docs/showcase/moon.png" width="100%" alt="月球真实界面：轨道飞行器、任务标签与月面着陆点"></a>
-      <h3>走近一个世界</h3>
-      <p>查看月球与火星的轨道飞行器、着陆点和任务档案，让探索历史回到它发生的地方。</p>
+      <sub>01 / DEEP SPACE</sub>
+      <h3>向远方，追寻探索的足迹</h3>
+      <p>从太阳系出发，走近行星，沿着航天任务留下的路径，理解我们如何认识这些遥远的世界。</p>
+      <p>转动视角，选择一个吸引你的目的地。</p>
+      <a href="https://aurora.par73e.cn/aurora/#solar-system">深空探索 ↗</a>
     </td>
     <td width="50%" valign="top">
-      <a href="https://aurora.par73e.cn/aurora/#astronomy-sky"><img src="docs/showcase/sky-map.png" width="100%" alt="星图真实界面：北京公开坐标下的天体方位与轨迹"></a>
-      <h3>找到今晚的方向</h3>
-      <p>按观测地点与时间查看天空，搜索目标、追踪星轨，把想看的天体放回真实方位。</p>
+      <sub>02 / YOUR NIGHT SKY</sub>
+      <h3>向头顶，寻找今晚的星空</h3>
+      <p>让天空对应到你的地点与时间。结合天气、月光和天体位置，为一次真实的仰望找到方向。</p>
+      <p>选好观测地点，把目光交给今晚。</p>
+      <a href="https://aurora.par73e.cn/aurora/#astronomy">天文观测 ↗</a>
     </td>
   </tr>
 </table>
 
-<details>
-<summary>再看一眼：产品封面与观星条件</summary>
+## 开始探索
 
-![AURORA 正式产品封面](docs/showcase/cover.png)
+打开 [AURORA](https://aurora.par73e.cn/aurora/)，在首页选择一条路径。你可以自由浏览，也可以带着一个想了解的天体、一段任务故事，或一个关于今晚的问题进入。
 
-![北京公开坐标的观星条件：月相、天气评分与今夜目标建议](docs/showcase/conditions.png)
-
-</details>
-
-<sub>以上为 2026-11-05 正式页面截图；观测示例使用北京公开坐标，时间、天气与任务资料会随实际数据变化。截图与素材来源见<a href="docs/showcase/README.md">展示素材说明</a>。</sub>
-
-## 两种探索方式
-
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <h3>🪐 深空探索</h3>
-      <p><strong>从认识一颗行星，到读懂一次任务。</strong></p>
-      <ul>
-        <li>漫游太阳与八大行星，在示意布局和真实位置模式之间切换。</li>
-        <li>搜索地球航天器，聚焦目标，查看轨道、任务资料与近期发射。</li>
-        <li>走近月球与火星，浏览飞行器、着陆点和表面任务。</li>
-        <li>沿深空探测器的路径，了解目的地、任务阶段与探索背景。</li>
-      </ul>
-      <a href="https://aurora.par73e.cn/aurora/#solar-system">进入深空探索 ↗</a>
-    </td>
-    <td width="50%" valign="top">
-      <h3>☾ 天文观测</h3>
-      <p><strong>从“今晚能看吗”，到“几点朝哪里看”。</strong></p>
-      <ul>
-        <li>设置地点，结合天气、月光、观测评分与推荐窗口判断条件。</li>
-        <li>用第一视角星图查找目标，预览昨天、今天与明天的天空。</li>
-        <li>查阅天象日历，了解日月食、流星雨与行星事件的本地可见性。</li>
-        <li>复制含地点和时刻的今夜计划，或在天文图片墙继续发现宇宙。</li>
-      </ul>
-      <a href="https://aurora.par73e.cn/aurora/#astronomy">进入天文观测 ↗</a>
-    </td>
-  </tr>
-</table>
-
-## 开始你的旅程
-
-| 想自由探索 | 想准备今晚的观测 |
-| --- | --- |
-| **01** 进入深空探索，转动太阳系 | **01** 进入天文观测，设置观测地点 |
-| **02** 选择地球，搜索国际空间站等目标 | **02** 查看天气、月光和推荐时间窗口 |
-| **03** 前往月球或火星，展开任务与着陆点 | **03** 打开星图，聚焦感兴趣的天体 |
-| **04** 返回总览，寻找下一个目的地 | **04** 查阅天象，复制今夜计划文本 |
-
-推荐使用支持 WebGL 的电脑浏览器，通过鼠标旋转、缩放和点击目标。定位可使用浏览器授权，也可搜索地点或手动输入经纬度。
-
-近期访问的数据会短时复用，减少重复加载；三维场景采用按需加载贴图、后台轨道计算与动态分辨率，帮助控制浏览负担。浏览器数据缓存随刷新或关闭标签页释放。
+作品以支持 WebGL 的电脑浏览器为主要体验场景，使用鼠标旋转、缩放和选择目标。观测地点可以手动设置，也可以使用浏览器定位；无需注册。
 
 ## 数据与来源
 
@@ -214,9 +164,9 @@ go build ./cmd/api
 
 <p align="center">
   <strong>AURORA · 从太阳系到你头顶的夜空</strong><br>
-  <sub>Vue 3 · Three.js · TypeScript · Go · PostgreSQL · Redis</sub><br><br>
-  <a href="https://aurora.par73e.cn/aurora/">开始探索 ↗</a> ·
-  <a href="https://github.com/par73e/AURORA/issues">提出建议</a> ·
+  <sub>A Universe of Rockets, Orbits, Research and Astronomy</sub><br><br>
+  <a href="https://aurora.par73e.cn/aurora/">进入作品 ↗</a> ·
+  <a href="https://github.com/par73e/AURORA/issues">留下建议</a> ·
   <a href="LICENSE">MIT License</a><br>
   <sub>代码采用 MIT 许可；第三方资料与素材遵循各自的许可。</sub>
 </p>

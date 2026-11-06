@@ -1,16 +1,19 @@
 # GitHub 产品展示素材
 
-这里的素材仅用于仓库 README，不进入前端发布流程。
+这里的素材用于仓库 README，不进入前端发布流程。
+
+2026-11-06 按用户要求改为作品介绍页：当前 README 不展示任何实际网页截图，包括折叠区；用原创品牌图形与插画表达主题，把具体界面和内容留给访客自行探索。下方历史截图仅保留采集来源记录。
 
 ## 品牌图形
 
 - `aurora-banner.svg`：原创星空、轨道与星球品牌横幅；属于装饰插画，不是产品截图。
-- `launch.svg`、`preview.svg`、`develop.svg`：README 中的三个入口按钮，链接由 README 提供。
-- `product-strip.svg`：三条产品主线的图形摘要。
+- `launch.svg`、`preview.svg`：当前 README 的体验与作品介绍双入口，链接由 README 提供；`develop.svg` 为上一版按钮，当前不再引用。
+- `journey.svg`：从行星轨道过渡到地平线与星座的原创主题插画，属于装饰性示意，不是科学星图。
+- `product-strip.svg`：上一版使用的产品主线摘要，当前 README 不再引用。
 
 SVG 均为自包含矢量代码，不加载外部字体或图像，也不包含脚本。横幅动效遵循 `prefers-reduced-motion`；禁用动画时仍有完整静态图形。
 
-## 真实截图
+## 历史截图（不在当前 README 展示）
 
 2026-11-05 通过 ego lite 实际打开 `https://aurora.par73e.cn/aurora/`，点击并采集：
 
@@ -32,4 +35,4 @@ SVG 均为自包含矢量代码，不加载外部字体或图像，也不包含�
 
 参考 [AFFiNE](https://github.com/toeverything/AFFiNE) 的品牌横幅、产品画面和入口导航，以及 [Dify](https://github.com/langgenius/dify) 的封面与徽章组织方式。没有复制它们的图片、文案或品牌素材。
 
-README 经 GitHub Markdown 接口渲染检查；发布前在 ego lite 中检查所有图片、入口跳转和窄屏溢出，发布后再检查 GitHub 仓库实际效果。外部徽章来自 Shields.io；正文、仓库内图片和文字导航不依赖该徽章服务。
+README 经 GitHub Markdown 接口渲染检查；发布前在 ego lite 中检查所有图片、入口跳转和窄屏溢出，发布后再检查 GitHub 仓库实际效果。当前 README 只引用仓库内矢量图形，不再加载外部徽章。

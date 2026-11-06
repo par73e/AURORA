@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="174" height="42" viewBox="0 0 174 42" role="img" aria-label="浏览产品界面">
+<svg xmlns="http://www.w3.org/2000/svg" width="174" height="42" viewBox="0 0 174 42" role="img" aria-label="了解这份作品">
   <rect x=".5" y=".5" width="173" height="41" rx="7" fill="#101D2B" stroke="#355066"/>
   <rect x="15" y="15" width="11" height="11" rx="2" fill="none" stroke="#EEC287"/><path d="M18 15V26M15 19H26" stroke="#EEC287"/>
-  <text x="37" y="26" font-family="system-ui,-apple-system,'Segoe UI',sans-serif" font-size="14" fill="#DAEAF2">界面预览</text>
+  <text x="37" y="26" font-family="system-ui,-apple-system,'Segoe UI',sans-serif" font-size="14" fill="#DAEAF2">作品介绍</text>
   <path d="M139 21H148M145 18L148 21L145 24" fill="none" stroke="#A1BDCF" stroke-width="1.5"/>
 </svg>

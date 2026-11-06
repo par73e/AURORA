@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="300" viewBox="0 0 1280 300" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">从远方的轨道，到头顶的星空</title>
+  <desc id="desc">原创主题插画：行星与轨道的弧线延伸到山峦、地平线和星座。不是实际界面。</desc>
+  <defs>
+    <linearGradient id="bg" x2="1280" y2="300" gradientUnits="userSpaceOnUse"><stop stop-color="#08101B"/><stop offset=".55" stop-color="#0C1C2B"/><stop offset="1" stop-color="#080F1D"/></linearGradient>
+    <linearGradient id="path" x1="240" y1="150" x2="1040" y2="150" gradientUnits="userSpaceOnUse"><stop stop-color="#E7BE87"/><stop offset=".5" stop-color="#476A83"/><stop offset="1" stop-color="#8CBFD9"/></linearGradient>
+    <radialGradient id="moon" cx=".25" cy=".25"><stop stop-color="#E3D4B3"/><stop offset=".5" stop-color="#837D77"/><stop offset="1" stop-color="#101C2A"/></radialGradient>
+    <radialGradient id="glow"><stop stop-color="#5BADD3" stop-opacity=".12"/><stop offset="1" stop-color="#5BADD3" stop-opacity="0"/></radialGradient>
+    <clipPath id="clip"><rect width="1280" height="300" rx="12"/></clipPath>
+  </defs>
+  <g clip-path="url(#clip)">
+    <rect width="1280" height="300" fill="url(#bg)"/>
+    <ellipse cx="965" cy="155" rx="340" ry="240" fill="url(#glow)"/>
+    <g fill="#A3BDCC" opacity=".5"><circle cx="66" cy="88" r="1"/><circle cx="353" cy="60" r="1.2"/><circle cx="473" cy="120" r=".8"/><circle cx="626" cy="51" r="1"/><circle cx="742" cy="92" r=".8"/><circle cx="835" cy="42" r="1"/><circle cx="1180" cy="92" r=".8"/><circle cx="1224" cy="184" r="1"/><circle cx="556" cy="230" r=".8"/></g>
+    <g transform="translate(223 144)">
+      <ellipse rx="145" ry="46" transform="rotate(-23)" stroke="#A27F53" stroke-opacity=".45"/>
+      <ellipse rx="106" ry="78" transform="rotate(29)" stroke="#6694AF" stroke-opacity=".3"/>
+      <circle r="45" fill="url(#moon)" stroke="#B6AC99" stroke-opacity=".55"/>
+      <circle cx="-119" cy="54" r="3.5" fill="#EAC48D"/>
+      <circle cx="72" cy="64" r="2.5" fill="#7DBDD2"/>
+    </g>
+    <path d="M347 151C480 62 583 249 727 159C800 114 818 151 899 136" stroke="url(#path)" stroke-width="1.1" stroke-dasharray="4 7"/>
+    <g stroke="#91BBD0" stroke-width="1.1"><path d="M887 83L947 67L984 114L1046 93L1113 145L1056 185L984 114L958 168L887 183L887 83" stroke-opacity=".52"/></g>
+    <g fill="#D2E9F3"><circle cx="887" cy="83" r="2.5"/><circle cx="947" cy="67" r="2"/><circle cx="984" cy="114" r="3.5"/><circle cx="1046" cy="93" r="2"/><circle cx="1113" cy="145" r="2.5"/><circle cx="1056" cy="185" r="2"/><circle cx="958" cy="168" r="2"/><circle cx="887" cy="183" r="2"/></g>
+    <path d="M984 103V125M973 114H995" stroke="#D2E9F3" stroke-opacity=".7"/>
+    <path d="M704 259L798 222L857 241L928 203L1008 232L1051 216L1130 246L1200 228L1280 250V300H704Z" fill="#142539"/>
+    <path d="M629 285L747 259L826 279L934 244L1010 264L1110 253L1202 273L1280 251V300H629Z" fill="#0B1725"/>
+    <path d="M641 285L747 259L826 279L934 244L1010 264L1110 253L1202 273L1280 251" stroke="#49758D" stroke-opacity=".3"/>
+    <g font-family="Arial,Helvetica,sans-serif" font-size="10" letter-spacing="3" fill="#89A9BC"><text x="78" y="36">THE DISTANT WORLDS</text><text x="903" y="36">THE SKY ABOVE YOU</text><text x="78" y="273">AURORA / AN INVITATION TO EXPLORE</text></g>
+  </g>
+</svg>
