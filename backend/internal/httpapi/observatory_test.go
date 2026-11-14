@@ -36,3 +36,33 @@ func TestObservingConditionsRejectsInvalidInputBeforeWeatherLookup(t *testing.T)
 		})
 	}
 }
+
+type degradedProviderStub struct{}
+
+func (degradedProviderStub) Conditions(_ context.Context, _, _ float64) (observatory.Conditions, error) {
+	return observatory.Conditions{Timezone: "UTC", Degraded: &observatory.DegradedNotice{Reason: "upstream_unavailable", Since: "2026-11-14T10:00:00Z"}}, nil
+}
+
+func TestDegradedConditionsCarryNoStore(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/astronomy/conditions?latitude=31.23&longitude=121.47", nil)
+	response := httptest.NewRecorder()
+	observingConditionsHandler(degradedProviderStub{}, nil)(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d, want 200 for degraded forecast", response.Code)
+	}
+	if got := response.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("Cache-Control=%q, want no-store so degraded snapshots never propagate", got)
+	}
+}
+
+func TestFreshConditionsAreNotMarkedNoStore(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/astronomy/conditions?latitude=31.23&longitude=121.47", nil)
+	response := httptest.NewRecorder()
+	observingConditionsHandler(&conditionsProviderStub{}, nil)(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d", response.Code)
+	}
+	if got := response.Header().Get("Cache-Control"); got == "no-store" {
+		t.Fatal("fresh conditions were marked no-store")
+	}
+}

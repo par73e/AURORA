@@ -125,6 +125,8 @@ export interface ObservingConditions {
     pm10: number
     aerosolOpticalDepth: number
   }> | null
+  /** 上游气象源不可用时，后端返回进程内旧预报快照并携带该降级标记。 */
+  degraded?: { reason: string; since: string } | null
   /** 携带 time 参数时返回：该时刻最近的逐小时预报快照。 */
   selected?: {
     hour: ObservingConditions['hourly'][number]

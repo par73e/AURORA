@@ -35,6 +35,11 @@ func observingConditionsHandler(provider observatory.ConditionsProvider, moons o
 			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "暂时无法读取观测条件预报"})
 			return
 		}
+		if conditions.Degraded != nil {
+			// 降级快照是上游不可用时的旧预报：不得进入响应缓存或浏览器缓存，
+			// 恢复后的下一次请求必须重新回源。
+			w.Header().Set("Cache-Control", "no-store")
+		}
 		// 可选 time 参数：返回该时刻（Unix 秒）最近的逐小时预报快照，供按时间查询天气。
 		if selectedTime != nil {
 			hour, _, within := observatory.NearestHour(conditions.Hourly, conditions.Timezone, *selectedTime)

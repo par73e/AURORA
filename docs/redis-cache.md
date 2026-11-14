@@ -15,11 +15,11 @@ Nginx `/api/` → `aurora-cache.service`（本机 18084）→ 正式 API（本�
 | `/moon/landing-sites`、`/mars/landing-sites` | 6 小时 |
 | `/voyage/probes`、`/astronomy/image-wall` | 5 分钟 |
 | `/astronomy/events` | 5 分钟 |
-| `/astronomy/conditions`（不带 `time`） | 120 秒 |
+| `/astronomy/conditions`（不带 `time`） | 15 分钟 |
 
 有效期还会受当日 UTC 零点限制。采用按需生成和 TTL 到期重建，没有新增定时抓取、批量预热、后台轮询或同步后主动失效；新入库数据最多在上述窗口内更新到响应缓存。数据本身的来源时间、同步时间、预报范围保持原义，不将缓存生成时间当作上游更新时间。
 
-只缓存成功的 JSON 响应，单项正文上限 1 MiB；超过上限转交原 API。认证、Cookie、Range、未知参数、重复参数、实时评分、带指定时间的天气请求以及其他路径均绕过缓存。坐标参数不进行粗略合并；参数排序后取 SHA-256 生成键后缀，地点数值不直接出现在键名中。响应缓存可见的 JSON 仍可能包含公共天气和地点数据；不记录用户身份。
+只缓存成功的 JSON 响应，单项正文上限 1 MiB；超过上限转交原 API。认证、Cookie、Range、未知参数、重复参数、实时评分、带指定时间的天气请求以及其他路径均绕过缓存。`/astronomy/conditions` 的经纬度在取键前先归一到与 API 进程内天气缓存相同的 0.01° 网格，设备定位的坐标抖动不再产生各自独立的键；其余路径坐标参数不进行粗略合并；参数排序后取 SHA-256 生成键后缀，地点数值不直接出现在键名中。携带 `Cache-Control: no-store` 的上游响应（例如天气上游不可用时 API 提供的降级旧预报）不写入响应缓存，网关保留该指令而不改写为 `no-cache`。响应缓存可见的 JSON 仍可能包含公共天气和地点数据；不记录用户身份。
 
 键前缀为 `aurora:prod:response:v1:`。值是可读 JSON：`body` 是实际接口内容，`storedAt` 是本次缓存生成时间。HTTP 响应头 `X-Aurora-Cache` 显示 `HIT`、`MISS` 或 `BYPASS`。缓存命中前后 JSON 语义相同，序列化空白可能不同。
 

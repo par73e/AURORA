@@ -1,5 +1,5 @@
 export interface TargetSyncStatus {
-  status: 'success' | 'failed' | 'unsupported' | 'canceled'
+  status: 'success' | 'failed' | 'unsupported' | 'canceled' | 'unpublished'
   lastAttemptAt?: string | null
   lastSuccessAt?: string | null
 }

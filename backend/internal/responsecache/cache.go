@@ -9,13 +9,16 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
 
+	"aurora/backend/internal/observatory"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -84,7 +87,7 @@ func policy(r *http.Request) (string, time.Duration) {
 	case "/api/v1/astronomy/events":
 		ttl, allowed = 5*time.Minute, "|from|to|latitude|longitude|elevation|timezone|"
 	case "/api/v1/astronomy/conditions":
-		ttl, allowed = 2*time.Minute, "|latitude|longitude|scores|"
+		ttl, allowed = 15*time.Minute, "|latitude|longitude|scores|"
 	default:
 		return "", 0
 	}
@@ -98,6 +101,21 @@ func policy(r *http.Request) (string, time.Duration) {
 	for key, values := range params {
 		if len(values) != 1 || !strings.Contains(allowed, "|"+key+"|") {
 			return "", 0
+		}
+	}
+	// 天气坐标归一到与进程内缓存相同的 0.01° 网格：设备定位的坐标抖动
+	// 不应让每个小数位变体都 miss 并回源。缺少坐标的请求交给原 API 校验。
+	if r.URL.Path == "/api/v1/astronomy/conditions" {
+		for _, axis := range []string{"latitude", "longitude"} {
+			raw, ok := params[axis]
+			if !ok {
+				return "", 0
+			}
+			value, err := strconv.ParseFloat(raw[0], 64)
+			if err != nil || math.IsNaN(value) || math.IsInf(value, 0) {
+				return "", 0
+			}
+			params[axis] = []string{strconv.FormatFloat(observatory.GridCoordinate(value), 'f', 2, 64)}
 		}
 	}
 	// Date-sensitive default ranges and image selection must not cross UTC midnight.
@@ -233,7 +251,10 @@ func (c *Cache) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		c.misses.Add(1)
 		w.Header().Set("X-Aurora-Cache", "MISS")
 	}
-	w.Header().Set("Cache-Control", "no-cache")
+	// 上游标记 no-store（例如天气降级快照）时保留该指令，不用 no-cache 覆盖。
+	if !strings.Contains(value.header.Get("Cache-Control"), "no-store") {
+		w.Header().Set("Cache-Control", "no-cache")
+	}
 	w.WriteHeader(value.status)
 	_, _ = w.Write(value.body)
 }

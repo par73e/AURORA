@@ -52,7 +52,7 @@ func (s *Syncer) SyncCelesTrak(ctx context.Context) error {
 				endpoint := fmt.Sprintf("https://celestrak.org/NORAD/elements/gp.php?CATNR=%d&FORMAT=JSON", catalogID)
 				body, err := s.getWithRetry(ctx, endpoint)
 				if err != nil {
-					return 0, err
+					return 0, classifyCatalogError(err, catalogID)
 				}
 				var payload []struct {
 					Epoch string `json:"EPOCH"`
@@ -281,7 +281,7 @@ func (s *Syncer) get(ctx context.Context, endpoint string) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("GET %s: status %s", endpoint, resp.Status)
+		return nil, &httpStatusError{endpoint: endpoint, status: resp.StatusCode}
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if err != nil {
@@ -290,7 +290,28 @@ func (s *Syncer) get(ctx context.Context, endpoint string) ([]byte, error) {
 	return body, nil
 }
 
+// httpStatusError 保留上游 HTTP 状态码，使永久错误（如目录下架 404）可与短暂抖动区分。
+type httpStatusError struct {
+	endpoint string
+	status   int
+}
+
+func (e *httpStatusError) Error() string {
+	return fmt.Sprintf("GET %s: status %d", e.endpoint, e.status)
+}
+
+// classifyCatalogError 把目录请求错误归因：404 表示上游目录已不再提供该目标，
+// 是永久状态而非同步故障；其余错误原样返回。
+func classifyCatalogError(err error, catalogID int64) error {
+	var statusErr *httpStatusError
+	if errors.As(err, &statusErr) && statusErr.status == http.StatusNotFound {
+		return fmt.Errorf("%w: CATNR %d", errTargetUnpublished, catalogID)
+	}
+	return err
+}
+
 // getWithRetry 只为短暂网络抖动补一次请求；重试等待也受当前调度 ctx 约束，不能留下后台僵尸任务。
+// 4xx 是上游的确定答复（如下架），重试没有意义。
 func (s *Syncer) getWithRetry(ctx context.Context, endpoint string) ([]byte, error) {
 	var lastErr error
 	for attempt := 0; attempt < 2; attempt++ {
@@ -299,7 +320,8 @@ func (s *Syncer) getWithRetry(ctx context.Context, endpoint string) ([]byte, err
 			return body, nil
 		}
 		lastErr = err
-		if attempt == 1 || ctx.Err() != nil {
+		var statusErr *httpStatusError
+		if (errors.As(err, &statusErr) && statusErr.status >= 400 && statusErr.status < 500) || attempt == 1 || ctx.Err() != nil {
 			break
 		}
 		select {

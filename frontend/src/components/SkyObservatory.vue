@@ -1445,7 +1445,7 @@ function refreshConditionsIfNeeded() {
   const coords = activeCoordinates.value
   const fetchedAt = Date.parse(conditions.value?.retrievedAt ?? '')
   if (!coords || conditionsStatus.value === 'loading' || Date.now() - conditionsRefreshAttemptAt < 5 * 60_000) return
-  if (conditionsStatus.value === 'error' || !Number.isFinite(fetchedAt) || Date.now() - fetchedAt >= 60 * 60_000) {
+  if (conditionsStatus.value === 'error' || conditions.value?.degraded != null || !Number.isFinite(fetchedAt) || Date.now() - fetchedAt >= 60 * 60_000) {
     void loadConditions(coords.latitude, coords.longitude)
   }
 }
@@ -1732,8 +1732,8 @@ onBeforeUnmount(() => {
           <p v-else-if="recommendation" class="observing-targets-empty">{{ recommendation.weatherAvailable ? '今夜天气与月光条件有限，建议短时观察亮目标，或改日再安排。' : '天文夜内暂无可观测的亮目标，可改日再安排。' }}</p>
 
           <div class="current-observation">
-            <header><div><p>CONDITION SNAPSHOT / {{ conditionsStale ? '资料已过期' : conditionsMomentLabel }}</p><h3>{{ followingRealTime ? '当前' : '预览' }}观测环境</h3></div><span v-if="displayedConditions">{{ displayedConditions.time.slice(11, 16) }} · {{ conditions?.source }}{{ conditionsStale ? ' · 旧预报' : '' }}</span><span v-else>{{ !activeCoordinates ? '设置地点后读取环境数据' : conditionsStale ? '天气资料已过期' : conditionsStatus === 'loading' ? '等待环境数据' : '所选时刻暂无环境数据' }}</span></header>
-            <details class="data-provenance"><summary>数据类型与有效时间</summary><p>月相按今日计算；星图天体位置按所选时刻计算。天气为 {{ conditions?.source ?? '在线气象来源' }} 的逐小时预报{{ conditions?.retrievedAt ? `，获取于 ${formatSourceDate(conditions.retrievedAt)}` : '，尚未取得' }}。{{ displayedConditions ? `当前展示的气象时段：${displayedConditions.time}。` : '' }}光污染来自 {{ lightPollution?.dataYear ?? '既有年份' }} 年 VIIRS 夜间灯光估算，不是实时测量。</p></details>
+            <header><div><p>CONDITION SNAPSHOT / {{ conditionsStale ? '资料已过期' : conditionsMomentLabel }}</p><h3>{{ followingRealTime ? '当前' : '预览' }}观测环境</h3></div><span v-if="displayedConditions">{{ displayedConditions.time.slice(11, 16) }} · {{ conditions?.source }}{{ conditionsStale ? ' · 旧预报' : '' }}{{ conditions?.degraded ? ' · 气象源暂不可用' : '' }}</span><span v-else>{{ !activeCoordinates ? '设置地点后读取环境数据' : conditionsStale ? '天气资料已过期' : conditionsStatus === 'loading' ? '等待环境数据' : '所选时刻暂无环境数据' }}</span></header>
+            <details class="data-provenance"><summary>数据类型与有效时间</summary><p>月相按今日计算；星图天体位置按所选时刻计算。天气为 {{ conditions?.source ?? '在线气象来源' }} 的逐小时预报{{ conditions?.retrievedAt ? `，获取于 ${formatSourceDate(conditions.retrievedAt)}` : '，尚未取得' }}。{{ displayedConditions ? `当前展示的气象时段：${displayedConditions.time}。` : '' }}光污染来自 {{ lightPollution?.dataYear ?? '既有年份' }} 年 VIIRS 夜间灯光估算，不是实时测量。{{ conditions?.degraded ? `气象源暂时不可用，当前显示 ${formatSourceDate(conditions.degraded.since)} 之前最后一次成功获取的预报。` : '' }}</p></details>
             <div class="instrument-grid" :aria-label="`${conditionsMomentLabel}观测条件`">
               <article><span>总云量</span><strong>{{ displayedConditions ? `${Math.round(displayedConditions.cloudCover)}%` : '—' }}</strong><small>低 / 中 / 高云详见下方预报</small></article>
               <article><span>能见度</span><strong>{{ displayedConditions ? `${(displayedConditions.visibilityMeters / 1000).toFixed(1)} km` : '—' }}</strong><small>影响暗星与银河辨识</small></article>

@@ -148,7 +148,7 @@ func TestErrorsAndPartialAuthResponsesAreNotStored(t *testing.T) {
 }
 
 func TestPolicyExcludesPersonalAndTimeSensitiveRequests(t *testing.T) {
-	for _, path := range []string{"/api/health", "/api/v1/astronomy/score?at=123", "/api/v1/astronomy/moon?at=123", "/api/v1/astronomy/conditions?latitude=1&longitude=2&time=123", "/api/v1/orbit/overview?unexpected=1", "/api/v1/astronomy/events?latitude=1&latitude=2"} {
+	for _, path := range []string{"/api/health", "/api/v1/astronomy/score?at=123", "/api/v1/astronomy/moon?at=123", "/api/v1/astronomy/conditions?latitude=1&longitude=2&time=123", "/api/v1/orbit/overview?unexpected=1", "/api/v1/astronomy/events?latitude=1&latitude=2", "/api/v1/astronomy/conditions?scores=1", "/api/v1/astronomy/conditions?latitude=abc&longitude=2"} {
 		if key, _ := policy(httptest.NewRequest("GET", path, nil)); key != "" {
 			t.Fatalf("unexpected cache policy for %s", path)
 		}
@@ -184,8 +184,46 @@ func TestOversizedResponsesPassThroughIntact(t *testing.T) {
 	}
 }
 
-func TestCancelledWaiterDoesNotCancelSharedLoad(t *testing.T) {
-	started := make(chan struct{})
+func TestConditionsKeyUsesObserverGridAndLongerTTL(t *testing.T) {
+	key := func(path string) string { k, _ := policy(httptest.NewRequest("GET", path, nil)); return k }
+	ttlOf := func(path string) time.Duration { _, ttl := policy(httptest.NewRequest("GET", path, nil)); return ttl }
+	same := key("/api/v1/astronomy/conditions?latitude=31.230400&longitude=121.473700")
+	jitter := key("/api/v1/astronomy/conditions?latitude=31.230499&longitude=121.473701")
+	other := key("/api/v1/astronomy/conditions?latitude=31.240400&longitude=121.473700")
+	scored := key("/api/v1/astronomy/conditions?latitude=31.230400&longitude=121.473700&scores=1")
+	if same == "" || same != jitter || same == other || same == scored {
+		t.Fatalf("conditions grid key wrong: same=%q jitter=%q other=%q scored=%q", same, jitter, other, scored)
+	}
+	if strings.Contains(same, "31.2304") {
+		t.Fatalf("raw coordinate leaked into key: %q", same)
+	}
+	if ttl := ttlOf("/api/v1/astronomy/conditions?latitude=31.23&longitude=121.47"); ttl != 15*time.Minute {
+		t.Fatalf("conditions ttl = %v, want 15m", ttl)
+	}
+}
+
+func TestNoStoreUpstreamResponsesAreNotCachedAndKeepDirective(t *testing.T) {
+	var calls atomic.Int32
+	c, s := setup(t, func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		fmt.Fprint(w, `{"retrievedAt":"old","degraded":{"reason":"upstream_unavailable"}}`)
+	})
+	first := get(c, "/api/v1/astronomy/conditions?latitude=31.23&longitude=121.47")
+	second := get(c, "/api/v1/astronomy/conditions?latitude=31.23&longitude=121.47")
+	if first.Code != 200 || second.Code != 200 {
+		t.Fatalf("degraded response blocked: %d/%d", first.Code, second.Code)
+	}
+	if got := first.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("no-store was rewritten to %q", got)
+	}
+	if calls.Load() != 2 || len(s.data) != 0 {
+		t.Fatalf("no-store response cached: calls=%d keys=%d", calls.Load(), len(s.data))
+	}
+}
+
+func TestCancelledWaiterDoesNotCancelSharedLoad(t *testing.T) {	started := make(chan struct{})
 	release := make(chan struct{})
 	c, _ := setup(t, func(w http.ResponseWriter, r *http.Request) {
 		close(started)

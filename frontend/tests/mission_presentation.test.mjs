@@ -28,3 +28,9 @@ test('同步失败不冒称新鲜，资料年龄提醒不声称物理精度', ()
   assert.equal(snapshotNotice('2026-10-11T00:00:00Z', 'success', now), undefined)
   assert.match(snapshotNotice(null, 'unsupported', now), /暂无实时星历支持/)
 })
+
+test('上游目录下架的目标单独说明，不混同同步失败', () => {
+  const now = Date.parse('2026-11-14T00:00:00Z')
+  assert.match(snapshotNotice('2026-11-06T00:00:00Z', 'unpublished', now), /已不在公开星历目录.*保留上次资料/)
+  assert.doesNotMatch(snapshotNotice('2026-11-06T00:00:00Z', 'unpublished', now), /更新未成功/)
+})

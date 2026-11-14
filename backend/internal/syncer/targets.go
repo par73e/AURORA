@@ -14,6 +14,25 @@ type targetTask struct {
 	run       func(context.Context) (int, error) // commits data and successful acquisition time together
 }
 
+// errTargetUnpublished 表示上游目录已不再提供该目标（如 CelesTrak 对已离目录的
+// NORAD 编号返回 404）。这是永久状态而非同步故障：单目标下架不应把整个数据源判失败。
+var errTargetUnpublished = errors.New("target no longer published by upstream catalog")
+
+// targetStatus 把单个目标的同步结果归入状态。上游目录下架（errTargetUnpublished）
+// 是永久状态而非同步故障，不计入 failed，避免单目标下架把整个数据源判失败。
+func targetStatus(err error) string {
+	switch {
+	case err == nil:
+		return "success"
+	case errors.Is(err, errTargetUnpublished):
+		return "unpublished"
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return "canceled"
+	default:
+		return "failed"
+	}
+}
+
 // All spacecraft pipelines use the same failure and freshness rules. Cancellation
 // still finalizes metadata with a bounded context, without advancing success time.
 func (s *Syncer) syncTargets(ctx context.Context, source string, catalog func() ([]targetTask, error)) (syncErr error) {
@@ -32,7 +51,7 @@ func (s *Syncer) syncTargets(ctx context.Context, source string, catalog func() 
 	if err != nil {
 		return err
 	}
-	eligible, failed := 0, 0
+	eligible, failed, unpublished := 0, 0, 0
 	for _, task := range tasks {
 		attemptedAt := time.Now().UTC()
 		status := "unsupported"
@@ -45,13 +64,12 @@ func (s *Syncer) syncTargets(ctx context.Context, source string, catalog func() 
 				written, targetErr = task.run(ctx)
 				records += written
 			}
-			status = "success"
-			if targetErr != nil {
+			status = targetStatus(targetErr)
+			switch status {
+			case "failed", "canceled":
 				failed++
-				status = "failed"
-				if errors.Is(targetErr, context.Canceled) || errors.Is(targetErr, context.DeadlineExceeded) {
-					status = "canceled"
-				}
+			case "unpublished":
+				unpublished++
 			}
 		}
 		if status == "success" {
@@ -75,11 +93,23 @@ func (s *Syncer) syncTargets(ctx context.Context, source string, catalog func() 
 			return errors.Join(targetErr, fmt.Errorf("record target sync %s: %w", task.id, err))
 		}
 	}
+	if err := sourceResult(source, eligible, failed, unpublished, ctx.Err()); err != nil {
+		return err
+	}
+	return nil
+}
+
+// sourceResult 归并单源各目标的同步结果。单个目标被上游目录下架不算源失败；
+// 但全部目标都已下架说明目录本身不可用，仍判失败，避免把空同步记为成功。
+func sourceResult(source string, eligible, failed, unpublished int, ctxErr error) error {
 	if eligible == 0 {
 		return errors.New(source + " sync has no supported targets")
 	}
 	if failed > 0 {
-		return errors.Join(ctx.Err(), fmt.Errorf("%s sync incomplete: %d/%d supported targets failed", source, failed, eligible))
+		return errors.Join(ctxErr, fmt.Errorf("%s sync incomplete: %d/%d supported targets failed", source, failed, eligible))
+	}
+	if unpublished == eligible {
+		return errors.New(source + " sync has no published targets")
 	}
 	return nil
 }

@@ -31,10 +31,19 @@ type Conditions struct {
 	Current     Current      `json:"current"`
 	Hourly      []Hourly     `json:"hourly"`
 	AirQuality  []AirQuality `json:"airQuality"`
+	// Degraded 仅在无法刷新上游预报、改为提供进程内旧快照时设置；
+	// 它不进入缓存，新鲜命中不会携带。
+	Degraded *DegradedNotice `json:"degraded,omitempty"`
 	// Selected 仅在请求携带 time 参数时返回：该时刻最近的逐小时预报快照。
 	Selected *SelectedObservation `json:"selected,omitempty"`
 	// Scores 仅在请求携带 scores=1 时返回：逐小时观测评分（供动态推荐）。
 	Scores []HourScore `json:"scores,omitempty"`
+}
+
+// DegradedNotice 说明本次响应是上游不可用时的旧预报降级结果。
+type DegradedNotice struct {
+	Reason string `json:"reason"`
+	Since  string `json:"since"` // 本次刷新失败的时刻（UTC RFC3339）
 }
 
 // SelectedObservation 是 conditions 接口的可选 time 参数产物。
@@ -99,8 +108,21 @@ type Client struct {
 }
 
 type cacheEntry struct {
-	until time.Time
-	value Conditions
+	until    time.Time
+	storedAt time.Time // 成功获取上游预报的时刻；降级宽限以它为界
+	failedAt time.Time // 最近一次刷新失败的时刻；冷却期内不再重复等待上游超时
+	value    Conditions
+}
+
+// GridCell 把观测坐标归一到 0.01° 网格。进程内天气缓存与响应缓存网关共用同一网格，
+// 使设备定位的坐标抖动不会让两层缓存各自 miss。
+func GridCell(latitude, longitude float64) string {
+	return strconv.FormatFloat(GridCoordinate(latitude), 'f', 2, 64) + "," + strconv.FormatFloat(GridCoordinate(longitude), 'f', 2, 64)
+}
+
+// GridCoordinate 把单个坐标轴归一到 0.01° 网格值。
+func GridCoordinate(value float64) float64 {
+	return math.Round(value*100) / 100
 }
 
 func NewClient() *Client {
@@ -117,36 +139,100 @@ func NewClientWithURLs(weatherURL, airURL string, httpClient *http.Client) *Clie
 	}
 }
 
+// staleGrace 是上游不可用时允许继续提供旧预报的宽限期。预报按小时更新、前端以
+// 90 分钟为过期阈值；宽限只在“刷新失败”时启用，响应携带 degraded 标记与 no-store，
+// 响应缓存与浏览器都不会把降级快照当作新鲜数据继续传播。
+const staleGrace = 6 * time.Hour
+
+// failureCooldown 是上游失败后的冷却期：冷却内的请求直接返回降级旧预报，
+// 不让每个访客都重新等待一遍上游超时。
+const failureCooldown = 30 * time.Second
+
 func (client *Client) Conditions(ctx context.Context, latitude, longitude float64) (Conditions, error) {
 	if latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180 || math.IsNaN(latitude) || math.IsNaN(longitude) {
 		return Conditions{}, errors.New("observer coordinates are invalid")
 	}
-	key := strconv.FormatFloat(math.Round(latitude*100)/100, 'f', 2, 64) + "," + strconv.FormatFloat(math.Round(longitude*100)/100, 'f', 2, 64)
+	key := GridCell(latitude, longitude)
+	now := client.now()
 	client.mu.Lock()
-	if cached, ok := client.cache[key]; ok && client.now().Before(cached.until) {
+	cached, hasCached := client.cache[key]
+	if hasCached && now.Before(cached.until) {
 		client.mu.Unlock()
 		return cached.value, nil
 	}
+	// 冷却期内上游大概率仍不可用：有宽限内的旧快照就直接降级，避免重复阻塞。
+	if hasCached && !cached.storedAt.IsZero() && !cached.failedAt.IsZero() &&
+		now.Sub(cached.failedAt) < failureCooldown && now.Sub(cached.storedAt) <= staleGrace {
+		client.mu.Unlock()
+		return client.degraded(cached.value, now), nil
+	}
 	client.mu.Unlock()
 
-	weather, err := client.weather(ctx, latitude, longitude)
-	if err != nil {
-		return Conditions{}, err
+	weather, air, weatherErr := client.fetchUpstreams(ctx, latitude, longitude)
+	if weatherErr != nil {
+		client.mu.Lock()
+		entry := cached
+		if !hasCached {
+			entry = cacheEntry{}
+		}
+		entry.failedAt = now
+		entry.until = time.Time{}
+		client.cache[key] = entry
+		client.mu.Unlock()
+		// stale-while-error：上游不可用时，若该网格在宽限期内仍有成功快照，
+		// 提供旧预报并诚实标记降级；没有可用旧快照时保持失败，不伪造数据。
+		if hasCached && !cached.storedAt.IsZero() && now.Sub(cached.storedAt) <= staleGrace {
+			return client.degraded(cached.value, now), nil
+		}
+		return Conditions{}, weatherErr
 	}
-	air, err := client.airQuality(ctx, latitude, longitude)
 	// Air quality improves the observing explanation but must not make a weather
 	// forecast unavailable if that independent public endpoint is slow or down.
-	if err == nil {
+	if air != nil {
 		weather.AirQuality = air
 	}
-	weather.RetrievedAt = client.now().UTC().Format(time.RFC3339)
+	now = client.now()
+	weather.RetrievedAt = now.UTC().Format(time.RFC3339)
 	weather.Source = "Open-Meteo forecast"
 
 	client.mu.Lock()
 	// 天气数据源按小时更新；缓存节奏对齐为 1 小时，避免把旧预报当新预报提供。
-	client.cache[key] = cacheEntry{until: client.now().Add(time.Hour), value: weather}
+	client.cache[key] = cacheEntry{until: now.Add(time.Hour), storedAt: now, value: weather}
 	client.mu.Unlock()
 	return weather, nil
+}
+
+// degraded 复制旧快照并附加降级标记；storedAt/retrievedAt 保持原义，
+// 调用方与前端仍能据 retrievedAt 判断资料时效。
+func (client *Client) degraded(stale Conditions, now time.Time) Conditions {
+	stale.Degraded = &DegradedNotice{Reason: "upstream_unavailable", Since: now.UTC().Format(time.RFC3339)}
+	return stale
+}
+
+// fetchUpstreams 并发请求天气与空气质量：空气质量失败不影响天气预报，
+// 并发也使最坏耗时不再叠加为两路超时之和。
+func (client *Client) fetchUpstreams(ctx context.Context, latitude, longitude float64) (Conditions, []AirQuality, error) {
+	type weatherResult struct {
+		value Conditions
+		err   error
+	}
+	type airResult struct {
+		value []AirQuality
+		err   error
+	}
+	weatherOut := make(chan weatherResult, 1)
+	airOut := make(chan airResult, 1)
+	go func() {
+		value, err := client.weather(ctx, latitude, longitude)
+		weatherOut <- weatherResult{value: value, err: err}
+	}()
+	go func() {
+		value, err := client.airQuality(ctx, latitude, longitude)
+		airOut <- airResult{value: value, err: err}
+	}()
+	weather := <-weatherOut
+	air := <-airOut
+	return weather.value, air.value, weather.err
 }
 
 func (client *Client) weather(ctx context.Context, latitude, longitude float64) (Conditions, error) {
