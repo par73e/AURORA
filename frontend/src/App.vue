@@ -6,12 +6,13 @@ FIRST VIEWPORT: a quiet heading above one dominant globe; controls are compact a
 FORM: progressive observatory, the assigned seventh Operate structure; dense datasets receive dedicated workspaces below the scene.
 -->
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { CATALOG_PAGE_SIZE, LAUNCH_SITE_PAGE_SIZE } from './catalog'
 import { bilingualName } from './bilingual'
 import { JUPITER_PAGE, MERCURY_PAGE, NEPTUNE_PAGE, SATURN_PAGE, SUN_PAGE, URANUS_PAGE, VENUS_PAGE } from './planetPages'
 import AuroraBrand from './components/AuroraBrand.vue'
 import AuroraCover from './components/AuroraCover.vue'
+import LoadingStatus from './components/LoadingStatus.vue'
 import SolarSystemItem from './components/SolarSystemItem.vue'
 import { fetchObserverPlace, fetchOrbitOverview, fetchSpacecraftCatalog } from './api'
 import { spacecraftPoint } from './orbit/coordinates'
@@ -29,12 +30,19 @@ const loadMoonScene = () => import('./components/MoonScene.vue')
 const loadMarsScene = () => import('./components/MarsScene.vue')
 const loadPlanetScene = () => import('./components/PlanetScene.vue')
 const loadSkyObservatory = () => import('./components/SkyObservatory.vue')
-const OrbitScene = defineAsyncComponent({ loader: loadOrbitScene, suspensible: false })
-const SolarSystem = defineAsyncComponent({ loader: loadSolarSystem, suspensible: false })
-const MoonScene = defineAsyncComponent({ loader: loadMoonScene, suspensible: false })
-const MarsScene = defineAsyncComponent({ loader: loadMarsScene, suspensible: false })
-const PlanetScene = defineAsyncComponent({ loader: loadPlanetScene, suspensible: false })
-const SkyObservatory = defineAsyncComponent({ loader: loadSkyObservatory, suspensible: false })
+function sceneComponent<T extends import('vue').Component>(loader: () => Promise<{ default: T }>, label: string) {
+  return defineAsyncComponent({
+    loader,
+    suspensible: false,
+    loadingComponent: { render: () => h(LoadingStatus, { label, variant: 'stage' }) },
+  })
+}
+const OrbitScene = sceneComponent(loadOrbitScene, '正在准备地球场景')
+const SolarSystem = sceneComponent(loadSolarSystem, '正在准备太阳系场景')
+const MoonScene = sceneComponent(loadMoonScene, '正在准备月球场景')
+const MarsScene = sceneComponent(loadMarsScene, '正在准备火星场景')
+const PlanetScene = sceneComponent(loadPlanetScene, '正在准备行星场景')
+const SkyObservatory = sceneComponent(loadSkyObservatory, '正在打开天文观测')
 
 type ObserverLocationStatus = 'locating' | 'resolving' | 'located' | 'partial' | 'fallback'
 
@@ -2042,8 +2050,11 @@ onBeforeUnmount(() => {
           <!-- 数据健康灯（只保留一个）：移到太阳系页——深空探测器数据源（CelesTrak/Launch Library/JPL Horizons）
                最近一次同步成败的 3 合 1 聚合；地球/月球页保持身份标签 -->
           <div v-if="surface === 'solar-system'" class="live-status">
-            <span class="status-dot" :class="{ healthy: !!overview && dataHealthy, syncing: loading }" />
-            <span>{{ loading ? '正在读取资料' : dataHealthy && !!overview ? '地球资料已更新' : '地球资料更新异常' }}</span>
+            <LoadingStatus v-if="loading" class="live-status-loading" label="正在读取地球资料" />
+            <template v-else>
+              <span class="status-dot" :class="{ healthy: !!overview && dataHealthy }" />
+              <span>{{ dataHealthy && !!overview ? '地球资料已更新' : '地球资料更新异常' }}</span>
+            </template>
             <strong>{{ timeOnly(now) }} UTC+8</strong>
           </div>
           <div v-else class="live-status solar-clock">
@@ -2248,9 +2259,7 @@ onBeforeUnmount(() => {
             </div>
             <div class="scene-credits" aria-hidden="true">NASA Blue Marble / Earth at Night</div>
 
-            
-
-            <section v-if="loading" class="system-message"><strong>正在加载轨道数据</strong><small>LOADING ORBIT DATA</small></section>
+            <LoadingStatus v-if="loading" class="scene-loading" label="正在读取地球轨道数据" />
             <section v-else-if="error" class="system-message error-message"><strong>轨道数据暂不可用</strong><p>请稍后重试。</p><button @click="load">重新加载</button></section>
           </div>
         </div>
@@ -2272,7 +2281,8 @@ onBeforeUnmount(() => {
               <label><span>排序</span><select v-model="objectSort"><option value="name">名称</option><option value="norad">NORAD 编号</option><option value="operator">运营方</option></select></label>
             </div>
             <p v-if="catalogResult.error || catalogRequestError" class="query-error">{{ catalogResult.error || catalogRequestError }}</p>
-            <div class="object-table" role="table" aria-label="飞行器查询结果">
+            <LoadingStatus v-if="catalogLoading" class="catalog-refresh" :label="pagedCatalogItems.length ? '正在更新查询结果' : '正在查询飞行器目录'" />
+            <div class="object-table" role="table" aria-label="飞行器查询结果" :aria-busy="catalogLoading">
               <div class="object-table-head" role="row"><span>NORAD</span><span>对象</span><span>运营方</span><span>类型</span><span>轨道历元</span></div>
               <button v-for="craft in pagedCatalogItems" :key="craft.id" class="object-row" role="row" @click="selectAndFocus({ kind: craft.kind, id: craft.id })">
                 <span>{{ craft.noradCatalogId ?? '—' }}</span>
@@ -2281,10 +2291,12 @@ onBeforeUnmount(() => {
                 <span>{{ craft.category }}</span>
                 <span>{{ formatUTCDate(craft.orbitEpoch) }}</span>
               </button>
-              <div v-if="catalogLoading" class="catalog-empty">正在查询飞行器目录…</div>
+              <template v-if="catalogLoading && !pagedCatalogItems.length">
+                <div v-for="row in 3" :key="row" class="object-table-head catalog-placeholder-row" aria-hidden="true"><i v-for="column in 5" :key="column" /></div>
+              </template>
               <div v-else-if="!pagedCatalogItems.length" class="catalog-empty">没有符合当前条件的飞行器。请修改搜索词或筛选条件。</div>
             </div>
-            <div class="pagination-space"><span>第 {{ catalogPage }} / {{ catalogPageCount }} 页 · {{ catalogTotal }} 个飞行器</span><div><button :disabled="catalogPage <= 1 || catalogLoading" @click="catalogGotoPage(-1)">上一页</button><button :disabled="catalogPage >= catalogPageCount || catalogLoading" @click="catalogGotoPage(1)">下一页</button></div></div>
+            <div class="pagination-space"><span><template v-if="!catalogLoading || pagedCatalogItems.length">第 {{ catalogPage }} / {{ catalogPageCount }} 页 · {{ catalogTotal }} 个飞行器</template></span><div><button :disabled="catalogPage <= 1 || catalogLoading" @click="catalogGotoPage(-1)">上一页</button><button :disabled="catalogPage >= catalogPageCount || catalogLoading" @click="catalogGotoPage(1)">下一页</button></div></div>
           </div>
         </div>
       </section>
@@ -2323,7 +2335,8 @@ onBeforeUnmount(() => {
               <span>{{ event.locationNameZh || event.padNameZh }}</span>
               <span class="launch-time">{{ eventDate(event.net).time }}<small>UTC+8</small></span>
             </button>
-            <div v-if="!upcomingEvents.length" class="catalog-empty">未来 30 天内暂无已载入事件。</div>
+            <LoadingStatus v-if="loading && !upcomingEvents.length" class="launch-loading" variant="panel" label="正在读取发射日程" />
+            <div v-else-if="!upcomingEvents.length" class="catalog-empty">未来 30 天内暂无已载入事件。</div>
           </div>
           <div v-if="upcomingEvents.length" class="pagination-space">
             <span />

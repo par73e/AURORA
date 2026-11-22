@@ -23,6 +23,7 @@ import { easeOutExpo, normalizeAzimuth, shortestAzimuthDelta, skyTurnDuration } 
 import { constellationLines, skyCatalog, type SkyCatalogObject } from '../skyCatalog'
 import moonNearsideTexture from '../assets/solar/2k_moon.jpg'
 import AuroraBrand from './AuroraBrand.vue'
+import LoadingStatus from './LoadingStatus.vue'
 import ObservatoryClock from './ObservatoryClock.vue'
 
 import { skyPageFromHash, type SkyPage } from '../routes'
@@ -386,7 +387,8 @@ const currentAir = computed(() => {
     return Math.abs(itemTime - target) < Math.abs(nearestTime - target) ? item : nearest
   })
 })
-const scoreVerdict = computed(() => !activeCoordinates.value ? locationStatus.value === 'locating' ? '正在获取观测地点' : '请先设置观测地点' : !planNight.value ? '暂无天文夜评分窗口' : conditionsStale.value ? '天气资料已过期' : hasTonightScoreDetails.value ? tonightScore.value?.verdict ?? '正在计算今夜条件' : (tonightScore.value ? '评分暂不可用' : conditionsStatus.value === 'error' ? '天气数据不足或暂不可用' : '正在计算今夜条件'))
+const scoreVerdict = computed(() => !activeCoordinates.value ? locationStatus.value === 'locating' ? '正在获取观测地点' : '请先设置观测地点' : !planNight.value ? '暂无天文夜评分窗口' : conditionsStale.value ? '天气资料已过期' : hasTonightScoreDetails.value ? tonightScore.value?.verdict ?? '评分暂不可用' : (tonightScore.value ? '评分暂不可用' : conditionsStatus.value === 'error' ? '天气数据不足或暂不可用' : '评分暂不可用'))
+const scoreAwaitingWeather = computed(() => !!activeCoordinates.value && !!planNight.value && !conditionsStale.value && !scoreWeather.value && conditionsStatus.value === 'loading')
 const scorePanel = computed(() => hasTonightScoreDetails.value ? tonightScore.value?.score ?? null : null)
 const scoreWindowLabel = computed(() => {
   if (!hasTonightScoreDetails.value || !tonightScore.value) return '今夜天文夜'
@@ -1661,7 +1663,8 @@ onBeforeUnmount(() => {
               <label for="location-query">搜索乡镇、区县或城市</label>
               <div><input id="location-query" v-model="locationQuery" autocomplete="address-level2" placeholder="例：上海市崇明区" /><button type="submit" :disabled="locationSearchStatus === 'loading'">搜索</button></div>
             </form>
-            <div v-if="locationSearchResults.length" class="location-results-wrap">
+            <LoadingStatus v-if="locationSearchStatus === 'loading'" class="location-loading" label="正在搜索地点" />
+            <div v-if="locationSearchResults.length" class="location-results-wrap" :aria-busy="locationSearchStatus === 'loading'">
               <div class="location-results-heading"><strong>搜索结果</strong></div>
               <ul class="location-results">
                 <li v-for="place in locationSearchResults" :key="`${place.adcode}-${place.latitude}-${place.longitude}`">
@@ -1701,9 +1704,21 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <section class="condition-verdict" :class="{ loading: conditionsStatus === 'loading' }">
+        <section class="condition-verdict">
           <div class="score-now"><strong>{{ scorePanel == null ? '—' : String(scorePanel).padStart(2, '0') }}<small>/100</small></strong><i>{{ scoreWindowLabel }}</i></div>
-          <div><h2>今夜观测评分 · {{ scoreVerdict }}</h2><p v-if="scoreWeather">{{ scoreWindowLabel }}：云量 {{ Math.round(scoreWeather.cloudCover) }}%，能见度 {{ (scoreWeather.visibilityMeters / 1000).toFixed(1) }} km；{{ conditionDescription(scoreWeather.weatherCode) }}是该时段的主导条件。</p><p v-else-if="!activeCoordinates">{{ locationStatus === 'locating' ? '正在请求设备位置，也可手动设置地点。' : locationStatus === 'denied' ? '设备定位未授权，可手动输入经纬度。' : '选择地点后计算今晚的天气与天体位置。' }}</p><p v-else-if="!planNight">近期没有完整天文夜窗口，仍可查看星图和天气预报。</p><p v-else-if="conditionsStale">天气资料已过期，正在尝试更新；天体位置与升落仍可查看。</p><p v-else-if="conditionsStatus === 'error'">天气数据不足或暂不可用，仍可查看天体位置与升落。</p><p v-else>正在读取今晚的云量、能见度、降水与月光条件。</p><div v-if="!activeCoordinates || conditionsStatus === 'error'" class="condition-recovery"><button v-if="!activeCoordinates" type="button" @click="openLocationEditor">手动设置地点</button><button v-if="conditionsStatus === 'error' && activeCoordinates" type="button" @click="retryConditions">重试天气</button></div></div>
+          <div>
+            <h2>今夜观测评分<template v-if="!scoreAwaitingWeather"> · {{ scoreVerdict }}</template></h2>
+            <p v-if="scoreWeather">{{ scoreWindowLabel }}：云量 {{ Math.round(scoreWeather.cloudCover) }}%，能见度 {{ (scoreWeather.visibilityMeters / 1000).toFixed(1) }} km；{{ conditionDescription(scoreWeather.weatherCode) }}是该时段的主导条件。</p>
+            <p v-else-if="!activeCoordinates">{{ locationStatus === 'locating' ? '正在请求设备位置，也可手动设置地点。' : locationStatus === 'denied' ? '设备定位未授权，可手动输入经纬度。' : '选择地点后计算今晚的天气与天体位置。' }}</p>
+            <p v-else-if="!planNight">近期没有完整天文夜窗口，仍可查看星图和天气预报。</p>
+            <LoadingStatus v-else-if="scoreAwaitingWeather" label="正在计算今夜观测条件" />
+            <p v-else-if="conditionsStale">当前天气资料已过期，天体位置与升落仍可查看。</p>
+            <p v-else>当前时段暂无可用的天气评分，仍可查看天体位置与升落。</p>
+            <div v-if="!activeCoordinates || conditionsStatus === 'error'" class="condition-recovery">
+              <button v-if="!activeCoordinates" type="button" @click="openLocationEditor">手动设置地点</button>
+              <button v-if="conditionsStatus === 'error' && activeCoordinates" type="button" @click="retryConditions">重试天气</button>
+            </div>
+          </div>
           <div v-if="scoreFactors" class="score-factors" aria-label="今夜观测评分扣分项">
             <p>今夜最佳时段扣分项</p>
             <span v-for="part in scoreFactors" :key="part.key" :class="part.kind"><i :style="{ width: factorBarWidth(part) }" /><small>{{ part.label }}</small><strong>{{ part.value.toFixed(1) }}</strong></span>
@@ -1800,7 +1815,21 @@ onBeforeUnmount(() => {
               </div>
             </div></div>
           </div>
-          <div v-else class="integration-state"><span>01</span><div><h3>{{ !activeCoordinates ? '设置地点后查看天气预报' : conditionsStatus === 'error' ? '天气预报暂不可用' : '正在加载天气预报' }}</h3><p v-if="conditionsStatus === 'error'">请稍后重试。</p><div class="condition-recovery"><button v-if="!activeCoordinates" type="button" @click="openLocationEditor">手动设置地点</button><button v-else-if="conditionsStatus === 'error'" type="button" @click="retryConditions">重试天气</button></div></div></div>
+          <LoadingStatus v-else-if="activeCoordinates && conditionsStatus === 'loading'" variant="panel" label="正在读取逐小时天气预报">
+            <template #preview>
+              <div class="forecast-placeholder">
+                <i v-for="hour in 8" :key="hour" />
+              </div>
+            </template>
+          </LoadingStatus>
+          <div v-else class="integration-state">
+            <h3>{{ !activeCoordinates ? '设置地点后查看天气预报' : conditionsStatus === 'error' ? '天气预报暂不可用' : '当前时段暂无逐小时天气预报' }}</h3>
+            <p v-if="conditionsStatus === 'error'">请稍后重试。</p>
+            <div v-if="!activeCoordinates || conditionsStatus === 'error'" class="condition-recovery">
+              <button v-if="!activeCoordinates" type="button" @click="openLocationEditor">手动设置地点</button>
+              <button v-else type="button" @click="retryConditions">重试天气</button>
+            </div>
+          </div>
         </section>
       </section>
 
@@ -1829,7 +1858,7 @@ onBeforeUnmount(() => {
             <div v-for="body in horizonBodies" :key="body.id" class="sky-body" :class="{ 'is-active': selectedSkyBodyId === body.id }" :style="horizonStyle(body)" role="button" tabindex="0" :aria-label="`查看${body.name}详情并高亮星轨`" :aria-pressed="selectedSkyBodyId === body.id" :aria-expanded="expandedBodyId === body.id" :aria-controls="`track-detail-${body.id}`" @click="revealBody(body.id)" @keydown.enter.prevent="revealBody(body.id)" @keydown.space.prevent="revealBody(body.id)" @pointerdown.stop><i>{{ body.glyph }}</i><span>{{ body.name }}</span></div>
             <div class="horizon-ridge horizon-ridge-far" aria-hidden="true" />
             <div class="horizon-ridge horizon-ridge-near" aria-hidden="true" />
-            <div v-if="!activeCoordinates" class="sky-empty"><strong>{{ locationStatus === 'locating' ? '正在获取观测地点' : locationStatus === 'denied' ? '设备定位未授权' : locationStatus === 'unavailable' ? '暂时无法获取位置' : '设置观测地点后查看天空' }}</strong><span>可使用设备定位，也可手动输入经纬度。</span><div><button type="button" :disabled="deviceLocating" @click="requestLocation(true)">{{ deviceLocating ? '正在定位…' : '重试设备定位' }}</button><button type="button" @click="openLocationEditor">手动设置地点</button></div></div>
+            <div v-if="!activeCoordinates" class="sky-empty"><LoadingStatus v-if="locationStatus === 'locating'" class="sky-location-loading" label="正在获取观测地点" /><strong v-else>{{ locationStatus === 'denied' ? '设备定位未授权' : locationStatus === 'unavailable' ? '暂时无法获取位置' : '设置观测地点后查看天空' }}</strong><span>可使用设备定位，也可手动输入经纬度。</span><div><button type="button" :disabled="deviceLocating" @click="requestLocation(true)">{{ deviceLocating ? '正在定位…' : '重试设备定位' }}</button><button type="button" @click="openLocationEditor">手动设置地点</button></div></div>
             <span v-if="activeCoordinates" class="sky-visible-count"><small>当前视野</small>{{ horizonBodies.length + visibleCatalogStars.length + visibleMessierObjects.length }}<small>目标</small></span>
             <div
               v-if="activeCoordinates"
@@ -1916,7 +1945,7 @@ onBeforeUnmount(() => {
           </div>
           <button v-if="hasHiddenCuratedEvents" class="show-all-events" type="button" :aria-expanded="showAllCuratedEvents" @click="toggleAllCuratedEvents">{{ showAllCuratedEvents ? '收起其余天象' : `展开其余 ${curatedEvents.length - 5} 条天象` }}</button>
           <div v-if="astronomyEventsStatus === 'error'" class="events-empty" role="alert"><strong>天象资料更新失败</strong><span>{{ curatedEvents.length ? '上方显示的是此前获取的资料。' : '天象资料暂不可用，请稍后重试。' }}</span><button type="button" @click="loadAstronomyEvents">重新加载</button></div>
-          <div v-else-if="astronomyEventsStatus === 'loading' && !curatedEvents.length" class="events-empty"><strong>正在读取未来天象</strong></div>
+          <LoadingStatus v-else-if="astronomyEventsStatus === 'loading'" class="events-loading" :variant="curatedEvents.length ? 'inline' : 'panel'" :label="curatedEvents.length ? '正在更新天象资料' : '正在读取未来天象'" />
           <div v-else-if="astronomyEventsStatus === 'ready' && !curatedEvents.length" class="events-empty"><strong>未来 30 天暂无重点天象</strong><span>设置观测地点后可查看当地可见性。</span></div>
         </section>
       </section>
@@ -1928,8 +1957,19 @@ onBeforeUnmount(() => {
           </div>
         </header>
 
-        <div v-if="imageWallStatus === 'loading' && !imageWall" class="daily-image-state" aria-live="polite"><strong>正在加载宇宙图像</strong></div>
-        <div v-else-if="imageWall" class="image-stream" :class="{ 'is-refreshing': imageWallStatus === 'loading' }" aria-live="polite">
+        <LoadingStatus v-if="!imageWall && (imageWallStatus === 'idle' || imageWallStatus === 'loading')" class="image-wall-loading" label="正在读取宇宙图像">
+          <template #preview>
+            <div class="image-wall">
+              <div v-for="image in 3" :key="image" class="image-window">
+                <div class="image-placeholder-frame" />
+                <i class="image-placeholder-caption" />
+              </div>
+            </div>
+          </template>
+        </LoadingStatus>
+        <div v-else-if="imageWall" class="image-stream">
+          <LoadingStatus v-if="imageWallStatus === 'loading'" class="image-wall-loading" label="正在更新宇宙图像" />
+          <p v-else-if="imageWallStatus === 'error'" class="image-refresh-error" role="status">图像更新失败，当前显示此前读取的图像。 <button type="button" @click="loadImageWall">重试</button></p>
           <section class="image-stream-section" aria-labelledby="recent-images-title">
             <header class="image-stream-heading"><h2 id="recent-images-title">NASA每日一图</h2><p>NASA APOD每日更新</p></header>
             <div class="image-wall">
@@ -2189,8 +2229,17 @@ onBeforeUnmount(() => {
 .tone-caution { color:#ecc257; background:rgba(196,150,46,.28); }
 .tone-poor { color:#f28f84; background:rgba(198,74,64,.3); }
 .tone-neutral { color:#c8cbcd; background:rgba(160,182,216,.06); }
-.integration-state { display:flex; gap:22px; padding:28px; border:1px solid var(--sky-line); background:rgba(172,193,226,.025); }
-.integration-state > span { color:var(--sky-amber); font:18px var(--font-mono,monospace); }
+.integration-state { padding:28px; border:1px solid var(--sky-line); background:rgba(172,193,226,.025); }
+.forecast-placeholder {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 8px;
+}
+.forecast-placeholder i {
+  min-height: 56px;
+  border-block: 1px solid var(--sky-line);
+  background: rgba(172, 193, 226, .04);
+}
 .integration-state h3 { margin:0 0 7px; font-size:16px; font-weight:500; }
 .integration-state p { max-width:590px; margin:0; color:var(--sky-muted); font-size:13px; line-height:1.65; }
 
@@ -2412,7 +2461,34 @@ onBeforeUnmount(() => {
 .daily-image-heading { padding-bottom:30px; border-bottom:1px solid var(--sky-line); }
 .daily-image-heading h1 { max-width:560px; margin:0; font-size:clamp(2.2rem,4vw,4.25rem); font-weight:500; letter-spacing:-.04em; line-height:.98; }
 .daily-image-heading p { max-width:57ch; margin:15px 0 0; color:var(--sky-muted); font-size:12px; line-height:1.7; }
-.image-stream.is-refreshing { opacity:.66; }
+.sky-shell {
+  --loading-accent: var(--sky-cyan);
+  --loading-ink: var(--sky-ink);
+  --loading-line: var(--sky-line);
+}
+.location-loading { margin-block: 8px; }
+.sky-location-loading { justify-self: center; }
+.events-loading { margin-top: 18px; }
+.image-wall-loading { margin-block: 20px; }
+.image-wall-loading .image-wall { margin-top: 14px; }
+.image-wall-loading .image-window { border-bottom: 0; }
+.image-placeholder-frame {
+  aspect-ratio: 1.36;
+  border: 1px solid var(--sky-line);
+  background:
+    linear-gradient(135deg, rgba(159, 204, 232, .075), transparent 70%),
+    rgba(5, 10, 17, .36);
+}
+.image-placeholder-caption {
+  display: block;
+  width: 48%;
+  height: 6px;
+  margin-top: 16px;
+  border-radius: 2px;
+  background: rgba(159, 204, 232, .13);
+}
+.image-refresh-error { color: var(--sky-muted); font-size: 13px; }
+.image-refresh-error button { border: 0; background: transparent; color: var(--sky-cyan); text-decoration: underline; }
 .image-stream-section + .image-stream-section { margin-top:68px; }
 .image-stream-heading { display:flex; align-items:center; justify-content:space-between; gap:24px; margin-bottom:0; padding:18px 0; }
 .image-stream-heading h2 { margin:0; font-size:clamp(1.45rem,2.2vw,2rem); font-weight:500; letter-spacing:-.03em; }
@@ -2531,6 +2607,9 @@ onBeforeUnmount(() => {
   .image-stream-heading { display:block; }
   .image-stream-heading p { margin-top:8px; text-align:left; }
   .image-wall { grid-template-columns:1fr; }
+  .image-wall-loading .image-window:not(:first-child),
+  .forecast-placeholder i:nth-child(n+5) { display: none; }
+  .forecast-placeholder { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .image-window,.image-window:nth-child(5n + 4),.image-window:nth-child(5n + 5) { grid-column:1; padding:23px 0 29px; border-right:0; }
   .image-window:last-child { border-bottom:0; }
   .image-window-media { aspect-ratio:1.45; }

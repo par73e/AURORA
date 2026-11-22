@@ -149,7 +149,7 @@ button { cursor: pointer; }
 .live-status strong { margin-left: 7px; color: var(--ink); font-weight: 500; }
 .status-dot { width: 6px; height: 6px; border-radius: 50%; background: #d06b62; }
 .status-dot.healthy { background: #79e3bd; }
-.status-dot.syncing { background: #5e7582; }
+.live-status .live-status-loading { font: inherit; color: #b6c9d5; }
 
 .orbit-section { position: relative; height: 150dvh; min-height: 990px; padding: 0; background: radial-gradient(circle at 60% 34%, #0a2338 0, #05111d 34%, #03070c 72%); }
 .orbit-section > .page-frame { width: 100%; max-width: none; height: 100%; }
@@ -289,6 +289,17 @@ button { cursor: pointer; }
 .object-row strong, .object-row small { display: block; }
 .object-row strong { color: var(--ink); font-size: 13px; }
 .object-row small { margin-top: 5px; color: #8ca5b3; font: 400 10px var(--font-mono); }
+.catalog-refresh { padding: 0 26px 12px; }
+.catalog-placeholder-row { min-height: 56px; border-top: 0; }
+.launch-loading { --loading-accent: var(--amber); }
+.catalog-placeholder-row i {
+  width: 66%;
+  height: 6px;
+  border-radius: 2px;
+  background: rgba(139, 180, 202, .15);
+}
+.catalog-placeholder-row i:first-child { width: 34px; }
+.catalog-placeholder-row i:nth-child(2) { width: 78%; }
 .catalog-empty { padding: 48px 26px; color: var(--muted); font-size: 13px; text-align: center; }
 .pagination-space { display: flex; justify-content: space-between; align-items: center; padding: 18px 26px; color: #8ca5b3; font: 400 10px var(--font-mono); }
 .pagination-space div { display: flex; gap: 8px; }
@@ -355,7 +366,18 @@ button { cursor: pointer; }
 .source-list i.healthy { background: #79e3bd; }
 
 .system-message { position: absolute; z-index: 15; left: 50%; top: 50%; transform: translate(-50%, -50%); display: grid; justify-items: center; gap: 9px; padding: 25px; color: #bcd2dd; }
-.system-message small { color: #5e7d8d; font: 400 8px var(--font-mono); letter-spacing: .13em; }
+.scene-loading {
+  position: absolute;
+  z-index: 7;
+  top: calc(72px + var(--header-overlay-offset));
+  left: 32px;
+  max-width: calc(100% - 64px);
+  padding: 5px 13px 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: rgba(3, 9, 15, .9);
+  pointer-events: none;
+}
 .error-message button { padding: 8px 11px; border: 1px solid var(--line); border-radius: 4px; background: transparent; }
 
 @keyframes location-pulse {
@@ -381,7 +403,7 @@ button { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
-  .scene-location > i.locating { animation: none; }
+  .scene-location > i.locating, .scene-location > i.resolving { animation: none; }
 }
 
 /* 月球页：页头状态文字、导航数字与导航链接银灰主题 */
@@ -597,6 +619,7 @@ button { cursor: pointer; }
 .orbit-section .scene-toolbar,
 .orbit-section .scene-location,
 .orbit-section .scene-readout,
+.orbit-section .scene-loading,
 .orbit-section .system-message {
   opacity: 0;
   transition: opacity .3s ease;
@@ -608,13 +631,15 @@ button { cursor: pointer; }
 .orbit-section.elements-revealed .scene-toolbar,
 .orbit-section.elements-revealed .scene-location,
 .orbit-section.elements-revealed .scene-readout,
+.orbit-section.elements-revealed .scene-loading,
 .orbit-section.elements-revealed .system-message {
   opacity: 1;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .orbit-section .scene-label, .orbit-section .scene-spacecraft-label, .orbit-section .scene-site-label, .orbit-section .scene-observer-label, .orbit-section .scene-toolbar,
-  .orbit-section .scene-location, .orbit-section .scene-readout, .orbit-section .system-message { transition: none; }
+  .orbit-section .scene-location, .orbit-section .scene-readout, .orbit-section .scene-loading,
+  .orbit-section .system-message { transition: none; }
 }
 
 /* ORBIT 离开第一拍：页面信息淡出；第二拍由 OrbitScene host 渐隐地球本体 */
@@ -625,6 +650,7 @@ button { cursor: pointer; }
 .orbit-section.leaving .scene-toolbar,
 .orbit-section.leaving .scene-location,
 .orbit-section.leaving .scene-readout,
+.orbit-section.leaving .scene-loading,
 .orbit-section.leaving .context-panel, /* 右侧信息面板：随其他元素一起淡出（此前残留到遮罩渐暗） */
 .orbit-section.leaving .page-frame > *:not(.scene-frame) {
   animation: none !important; /* 解除入场动画的 fill 压制 */
@@ -639,6 +665,7 @@ button { cursor: pointer; }
   .orbit-section.leaving .scene-toolbar,
   .orbit-section.leaving .scene-location,
   .orbit-section.leaving .scene-readout,
+  .orbit-section.leaving .scene-loading,
   .orbit-section.leaving .context-panel,
   .orbit-section.leaving .page-frame > *:not(.scene-frame) { transition: none; }
 }

@@ -11,9 +11,10 @@
           <label><input v-model="terminatorEnabled" type="checkbox"><i class="terminator" />晨昏线</label>
         </div>
 
-        <div v-if="dataLoading || dataError" class="scene-data-state" :class="{ error: !!dataError, 'stage-late': !elementsVisible, 'leaving-fade': leaving }" role="status">
-          <span>{{ dataError || '正在读取月球飞行器与着陆点数据' }}</span>
-          <button v-if="dataError" type="button" @click="loadSceneData">重新加载</button>
+        <LoadingStatus v-if="dataLoading" class="scene-loading" label="正在读取月球飞行器与着陆点" :class="{ 'stage-late': !elementsVisible, 'leaving-fade': leaving }" />
+        <div v-else-if="dataError" class="scene-data-state error" :class="{ 'stage-late': !elementsVisible, 'leaving-fade': leaving }" role="status">
+          <span>{{ dataError }}</span>
+          <button type="button" @click="loadSceneData">重新加载</button>
         </div>
 
         <!-- 轨道飞行器标签 -->
@@ -201,6 +202,7 @@ import { CATALOG_PAGE_SIZE } from '../catalog'
 import { entrySpinAngle, entrySpinFinished } from '../entrySpin'
 import { usePlanetSceneData } from '../composables/usePlanetSceneData'
 import MissionDetailPanel from './MissionDetailPanel.vue'
+import LoadingStatus from './LoadingStatus.vue'
 import MissionSceneLabel from './MissionSceneLabel.vue'
 import type { MissionDetail } from '../missionPresentation'
 import { formatDataTime, snapshotNotice, spacecraftFields, spacecraftFocusDistance, surfaceFocusDistance, surfaceMissionFields, spacecraftTypeLabel, landingCategoryLabel } from '../missionPresentation'
@@ -1479,6 +1481,10 @@ onBeforeUnmount(() => {
   transition: opacity .32s cubic-bezier(.4, 0, 1, 1) .3s;
 }
 .moon-scene-host canvas { display: block; }
+.scene-loading {
+  --loading-accent: var(--mission-accent);
+  top: 82px;
+}
 .scene-data-state {
   position: absolute;
   z-index: 7;
@@ -1518,10 +1524,12 @@ onBeforeUnmount(() => {
 .craft-label,
 .scene-toolbar,
 .scene-data-state,
+.scene-loading,
 .moon-readout { transition: opacity .3s cubic-bezier(.16, 1, .3, 1); }
 /* 返回渐隐：标签 300ms 淡出 */
 .craft-label.leaving-fade { opacity: 0 !important; pointer-events: none; }
-.scene-data-state.leaving-fade { opacity: 0; pointer-events: none; transition: opacity .3s ease; }
+.scene-data-state.leaving-fade,
+.scene-loading.leaving-fade { opacity: 0; pointer-events: none; transition: opacity .3s ease; }
 
 /* 返回渐隐：工具栏与标签同节奏淡出，随后 host 接力渐隐月球本体 */
 .scene-toolbar.leaving-fade { opacity: 0; pointer-events: none; transition: opacity .3s ease; }
